@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { aiPromptPath, aiSchemaPath, databasePath, hardwareManifestPath, outputDir, spacePath, statePath, webDir } from "./src/paths.js";
+import { aiPromptPath, aiSchemaPath, databasePath, fieldMarkersPath, hardwareManifestPath, outputDir, spacePath, statePath, webDir } from "./src/paths.js";
 import { createRuntimeStore } from "./src/store/runtime-store.js";
 import { createApiRouter } from "./src/http/api-router.js";
 import { sendError, sendPreflight } from "./src/http/response.js";
@@ -25,6 +25,7 @@ const routeApi = createApiRouter({
   aiPromptPath,
   aiSchemaPath,
   buildOpsStatus,
+  fieldMarkersPath,
   loadSpace,
   loadState,
   port,

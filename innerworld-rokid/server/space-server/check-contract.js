@@ -6,6 +6,7 @@ import {
   DEVICE_RUNTIME_MANIFEST_SCHEMA,
   DEVICE_RUNTIME_SESSION_PROTOCOL,
   EVIDENCE_CHAIN_SCHEMA,
+  FIELD_MARKER_SCHEMA,
   FIELD_SESSION_STAGE_IDS,
   INNERWORLD_SPACE_ID,
   MISSION_STEP_IDS,
@@ -21,6 +22,7 @@ import {
 } from "../../shared/innerworld-contract.js";
 import { buildDeviceManifest, createDeviceRuntimeStore } from "./src/domain/device-runtime.js";
 import { buildEvidenceChain } from "./src/domain/evidence-chain.js";
+import { buildFieldMarkerManifest } from "./src/domain/field-markers.js";
 import { generateHudOutput } from "./src/domain/hud-generator.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "./src/domain/mission-engine.js";
 import { buildSessionPlan } from "./src/domain/session-planner.js";
@@ -57,6 +59,7 @@ function assertEndpointMap(endpoints) {
     session_plan: ["GET", "/api/session/plan"],
     wall_calibration: ["GET", "/api/calibration/wall"],
     wall_calibration_observations: ["POST", "/api/calibration/observations"],
+    field_markers: ["GET", "/api/field/markers"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
     device_manifest: ["GET", "/api/device/manifest"],
     device_register: ["POST", "/api/device/register"],
@@ -83,7 +86,7 @@ function assertEndpointMap(endpoints) {
     assert(endpoint.path === route, `${key} path mismatch`);
     assert(endpoint.url === `http://localhost:5177${route}`, `${key} url mismatch`);
   }
-  assert(Object.keys(endpoints).length >= 28, "endpoint map count mismatch");
+  assert(Object.keys(endpoints).length >= 29, "endpoint map count mismatch");
 }
 
 function assertSpaceContract(space) {
@@ -551,6 +554,52 @@ function assertWallCalibrationContract(space) {
   assert(rejected.issues.includes("confidence_below_threshold"), "wall calibration confidence issue missing");
 }
 
+function assertFieldMarkerContract(space, markerConfig) {
+  const state = {
+    active_user: "A",
+    mission_state: "entered",
+    current_step_index: 0,
+    completed_steps: [],
+    beacons: space.beacons,
+    events: []
+  };
+  const wallCalibration = buildWallCalibrationManifest({
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    generatedAt: "2026-07-02T00:00:07.000Z"
+  });
+  const manifest = buildFieldMarkerManifest({
+    baseUrl: "http://localhost:5177",
+    space,
+    markerConfig,
+    wallCalibration,
+    generatedAt: "2026-07-02T00:00:08.000Z"
+  });
+
+  assert(markerConfig.schema === FIELD_MARKER_SCHEMA, "field marker config schema mismatch");
+  assert(manifest.ok === true, "field marker manifest ok mismatch");
+  assert(manifest.schema === FIELD_MARKER_SCHEMA, "field marker schema mismatch");
+  assert(manifest.space_id === INNERWORLD_SPACE_ID, "field marker space mismatch");
+  assert(manifest.source_of_truth.runtime_manifest === "/api/calibration/wall", "field marker runtime source mismatch");
+  assert(manifest.calibration_manifest.endpoint === "/api/calibration/wall", "field marker calibration endpoint mismatch");
+  assert(manifest.calibration_manifest.observation_endpoint?.path === "/api/calibration/observations", "field marker observation endpoint mismatch");
+  assert(Array.isArray(manifest.markers) && manifest.markers.length === 3, "field marker count mismatch");
+  assert(manifest.markers.map((marker) => marker.anchor_id).join(",") === "A1,A2,A3", "field marker anchor order mismatch");
+  assert(manifest.markers.map((marker) => marker.marker.marker_id).join(",") === "A1:qr-entry,A2:image-target,A3:image-target", "field marker ids mismatch");
+  assert(manifest.markers.some((marker) => marker.anchor_id === "A1" && marker.marker.marker_type === "qr_poster"), "field marker A1 QR mismatch");
+  assert(manifest.markers.every((marker) => marker.expected_pose?.position), "field marker expected pose missing");
+  assert(manifest.markers.every((marker) => Array.isArray(marker.tracking_modes) && marker.tracking_modes.length >= 3), "field marker tracking modes missing");
+  assert(manifest.markers.every((marker) => marker.print?.payload_url?.startsWith("http://localhost:5177")), "field marker payload URL mismatch");
+  assert(manifest.markers.every((marker) => marker.field_role?.operator_action), "field marker operator action missing");
+  assert(manifest.acceptance.required_runtime_fields?.includes("latest_observation"), "field marker runtime acceptance missing");
+  const text = JSON.stringify(manifest);
+  assert(text.includes("A1:qr-entry"), "field marker A1 token missing");
+  assert(text.includes("A2:image-target"), "field marker A2 token missing");
+  assert(text.includes("A3:image-target"), "field marker A3 token missing");
+  assert(!text.includes("sk-"), "field marker manifest leaked key-looking token");
+}
+
 function assertStateMachine(space) {
   const state = {
     active_user: "A",
@@ -807,10 +856,11 @@ async function assertServerCoreSkeleton() {
 }
 
 async function main() {
-  const [space, aiSchema, hardwareManifest] = await Promise.all([
+  const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
     readJson("data/space_demo.json"),
     readJson("ai/schema.json"),
-    readJson("data/hardware_manifest.json")
+    readJson("data/hardware_manifest.json"),
+    readJson("data/field_markers.json")
   ]);
 
   assertSpaceContract(space);
@@ -822,6 +872,7 @@ async function main() {
   assertEvidenceChainContract(space, aiSchema, hardwareManifest);
   assertSessionPlanContract(space, aiSchema);
   assertWallCalibrationContract(space);
+  assertFieldMarkerContract(space, markerConfig);
   assertAiHudGenerator(space, aiSchema);
   assertStateMachine(space);
   const server_core = await assertServerCoreSkeleton();
@@ -845,6 +896,7 @@ async function main() {
   assert(typeof client.getSessionPlan === "function", "client session plan method missing");
   assert(typeof client.getWallCalibration === "function", "client wall calibration method missing");
   assert(typeof client.submitWallCalibrationObservation === "function", "client wall calibration observation method missing");
+  assert(typeof client.getFieldMarkers === "function", "client field markers method missing");
   assert(client.endpoints().space.path === `/api/spaces/${INNERWORLD_SPACE_ID}`, "client endpoints mismatch");
   assert(client.endpoints().store_status.path === "/api/store/status", "client store endpoint mismatch");
   assert(client.endpoints().dataset_call.path === "/api/datasets/call", "client dataset call endpoint mismatch");
@@ -854,6 +906,7 @@ async function main() {
   assert(client.endpoints().session_plan.path === "/api/session/plan", "client session endpoint mismatch");
   assert(client.endpoints().wall_calibration.path === "/api/calibration/wall", "client wall calibration endpoint mismatch");
   assert(client.endpoints().wall_calibration_observations.path === "/api/calibration/observations", "client wall calibration observations endpoint mismatch");
+  assert(client.endpoints().field_markers.path === "/api/field/markers", "client field markers endpoint mismatch");
   assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");
   assert(client.endpoints().service_actions_outbox.path === "/api/service-actions/outbox", "client service actions outbox endpoint mismatch");
   assert(client.endpoints().service_action_ack_template.path === "/api/service-actions/{action_record_id}/ack", "client service action ack template endpoint mismatch");
@@ -872,6 +925,7 @@ async function main() {
     evidence_chain: "server/space-server/src/domain/evidence-chain.js",
     session_plan: "server/space-server/src/domain/session-planner.js",
     wall_calibration: WALL_CALIBRATION_SCHEMA,
+    field_markers: FIELD_MARKER_SCHEMA,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,

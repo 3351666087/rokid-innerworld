@@ -1,0 +1,59 @@
+{
+  "schema": "innerworld-field-markers/v1",
+  "version": 1,
+  "space_id": "innerworld_campus_wall",
+  "source_of_truth": {
+    "space_seed": "data/space_demo.json",
+    "runtime_manifest": "/api/calibration/wall",
+    "observation_endpoint": "/api/calibration/observations"
+  },
+  "print_contract": {
+    "paper": "A4",
+    "card_count": 3,
+    "placement_scope": "single campus exhibition wall",
+    "cut_line_required": true,
+    "public_url_env": "FIELD_KIT_PUBLIC_URL",
+    "operator_rule": "Print the latest field kit after LAN preflight when Rokid or phone devices need to scan the Windows host URL."
+  },
+  "markers": [
+    {
+      "anchor_id": "A1",
+      "marker_id": "A1:qr-entry",
+      "marker_type": "qr_poster",
+      "tracking_modes": ["qr", "image_tracking", "manual", "simulator"],
+      "print_title": "A1 入口海报",
+      "physical_role": "观众从这里打开真实展墙上的 InnerWorld 空间层。",
+      "operator_action": "先让观众或 Rokid 对准入口二维码/海报，再确认 Web 或 Unity 进入 entered 状态。",
+      "evidence_source": "field kit print, QR scan, /api/calibration/observations",
+      "placement_note": "贴在展墙左侧入口位置，保持二维码无遮挡。"
+    },
+    {
+      "anchor_id": "A2",
+      "marker_id": "A2:image-target",
+      "marker_type": "image_target",
+      "tracking_modes": ["image_tracking", "slam", "manual", "simulator"],
+      "print_title": "A2 记忆信标",
+      "physical_role": "承载公共记忆摘要、隐藏年份任务和低干扰提示。",
+      "operator_action": "停顿并确认三行记忆摘要覆盖在物理信标附近，再推进 read/find_year。",
+      "evidence_source": "field kit print, image tracking observation, mission ledger",
+      "placement_note": "贴在展墙中部，作为 wall coordinate origin 的视觉校准参考。"
+    },
+    {
+      "anchor_id": "A3",
+      "marker_id": "A3:image-target",
+      "marker_type": "image_target",
+      "tracking_modes": ["image_tracking", "slam", "manual", "simulator"],
+      "print_title": "A3 写回点",
+      "physical_role": "写回时间胶囊，并让第二用户看到刚生成的新信标。",
+      "operator_action": "写回一句话后切换 User B，确认 A3 附近出现新增 time_capsule。",
+      "evidence_source": "field kit print, write-back API result, User B readback",
+      "placement_note": "贴在展墙右侧写回区域，避免被 A1/A2 容器或大屏遮挡。"
+    }
+  ],
+  "acceptance": {
+    "required_anchor_ids": ["A1", "A2", "A3"],
+    "required_marker_ids": ["A1:qr-entry", "A2:image-target", "A3:image-target"],
+    "required_runtime_fields": ["expected_pose", "marker", "acceptance", "latest_observation"],
+    "pdf_tokens": ["A1:qr-entry", "A2:image-target", "A3:image-target", "innerworld-field-markers/v1"]
+  }
+}

@@ -20,7 +20,8 @@ const files = {
   packageServerRelease: path.join(root, "tools", "package-server-release.ps1"),
   packageAudit: path.join(root, "tools", "audit-demo-package.ps1"),
   spaceData: path.join(root, "data", "space_demo.json"),
-  hardwareManifest: path.join(root, "data", "hardware_manifest.json")
+  hardwareManifest: path.join(root, "data", "hardware_manifest.json"),
+  fieldMarkers: path.join(root, "data", "field_markers.json")
 };
 
 const requiredGoalDirection = [
@@ -44,7 +45,8 @@ const requiredCombinedDirection = [
   "AI schema",
   "SQLite",
   "dataset",
-  "calibration"
+  "calibration",
+  "field_markers"
 ];
 
 const requiredWebModules = [
@@ -71,6 +73,7 @@ const requiredContractTokens = [
   "ledger_events",
   "wall_calibration",
   "wall_calibration_observations",
+  "field_markers",
   "service_actions_outbox",
   "service_action_ack_template",
   "ai_hud",
@@ -152,6 +155,7 @@ async function main() {
   const sources = await readTextMap();
   const space = JSON.parse(sources.spaceData);
   const hardware = JSON.parse(sources.hardwareManifest);
+  const fieldMarkers = JSON.parse(sources.fieldMarkers);
   const directionChecks = includesAll(sources.goal, requiredGoalDirection);
   const reviewerChecks = includesAll(sources.goal, requiredGoalReviewerTokens);
   const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}`, requiredCombinedDirection);
@@ -197,6 +201,8 @@ async function main() {
   assert(space.anchors.some((anchor) => anchor.anchor_id === "A3" && anchor.kind === "write_back"), "A3 write-back anchor missing");
   assert(hardware.project_fit?.assessment === "fit", "hardware manifest fit assessment missing");
   assert(hardware.loan_terms_summary?.borrow_deadline === "2026-08-31", "hardware borrow deadline drifted");
+  assert(fieldMarkers.schema === "innerworld-field-markers/v1", "field markers schema missing");
+  assert(fieldMarkers.markers?.map((marker) => marker.marker_id).join(",") === "A1:qr-entry,A2:image-target,A3:image-target", "field markers ids drifted");
 
   if (failures.length) {
     throw new Error(failures.join("\n"));
@@ -216,6 +222,7 @@ async function main() {
     unity_tokens: requiredUnityTokens.length,
     storage_tokens: requiredStorageTokens.length,
     reviewer: "Kepler",
+    field_markers: fieldMarkers.markers.map((marker) => marker.marker_id),
     sqlite_backup_tokens: requiredBackupTokens.length
   }, null, 2));
 }

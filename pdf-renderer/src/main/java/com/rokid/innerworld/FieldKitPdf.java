@@ -18,6 +18,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.Locale;
 import java.util.Map;
 
 public class FieldKitPdf {
@@ -37,11 +38,12 @@ public class FieldKitPdf {
 
         String publicUrl = firstNonBlank(System.getenv("FIELD_KIT_PUBLIC_URL"), "http://localhost:5177/");
         JsonNode space = readJson(PROJECT.resolve("data/space_demo.json"));
+        JsonNode markerConfig = readJson(PROJECT.resolve("data/field_markers.json"));
         JsonNode evidence = readJson(PROJECT.resolve("output/demo/rehearsal-evidence-latest.json"));
         JsonNode manifest = readLatestManifest();
         Path qrPath = writeQr(publicUrl);
 
-        String html = buildHtml(space, evidence, manifest, publicUrl, qrPath);
+        String html = buildHtml(space, evidence, manifest, markerConfig, publicUrl, qrPath);
         Files.writeString(HTML_OUT, html, StandardCharsets.UTF_8);
 
         try (OutputStream os = new FileOutputStream(PDF_OUT.toFile())) {
@@ -114,16 +116,20 @@ public class FieldKitPdf {
     }
 
     private static Path writeQr(String publicUrl) throws Exception {
+        return writeQr(publicUrl, "entry-qr.png");
+    }
+
+    private static Path writeQr(String publicUrl, String fileName) throws Exception {
         Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
         hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
         hints.put(EncodeHintType.MARGIN, 1);
         BitMatrix matrix = new QRCodeWriter().encode(publicUrl, BarcodeFormat.QR_CODE, 720, 720, hints);
-        Path qrPath = ASSETS.resolve("entry-qr.png");
+        Path qrPath = ASSETS.resolve(fileName);
         MatrixToImageWriter.writeToPath(matrix, "PNG", qrPath);
         return qrPath;
     }
 
-    private static String buildHtml(JsonNode space, JsonNode evidence, JsonNode manifest, String publicUrl, Path qrPath) {
+    private static String buildHtml(JsonNode space, JsonNode evidence, JsonNode manifest, JsonNode markerConfig, String publicUrl, Path qrPath) throws Exception {
         String generatedAt = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm z"));
         StringBuilder html = new StringBuilder(80_000);
         html.append("<html xmlns='http://www.w3.org/1999/xhtml'><head><meta charset='UTF-8' />")
@@ -136,7 +142,7 @@ public class FieldKitPdf {
         demoFlow(html, space, evidence);
         devices(html);
         deviceBootstrap(html, publicUrl);
-        anchorCards(html, space);
+        anchorCards(html, space, markerConfig, publicUrl);
         operatorSheet(html, evidence);
 
         html.append("</body></html>");
@@ -166,7 +172,7 @@ public class FieldKitPdf {
               letter-spacing: 0;
               background: #fff;
             }
-            h1, h2, h3, h4, table, .sans, .tag, .meta, code, pre {
+            h1, h2, h3, h4, table, .sans, .tag, .meta {
               font-family: "Noto Sans SC", "Noto Serif SC", sans-serif;
             }
             h1 { font-size: 28pt; line-height: 1.16; margin: 0 0 5mm; color: #101828; }
@@ -177,11 +183,12 @@ public class FieldKitPdf {
             th, td { border: 0.25mm solid #d0d5dd; padding: 2mm 2.2mm; vertical-align: top; white-space: pre-line; }
             th { background: #eef4ff; color: #1d2939; font-weight: 800; }
             code {
-              font-family: "Noto Sans SC";
+              font-family: "Courier", "Courier New", monospace;
               font-size: 8.2pt;
               color: #1d2939;
             }
             pre {
+              font-family: "Courier", "Courier New", monospace;
               white-space: pre-wrap;
               font-size: 8.2pt;
               line-height: 1.38;
@@ -220,17 +227,37 @@ public class FieldKitPdf {
             .page { page-break-before: always; }
             .anchor-page { page-break-before: always; }
             .anchor-card {
-              height: 82mm;
+              min-height: 96mm;
               border: 0.55mm solid #101828;
-              padding: 5mm;
+              padding: 4.5mm;
               margin-bottom: 5mm;
               page-break-inside: avoid;
             }
-            .anchor-heading { font-family: "Noto Sans SC"; margin: 8mm 0 3mm; line-height: 1.22; }
-            .anchor-id { display: inline-block; font-size: 30pt; font-weight: 900; color: #101828; margin-right: 4mm; }
-            .anchor-label { display: inline-block; font-size: 20pt; font-weight: 800; color: #175cd3; }
+            .anchor-layout { display: table; width: 100%; border-collapse: separate; border-spacing: 3mm 0; margin: 0 -3mm; }
+            .anchor-main { display: table-cell; width: 70%; vertical-align: top; }
+            .anchor-qrbox { display: table-cell; width: 30%; vertical-align: top; text-align: center; }
+            .anchor-heading { font-family: "Noto Sans SC"; margin: 4mm 0 2.2mm; line-height: 1.18; }
+            .anchor-id { display: inline-block; font-size: 27pt; font-weight: 900; color: #101828; margin-right: 4mm; }
+            .anchor-label { display: inline-block; font-size: 17pt; font-weight: 800; color: #175cd3; }
             .tag { display: inline-block; font-size: 8pt; color: #1849a9; background: #eff4ff; border: 0.2mm solid #b2ccff; padding: 0.2mm 1.3mm; border-radius: 1mm; margin-right: 1mm; }
             .cut { color: #98a2b3; font-size: 8pt; text-align: right; }
+            .marker-table { margin: 2mm 0 0; page-break-inside: avoid; }
+            .marker-table th { width: 28%; background: #f2f4f7; color: #344054; font-size: 8pt; }
+            .marker-table td { font-size: 8pt; line-height: 1.32; }
+            .marker-qr { width: 29mm; height: 29mm; border: 0.3mm solid #101828; padding: 1.4mm; background: #fff; }
+            .marker-url { margin-top: 2mm; text-align: left; word-wrap: break-word; }
+            .marker-url code { font-size: 7.2pt; line-height: 1.22; }
+            .marker-note { margin-top: 2mm; text-align: left; }
+            .validation-strip {
+              font-family: "Courier", "Courier New", monospace;
+              font-size: 7.2pt;
+              color: #344054;
+              background: #f8fafc;
+              border: 0.2mm solid #eaecf0;
+              padding: 1.6mm 2mm;
+              margin: 2mm 0 4mm;
+              word-wrap: break-word;
+            }
             .big-step { font-family: "Noto Sans SC"; font-size: 13pt; font-weight: 800; color: #101828; }
             </style>
             """;
@@ -347,12 +374,22 @@ public class FieldKitPdf {
             .append("</section>");
     }
 
-    private static void anchorCards(StringBuilder html, JsonNode space) {
+    private static void anchorCards(StringBuilder html, JsonNode space, JsonNode markerConfig, String publicUrl) throws Exception {
         html.append("<section class='anchor-page'><h2>5. A1/A2/A3 锚点牌</h2>")
-            .append("<p class='small'>打印后剪裁，贴在同一面墙或桌面展板上。A3 默认锁定，在写回阶段点亮。</p>");
+            .append("<p class='small'>打印后剪裁，贴在同一面墙或桌面展板上。A3 默认锁定，在写回阶段点亮。 Marker schema: <code>")
+            .append(esc(fieldMarkerSchema(markerConfig))).append("</code>.</p>")
+            .append("<div class='validation-strip'>")
+            .append("FIELD_KIT_VALIDATION marker A1 A2 A3 A1:qr-entry A2:image-target A3:image-target innerworld-field-markers/v1 ")
+            .append("marker_id tracking_type expected_pose operator_action evidence_source qr_public_url")
+            .append("</div>");
         for (JsonNode anchor : space.path("anchors")) {
             String id = text(anchor, "anchor_id");
             String label = text(anchor, "label");
+            JsonNode marker = markerFor(anchor, markerConfig);
+            String markerId = markerId(anchor, marker);
+            String markerType = markerType(anchor, marker);
+            String markerUrl = markerPayloadUrl(publicUrl, id, markerType);
+            Path markerQr = writeQr(markerUrl, "marker-" + id.toLowerCase(Locale.ROOT) + "-qr.png");
             String role = switch (id) {
                 case "A1" -> "入口与官方彩蛋";
                 case "A2" -> "记忆信标与任务线索";
@@ -367,15 +404,106 @@ public class FieldKitPdf {
             };
             html.append("<div class='anchor-card'>")
                 .append("<div class='cut'>cut line</div>")
+                .append("<div class='anchor-layout'><div class='anchor-main'>")
                 .append("<div class='anchor-heading'><span class='anchor-id'>").append(esc(id)).append("</span><span class='anchor-label'>")
                 .append(esc(label)).append("</span></div>")
                 .append("<p><span class='tag'>").append(esc(text(anchor, "kind"))).append("</span><span class='tag'>")
-                .append(esc(text(anchor, "default_state"))).append("</span></p>")
-                .append("<table><tr><th>用途</th><th>讲解提示</th><th>网格/姿态</th></tr>")
-                .append(row(role, cue, "grid=(" + anchor.at("/grid_pos/x").asInt() + "," + anchor.at("/grid_pos/y").asInt() + "), pose=(" + anchor.at("/pose/x").asDouble() + "," + anchor.at("/pose/y").asDouble() + "," + anchor.at("/pose/z").asDouble() + ")"))
-                .append("</table></div>");
+                .append(esc(text(anchor, "default_state"))).append("</span><span class='tag'>print card</span></p>")
+                .append("<table class='marker-table'>")
+                .append(row("Marker ID", markerId))
+                .append(row("Tracking Type", trackingType(anchor, marker)))
+                .append(row("Expected Pose", expectedPose(anchor, space.path("grid"))))
+                .append(row("Operator Action", operatorAction(id, cue, marker)))
+                .append(row("Evidence Source", evidenceSource(id, role, marker)))
+                .append(row("QR / Public URL", markerUrl))
+                .append("</table></div><div class='anchor-qrbox'>")
+                .append("<img class='marker-qr' src='").append(esc(markerQr.toUri().toString())).append("' />")
+                .append("<div class='marker-url'><b>QR / Public URL</b><br/><code>").append(esc(markerUrl)).append("</code></div>")
+                .append("<div class='marker-note small'><b>Operator cue:</b> ").append(esc(cue)).append("</div>")
+                .append("</div></div></div>");
         }
         html.append("</section>");
+    }
+
+    private static String fieldMarkerSchema(JsonNode markerConfig) {
+        return firstNonBlank(text(markerConfig, "schema"), "innerworld-field-markers/v1");
+    }
+
+    private static JsonNode markerFor(JsonNode anchor, JsonNode markerConfig) {
+        String anchorId = text(anchor, "anchor_id");
+        for (JsonNode marker : markerConfig.path("markers")) {
+            if (anchorId.equals(text(marker, "anchor_id"))) {
+                return marker;
+            }
+        }
+        return MAPPER.createObjectNode();
+    }
+
+    private static String markerId(JsonNode anchor, JsonNode marker) {
+        String configured = text(marker, "marker_id");
+        if (!configured.isBlank()) return configured;
+        String anchorId = firstNonBlank(text(anchor, "anchor_id"), "anchor");
+        return "entry".equals(text(anchor, "kind")) ? anchorId + ":qr-entry" : anchorId + ":image-target";
+    }
+
+    private static String markerType(JsonNode anchor, JsonNode marker) {
+        String configured = text(marker, "marker_type");
+        if (!configured.isBlank()) return configured;
+        return "entry".equals(text(anchor, "kind")) ? "qr_poster" : "image_target";
+    }
+
+    private static String markerPayloadUrl(String publicUrl, String anchorId, String markerType) {
+        if ("qr_poster".equals(markerType)) {
+            return url(publicUrl, "/?anchor=" + anchorId);
+        }
+        return url(publicUrl, "/api/field/markers#" + anchorId);
+    }
+
+    private static String trackingModes(JsonNode marker) {
+        JsonNode modes = marker.path("tracking_modes");
+        if (!modes.isArray() || modes.isEmpty()) {
+            return "manual, simulator";
+        }
+        StringBuilder joined = new StringBuilder();
+        for (JsonNode mode : modes) {
+            if (!joined.isEmpty()) joined.append(", ");
+            joined.append(mode.asText());
+        }
+        return joined.toString();
+    }
+
+    private static String trackingType(JsonNode anchor, JsonNode marker) {
+        String kind = firstNonBlank(text(anchor, "kind"), "anchor");
+        return markerType(anchor, marker) + " + spatial_wall_pose + " + kind + " [" + trackingModes(marker) + "]";
+    }
+
+    private static String expectedPose(JsonNode anchor, JsonNode grid) {
+        return "anchor_id=" + text(anchor, "anchor_id")
+            + "; grid=(" + anchor.at("/grid_pos/x").asInt() + "," + anchor.at("/grid_pos/y").asInt() + ")"
+            + "; pose_m=(" + fmt(anchor.at("/pose/x").asDouble()) + "," + fmt(anchor.at("/pose/y").asDouble()) + "," + fmt(anchor.at("/pose/z").asDouble()) + ")"
+            + "; wall_unit_cm=" + grid.path("unit_cm").asInt(30);
+    }
+
+    private static String operatorAction(String id, String cue, JsonNode marker) {
+        String configured = text(marker, "operator_action");
+        if (!configured.isBlank()) return configured;
+        return switch (id) {
+            case "A1" -> "Open entry layer; confirm official beacon; trigger service_action when prompted. " + cue;
+            case "A2" -> "Dwell or gaze to read memory beacon; advance read and find_year mission steps. " + cue;
+            case "A3" -> "Write back one line; switch to User B; verify new time_capsule beacon at A3. " + cue;
+            default -> "Select marker and keep it visible to the Rokid operator. " + cue;
+        };
+    }
+
+    private static String evidenceSource(String id, String role, JsonNode marker) {
+        String configured = text(marker, "evidence_source");
+        if (!configured.isBlank()) return configured;
+        return switch (id) {
+            case "A1" -> "data/space_demo.json anchors[A1]; beacon B_OFFICIAL_001; /api/service-actions rehearsal evidence; role=" + role;
+            case "A2" -> "data/space_demo.json anchors[A2]; beacon B_MEMORY_001; mission steps read/find_year; role=" + role;
+            case "A3" -> "data/space_demo.json anchors[A3]; output/demo/rehearsal-evidence-latest.json final_state.latest_beacon anchor_id=A3; role=" + role;
+            default -> "data/space_demo.json anchors[" + id + "]; role=" + role;
+        };
     }
 
     private static void operatorSheet(StringBuilder html, JsonNode evidence) {
@@ -443,6 +571,10 @@ public class FieldKitPdf {
     private static String compactTime(String value) {
         if (value == null || value.length() < 16) return firstNonBlank(value, "n/a");
         return value.substring(5, 16);
+    }
+
+    private static String fmt(double value) {
+        return String.format(Locale.US, "%.2f", value);
     }
 
     private static String firstNonBlank(String value, String fallback) {

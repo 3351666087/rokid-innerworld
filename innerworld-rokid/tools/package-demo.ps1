@@ -231,6 +231,7 @@ Run checks:
   npm run evidence:rehearsal -- --reset-after
   npm run field:preflight
   npm run pdf:fieldkit
+  npm run check:field-markers
   npm run release:index
   npm run server:package
   npm run server:deploy-plan
@@ -246,6 +247,7 @@ Android fallback APK:
 
 Printable field kit:
   output\pdf\rokid_innerworld_field_kit.pdf
+  npm run check:field-markers
 
 Field LAN preflight:
   npm run dev:lan

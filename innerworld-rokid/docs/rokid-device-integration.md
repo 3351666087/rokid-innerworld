@@ -77,6 +77,7 @@ Do not merge into current P0:
 Hardware arrival should start with wall calibration, not with ad hoc placement.
 
 - Fetch `GET /api/calibration/wall` from Unity/Rokid to obtain the A1/A2/A3 wall coordinate system, expected poses, marker types, acceptance thresholds, and the observation endpoint.
+- Fetch `GET /api/field/markers` when the device/operator needs the printable marker plan: marker ids, tracking modes, public URLs, operator actions, and evidence sources are derived from the same wall calibration contract.
 - Submit `POST /api/calibration/observations` with `session_id`, `device_id`, `anchor_id`, `tracking_mode`, `observed_pose`, `confidence`, `notes`, and `client_time`.
 - Accepted observations prove a marker is close enough to the configured wall pose; warning observations are usable but need operator attention; rejected observations block hardware confidence for that anchor.
 - The SQLite store persists sanitized calibration observations and exposes a summary through the same API. Raw network/device identifiers are redacted.
@@ -103,14 +104,15 @@ The Unity runtime now has a compile-safe SDK boundary:
 2. Put Station Pro and the Windows host on the same LAN.
 3. Start the server with `npm run dev:lan`; record `http://<Windows host IP>:5177`.
 4. Run `npm run field:preflight -- -RequireLan` to verify LAN health, update Unity config, and refresh the field-kit QR.
-5. In Unity Package Manager, add the official Rokid UXR/OpenXR registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
-6. Build an Android/Rokid APK from Unity, keeping `Assets/Plugins/Android/InnerWorldNetwork.androidlib` for HTTP LAN access during local demo.
-7. Open the Web Wall Calibration panel, confirm the manifest and A1/A2/A3 expected poses, then fetch `/api/calibration/wall` from Unity/Rokid, rehearse simulator/manual observations, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
-8. Replace only the input/display adapters:
+5. Run `npm run check:field-markers` after `npm run pdf:fieldkit`; do not place cards on the wall if A1/A2/A3 marker ids or expected poses fail this check.
+6. In Unity Package Manager, add the official Rokid UXR/OpenXR registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
+7. Build an Android/Rokid APK from Unity, keeping `Assets/Plugins/Android/InnerWorldNetwork.androidlib` for HTTP LAN access during local demo.
+8. Open the Web Wall Calibration panel, confirm the manifest and A1/A2/A3 expected poses, then fetch `/api/calibration/wall` and `/api/field/markers` from Unity/Rokid, rehearse simulator/manual observations, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
+9. Replace only the input/display adapters:
    - Input: gaze/ray/gesture/voice/keyboard events map to `SelectAnchor`, `CompleteNextStep`, `PostServiceAction`, and `PostWriteBack`.
    - Display: UXR binocular/spatial overlay renders the same HUD text, anchor labels, and mission state currently shown by the fallback.
    - Networking: `SpaceApiClient` keeps using `/api/device/bootstrap`, `/api/calibration/wall`, `/api/spaces/{id}`, `/api/ai/hud`, `/api/evidence/chain`, and `/api/session/plan`.
-9. Run field acceptance:
+10. Run field acceptance:
    - A1 opens the memory layer.
    - A2 shows public memory content.
    - A3 writes a time capsule.
@@ -155,6 +157,7 @@ The bootstrap response includes:
 - `endpoints.session_plan.url`: staged on-site script and fallback actions.
 - `endpoints.wall_calibration.url`: A1/A2/A3 wall coordinate system, marker plan, and acceptance thresholds.
 - `endpoints.wall_calibration_observations.url`: calibration observation write path for Unity/Rokid.
+- `endpoints.field_markers.url`: printable A1/A2/A3 marker manifest for field setup and device-side marker plan checks.
 - `client_hints`: polling intervals, timeout, cache policy, and write-back anchor.
 - `unity_compat.config`: the same `{ base_url, space_id }` shape used by the Unity fallback.
 
@@ -167,12 +170,14 @@ npm run check:device
 npm run check:ops -- --require-artifacts
 npm run check:web
 npm run check:unity
+npm run check:field-markers
 ```
 
 `check:device` verifies `/api/device/bootstrap`, follows the advertised URLs, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
 `check:web` verifies the operator console keeps the Wall Calibration panel, API read/write hooks, simulator lock actions, and trace fields.
 `check:unity` verifies the controller actively fetches/parses the wall calibration manifest and POSTs simulator/manual observations instead of only declaring protocol DTOs.
 `check:store` verifies the SQLite summary uses each anchor's latest observation and that a later rejected observation blocks `ready_for_hardware`.
+`check:field-markers` verifies printable marker cards stay synchronized with wall calibration and the field kit PDF/HTML.
 
 ## Runtime Flow
 
@@ -180,10 +185,11 @@ npm run check:unity
 2. Poll `endpoints.health.url` or `endpoints.space.url`.
 3. Use `endpoints.nearby_pins.url` to map A1/A2/A3 to visible overlays.
 4. Fetch `endpoints.wall_calibration.url`, display the returned readiness summary, and submit marker observations before claiming hardware alignment.
-5. POST task progress to `endpoints.interactions.url`.
-6. POST service intent to `endpoints.service_actions.url`.
-7. POST user write-back text to `endpoints.write_back.url`.
-8. Re-fetch state/space after every POST. API JSON uses `Cache-Control: no-store`.
+5. Fetch `endpoints.field_markers.url` to confirm A1:qr-entry, A2:image-target, A3:image-target, tracking modes, and printable payload URLs.
+6. POST task progress to `endpoints.interactions.url`.
+7. POST service intent to `endpoints.service_actions.url`.
+8. POST user write-back text to `endpoints.write_back.url`.
+9. Re-fetch state/space after every POST. API JSON uses `Cache-Control: no-store`.
 
 ## LAN Notes
 

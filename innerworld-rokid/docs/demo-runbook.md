@@ -54,6 +54,7 @@ npm run env:doctor
 npm run evidence:rehearsal -- --reset-after
 npm run field:preflight
 npm run pdf:fieldkit
+npm run check:field-markers
 npm run release:index
 npm run server:package
 npm run server:deploy-plan
@@ -74,6 +75,8 @@ Chrome 插件验收时保留本机标签页，确认页面可见状态为 `User 
 `field:preflight` 会识别 Windows 主控机 LAN IP，检查 `localhost` 和 `http://<Windows主控机IP>:5177/`，更新 Unity 配置，按 LAN URL 重渲染现场 PDF，并把证据写入 `output/field-preflight/field-preflight-latest.md`。如果 LAN API 不通，脚本会拒绝更新 Unity 配置或渲染 LAN QR PDF；现场正式交接用 `npm run dev:lan` 后运行 `npm run field:preflight -- -RequireLan`，并允许 Windows Firewall 私有网络访问 Node.js。
 
 `pdf:fieldkit` 会生成 `output/pdf/rokid_innerworld_field_kit.pdf`，用于打印入口 QR、A1/A2/A3 锚点牌、90 秒流程和操作员清单。若现场要扫码访问局域网主控机，先设置 `FIELD_KIT_PUBLIC_URL=http://<Windows主控机IP>:5177/` 后重新渲染。
+
+`check:field-markers` 会验收 `data/field_markers.json`、`/api/field/markers`、`/api/calibration/wall` 和现场包 PDF/HTML：A1 必须是 `A1:qr-entry`，A2/A3 必须是 `image_target`，三张卡片都要带 expected pose、tracking modes 和 evidence source。
 
 `release:index` 会把最新主包、server-only 包、EXE/APK/PDF、环境医生、现场预检和彩排证据汇成 `output/release-index/release-index-latest.md`，现场或上传服务器前先看这一页。
 

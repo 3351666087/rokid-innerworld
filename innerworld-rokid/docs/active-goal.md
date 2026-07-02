@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 21:06 Asia/Shanghai
+Updated: 2026-07-02 21:28 Asia/Shanghai
 
 ## Objective
 
@@ -33,6 +33,7 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Server core modules instead of one large server file.
 - Device bootstrap and AI contract checks.
 - Physical wall calibration contract and observation store for A1/A2/A3 marker lock.
+- Field marker manifest/API/PDF checks for printable A1/A2/A3 cards.
 - Web device/ops panel.
 - Unity/Rokid protocol client.
 - Rokid simulator and integration checks.
@@ -42,9 +43,12 @@ Move from "environment and demo loop are runnable" to "main project framework an
 
 ## Current Checkpoint
 
-- Latest implementation checkpoint: physical wall calibration and Rokid SDK adoption matrix.
+- Latest implementation checkpoint: field marker/field-kit asset chain on top of physical wall calibration.
 - `/api/calibration/wall` exposes the A1/A2/A3 wall coordinate system, expected poses, marker types, and acceptance thresholds.
 - `/api/calibration/observations` accepts sanitized Unity/Rokid calibration observations and persists them in SQLite.
+- `/api/field/markers` exposes the printable A1/A2/A3 marker runtime manifest derived from `data/field_markers.json` and `/api/calibration/wall`, including marker id/type, tracking modes, expected pose, operator action, and evidence source.
+- `npm run check:field-markers` verifies the marker manifest, wall calibration binding, and PDF/HTML searchable marker tokens; it is wired into `verify:release` after `pdf:fieldkit`.
+- The Java/OpenHTMLToPDF field kit now renders A1:qr-entry, A2:image-target, and A3:image-target printable cards with QR/public URLs, expected poses, and evidence sources; visual PDF inspection has confirmed the cards do not overlap or clip.
 - Web/operator console now has an executable Wall Calibration panel: it refreshes the manifest, shows A1/A2/A3 marker/pose/latest observation status, surfaces `ready_for_hardware`, distinguishes `SQLite/API authoritative`, `simulator rehearsal`, and hardware evidence candidates, and can submit simulator observations through the same API used by future Rokid QR/image tracking/SLAM.
 - Unity fallback/controller now fetches the wall calibration manifest during startup after bootstrap and before device registration, then posts a simulator observation through `/api/calibration/observations`; the `C` key / `Calib` button posts a manual rehearsal observation through the same route. HUD/log/heartbeat expose schema, anchor count, readiness, calibrated anchor IDs, and the latest observation status/issues.
 - Kepler P0 calibration fixes are applied: calibration `session_id`, `device_id`, and notes are redacted, and `ready_for_hardware` is based on each anchor's latest observation so a later rejected/stale observation cannot be hidden by older accepted history.
@@ -87,6 +91,7 @@ Active worker lanes:
 - Kepler reviewer: the special long-line subagent for mainline audit. Keep it as the persistent reviewer, feed every major implementation checkpoint back to it, and adopt or explicitly record its findings before pushing large direction changes.
 - Web panel worker: `apps/web-demo/*`
 - Unity controller/protocol workers: `apps/unity-shell/Assets/Scripts/InnerWorldDemoController.cs` and `apps/unity-shell/Assets/Scripts/Protocol/*`
+- Field-kit/check workers: `pdf-renderer/src/main/java/com/rokid/innerworld/FieldKitPdf.java`, `server/space-server/check-field-markers.js`, and release verification hooks.
 - Main thread: shared contract, server integration, checks, docs, packages, verification
 
 ## Guardrails

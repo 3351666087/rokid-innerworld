@@ -7,6 +7,7 @@ import {
 } from "../../../../shared/innerworld-contract.js";
 import { buildDeviceManifest, createDeviceRuntimeStore } from "../domain/device-runtime.js";
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
+import { buildFieldMarkerManifest } from "../domain/field-markers.js";
 import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
 import { buildServiceActionAck, createServiceActionRecord, sanitizeServiceActionValue } from "../domain/service-action-runtime.js";
@@ -39,6 +40,7 @@ export function createApiRouter({
   aiPromptPath,
   aiSchemaPath,
   buildOpsStatus,
+  fieldMarkersPath,
   loadSpace,
   loadState,
   port,
@@ -121,6 +123,27 @@ export function createApiRouter({
       space,
       state,
       summary: sqliteStore?.wallCalibrationSummary?.() || null
+    });
+  }
+
+  async function loadFieldMarkers(req, url) {
+    const [space, state, markerConfig] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(fieldMarkersPath)
+    ]);
+    const baseUrl = getRequestBaseUrl(req, url, port);
+    const wallCalibration = buildWallCalibrationManifest({
+      baseUrl,
+      space,
+      state,
+      summary: sqliteStore?.wallCalibrationSummary?.() || null
+    });
+    return buildFieldMarkerManifest({
+      baseUrl,
+      space,
+      markerConfig,
+      wallCalibration
     });
   }
 
@@ -216,6 +239,11 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/calibration/wall") {
       sendJson(res, 200, await loadWallCalibration(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/field/markers") {
+      sendJson(res, 200, await loadFieldMarkers(req, url));
       return;
     }
 

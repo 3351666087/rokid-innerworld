@@ -51,14 +51,15 @@ async function fetchText(route, label) {
 }
 
 async function main() {
-  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration] = await Promise.all([
+  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration, fieldMarkers] = await Promise.all([
     fetchJson("/api/health"),
     fetchJson("/api/ops/status"),
     fetch(`${base}/`),
     fetchText("/app.js", "web demo app script"),
     fetchJson("/api/ledger/summary"),
     fetchJson("/api/ledger/events?limit=8"),
-    fetchJson("/api/calibration/wall")
+    fetchJson("/api/calibration/wall"),
+    fetchJson("/api/field/markers")
   ]);
   const html = await htmlRes.text();
   const hud = await postJson("/api/ai/hud", {
@@ -88,6 +89,11 @@ async function main() {
   assert(wallCalibration.schema === "innerworld-wall-calibration/v1", "wall calibration schema check failed");
   assert(Array.isArray(wallCalibration.anchors) && wallCalibration.anchors.length === 3, "wall calibration anchor list check failed");
   assert(wallCalibration.runtime?.summary, "wall calibration summary check failed");
+  assert(fieldMarkers.ok === true, "field markers ok check failed");
+  assert(fieldMarkers.schema === "innerworld-field-markers/v1", "field markers schema check failed");
+  assert(Array.isArray(fieldMarkers.markers) && fieldMarkers.markers.length === 3, "field markers list check failed");
+  assert(fieldMarkers.markers.map((marker) => marker.marker?.marker_id).join(",") === "A1:qr-entry,A2:image-target,A3:image-target", "field markers id check failed");
+  assert(fieldMarkers.markers.every((marker) => marker.expected_pose?.position && marker.field_role?.evidence_source), "field markers pose/evidence check failed");
 
   assert(htmlRes.ok, "homepage status check failed");
   for (const moduleLabel of homepageModules) {
@@ -138,6 +144,7 @@ async function main() {
     hardware_devices: ops.hardware.devices.map((device) => device.model).join(","),
     ledger_engine: ledgerSummary.engine,
     ledger_events: ledgerEvents.events.length,
+    field_markers: fieldMarkers.markers.map((marker) => marker.marker.marker_id),
     homepage_modules: homepageModules,
     ai_hud_ok: true
   }, null, 2));

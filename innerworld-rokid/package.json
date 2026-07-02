@@ -17,6 +17,7 @@
     "check:security": "node server/space-server/check-security.js",
     "check:readonly": "node server/space-server/check-readonly.js",
     "check:ops": "node server/space-server/check-ops.js",
+    "check:field-markers": "node server/space-server/check-field-markers.js",
     "check:web": "node server/space-server/check-web-demo.js",
     "check:unity": "node server/space-server/check-unity.js",
     "context:export": "node tools/export-context.js",
