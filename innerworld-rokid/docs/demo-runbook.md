@@ -191,3 +191,28 @@ npm run package:demo
 包内包含 Web demo、Space Server、数据、AI schema/prompt、文档、Windows Unity fallback、Android fallback APK、校验清单和缓存报告；包内不包含 Unity `Library`、`Temp`、`node_modules`、`.git` 或下载缓存。
 
 包内不携带 `data/runtime_state.json`。它是运行时文件，服务首次启动会自动生成，确保每个交付包从 `entered` 初始态开始。
+
+## Evidence Replay / Judge Mode
+
+`/api/evidence/chain` includes a read-only `evidence_replay_judge_mode` section. This is the competition-floor proof manifest, not an institution analytics dashboard and not a business operations report. It exists to let a judge replay the real wall loop:
+
+1. `A1 entry`: point to the real entry poster / QR marker.
+2. `A2 memory`: show User A reading the memory step from the same Space API state.
+3. `A3 writeback`: write one public time-capsule beacon through the write-back endpoint.
+4. `User B readback`: switch to User B and show the A3 write-back is still visible in the same space.
+
+The Web operator console reads this section through `/api/evidence/chain` and renders it in the Evidence Chain rail as `evidence_replay_judge_mode`. It is intentionally sanitized: it may show public anchor ids, counts, endpoint paths, package file names, hashes, status flags, and gate summaries; it must not show secrets, raw chat exports, runtime DB dumps, pairing codes, access tokens, serial numbers, private loan-image ids, private network ids, or raw SQLite rows.
+
+Judge Mode source labels:
+- SQLite/write-back: `/api/state`, `/api/ledger/*`, and `/api/spaces/innerworld_campus_wall/beacons` prove the loop state and A3 write-back count.
+- Field acceptance: `/api/field/acceptance` proves whether the floor is rehearsal-only or hardware-acceptance ready.
+- Release evidence: `/api/ops/status` proves package and deploy dry-run status from sanitized release summaries.
+
+Before a formal recording, run:
+
+```powershell
+npm run check:device
+npm run check:web
+```
+
+The expected first-slice behavior is that Judge Mode can be `rehearsal` before User B completes readback or before hardware acceptance is ready, while still exposing the full A1 -> A2 -> A3 -> User B checklist and sanitized sources.

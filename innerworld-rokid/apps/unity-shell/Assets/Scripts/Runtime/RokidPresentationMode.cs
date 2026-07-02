@@ -31,7 +31,18 @@ namespace InnerWorld.Rokid.Runtime
         public const string Disabled = "disabled";
         public const string SimulatedWall = "simulated_wall";
         public const string MarkerAssisted = "marker_assisted";
+        public const string A1EntryConfirmed = "a1_entry_confirmed";
         public const string HardwareAnchored = "hardware_anchored";
+    }
+
+    public static class RokidA1SpatialEntryStates
+    {
+        public const string WaitingForA1 = "a1_entry_waiting";
+        public const string LockCandidate = "a1_lock_candidate";
+        public const string DeliberateConfirmed = "a1_deliberate_confirmation";
+        public const string SpatialLayerStandby = "spatial_layer_standby";
+        public const string SpatialLayerOpening = "spatial_layer_opening";
+        public const string SpatialLayerOpen = "spatial_layer_open";
     }
 
     public static class RokidImageTargetLockStates
@@ -178,6 +189,15 @@ namespace InnerWorld.Rokid.Runtime
         public string fallback_reason;
         public string experience_tier;
         public string shell_status_label;
+        public string a1_spatial_entry_experience;
+        public string a1_entry_lock_state;
+        public string a1_entry_lock_label;
+        public string entry_confirmation_status;
+        public float entry_confirmation_min_meters;
+        public float entry_confirmation_max_meters;
+        public string spatial_layer_transition_state;
+        public string spatial_layer_transition_label;
+        public bool fallback_claims_hardware_ready;
         public string spatial_entry_state;
         public string spatial_entry_label;
         public string image_target_lock_state;
@@ -215,7 +235,7 @@ namespace InnerWorld.Rokid.Runtime
                     return shell_status_label;
                 }
 
-                return "AR shell | " + Clean(spatial_entry_label) + " | " + Clean(image_target_lock_label);
+                return "AR shell | " + Clean(spatial_entry_label) + " | " + Clean(a1_entry_lock_label) + " | " + Clean(image_target_lock_label);
             }
         }
 
@@ -281,6 +301,15 @@ namespace InnerWorld.Rokid.Runtime
                 fallback_reason = string.Empty,
                 experience_tier = "Rokid spatial hardware",
                 shell_status_label = "Rokid spatial shell | image-target lock | operator-safe hardware",
+                a1_spatial_entry_experience = "a1_spatial_entry_experience",
+                a1_entry_lock_state = RokidA1SpatialEntryStates.SpatialLayerOpen,
+                a1_entry_lock_label = "A1 lock: hardware-anchored entry after operator confirmation",
+                entry_confirmation_status = "entry_confirmation_hardware_accepted",
+                entry_confirmation_min_meters = 0.4f,
+                entry_confirmation_max_meters = 0.5f,
+                spatial_layer_transition_state = RokidA1SpatialEntryStates.SpatialLayerOpen,
+                spatial_layer_transition_label = "开启空间层: hardware spatial layer active",
+                fallback_claims_hardware_ready = false,
                 spatial_entry_state = RokidSpatialEntryStates.HardwareAnchored,
                 spatial_entry_label = "Spatial entry: calibrated Rokid glasses",
                 image_target_lock_state = RokidImageTargetLockStates.Locked,
@@ -327,6 +356,15 @@ namespace InnerWorld.Rokid.Runtime
                 fallback_reason = "On-site display is running the exhibition AR shell with hardware-only actions guarded.",
                 experience_tier = "Exhibition wall AR",
                 shell_status_label = "Exhibition wall shell | marker-assisted entry | operator-safe display",
+                a1_spatial_entry_experience = "a1_spatial_entry_experience",
+                a1_entry_lock_state = RokidA1SpatialEntryStates.LockCandidate,
+                a1_entry_lock_label = "A1 lock: marker-assisted candidate, confirm at 0.4m-0.5m",
+                entry_confirmation_status = "entry_confirmation_pending",
+                entry_confirmation_min_meters = 0.4f,
+                entry_confirmation_max_meters = 0.5f,
+                spatial_layer_transition_state = RokidA1SpatialEntryStates.SpatialLayerStandby,
+                spatial_layer_transition_label = "开启空间层 waits for deliberate A1 confirmation; fallback is not hardware ready",
+                fallback_claims_hardware_ready = false,
                 spatial_entry_state = hasOpenXr ? RokidSpatialEntryStates.MarkerAssisted : RokidSpatialEntryStates.SimulatedWall,
                 spatial_entry_label = hasOpenXr ? "Spatial entry: OpenXR marker-assisted wall" : "Spatial entry: calibrated wall rehearsal",
                 image_target_lock_state = hasOpenXr ? RokidImageTargetLockStates.Candidate : RokidImageTargetLockStates.Simulated,
@@ -372,6 +410,15 @@ namespace InnerWorld.Rokid.Runtime
                 fallback_reason = "Desktop simulator is running the exhibition AR shell with hardware-only actions guarded.",
                 experience_tier = "Premium simulator",
                 shell_status_label = "Premium simulator shell | spatial rehearsal | operator-safe controls",
+                a1_spatial_entry_experience = "a1_spatial_entry_experience",
+                a1_entry_lock_state = RokidA1SpatialEntryStates.WaitingForA1,
+                a1_entry_lock_label = "A1 lock: desktop fallback rehearsal, confirm at 0.4m-0.5m",
+                entry_confirmation_status = "entry_confirmation_pending",
+                entry_confirmation_min_meters = 0.4f,
+                entry_confirmation_max_meters = 0.5f,
+                spatial_layer_transition_state = RokidA1SpatialEntryStates.SpatialLayerStandby,
+                spatial_layer_transition_label = "开启空间层 waits for deliberate A1 confirmation; fallback is not hardware ready",
+                fallback_claims_hardware_ready = false,
                 spatial_entry_state = RokidSpatialEntryStates.SimulatedWall,
                 spatial_entry_label = "Spatial entry: gallery wall rehearsal",
                 image_target_lock_state = RokidImageTargetLockStates.Simulated,

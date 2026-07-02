@@ -380,6 +380,7 @@ namespace InnerWorld.Rokid.Protocol
         public DeviceManifestRokidRuntimeHints rokid_runtime_hints;
         public DeviceAdapterSlot[] adapter_slots;
         public DeviceAdapterReadiness adapter_readiness;
+        public DeviceA1SpatialEntryExperience a1_spatial_entry_experience;
         public RokidSdkBindingManifestStatus sdk_binding_status;
         public SpaceEndpointMap endpoints;
         public DeviceMissionSnapshot mission_snapshot;
@@ -457,6 +458,25 @@ namespace InnerWorld.Rokid.Protocol
     }
 
     [Serializable]
+    public sealed class DeviceA1SpatialEntryExperience
+    {
+        public string schema;
+        public string experience_id;
+        public string anchor_id;
+        public string lock_state;
+        public string lock_label;
+        public string entry_confirmation_status;
+        public float confirmation_min_meters;
+        public float confirmation_max_meters;
+        public float confirmation_distance_meters;
+        public string spatial_layer_transition_state;
+        public string spatial_layer_transition_label;
+        public string readiness;
+        public bool fallback_claims_hardware_ready;
+        public bool hardware_ready;
+    }
+
+    [Serializable]
     public sealed class RokidSdkBindingManifestStatus
     {
         public string schema;
@@ -505,6 +525,7 @@ namespace InnerWorld.Rokid.Protocol
         public DevicePendingAction[] pending_actions;
         public DeviceHealthStatus health;
         public RokidSdkBindingStatusPayload sdk_binding_status;
+        public DeviceA1SpatialEntryExperience a1_spatial_entry_experience;
         public DeviceRuntimeEnvelope runtime;
         public DeviceEndpointSubset endpoints;
         public int next_poll_ms;

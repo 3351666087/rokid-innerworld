@@ -11,6 +11,15 @@ export const DEFAULT_DEVICE_PROFILE = "rokid-ar";
 export const DEFAULT_PORT = 5177;
 export const EVIDENCE_CHAIN_SCHEMA = "innerworld-evidence-chain/v1";
 export const SESSION_PLAN_SCHEMA = "innerworld-session-plan/v1";
+export const STORY_GRAPH_MISSION_RUNTIME_ID = "story_graph_mission_runtime_v2";
+export const STORY_GRAPH_MISSION_RUNTIME_SCHEMA = "innerworld-story-graph-mission-runtime/v2";
+
+export const STORY_GRAPH_NODE_IDS = Object.freeze([
+  "a1_entry",
+  "a2_memory",
+  "a3_write_back",
+  "user_b_readback"
+]);
 
 export const FIELD_SESSION_STAGE_IDS = Object.freeze([
   "opening",
@@ -106,6 +115,126 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
 
 export function missionSteps(space) {
   return Array.isArray(space?.mission?.steps) ? space.mission.steps : [];
+}
+
+export function missionStoryGraph(space) {
+  const graph = space?.mission?.story_graph;
+  return graph && typeof graph === "object" && !Array.isArray(graph) ? graph : {};
+}
+
+function storyGraphList(graph, key) {
+  return Array.isArray(graph?.[key]) ? graph[key] : [];
+}
+
+function uniqueList(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function storyGraphEndpointKeys(graph) {
+  return uniqueList([
+    ...storyGraphList(graph, "nodes").flatMap((node) => Array.isArray(node.endpoint_keys) ? node.endpoint_keys : []),
+    ...storyGraphList(graph, "edges").map((edge) => edge.endpoint_key),
+    ...storyGraphList(graph, "guards").map((guard) => guard.endpoint_key),
+    ...storyGraphList(graph, "actions").map((action) => action.endpoint_key)
+  ]);
+}
+
+function storyGraphRuntimeStatus({ graph, state }) {
+  const nodes = storyGraphList(graph, "nodes");
+  const done = new Set(completedSteps(state));
+  const runtimeBeacons = beacons(state);
+  const missionState = state?.mission_state || "entered";
+
+  const node_status = nodes.map((node, index) => {
+    const legacySteps = Array.isArray(node.legacy_step_ids) ? node.legacy_step_ids : [];
+    let complete = false;
+    if (node.node_id === "a1_entry") {
+      complete = Boolean(state?.active_user) || ["reading", "doing", "service_ready", "writing", "complete"].includes(missionState);
+    } else if (node.node_id === "user_b_readback") {
+      complete = missionState === "complete" && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons;
+    } else if (legacySteps.length > 0) {
+      complete = legacySteps.every((stepId) => done.has(stepId));
+    }
+
+    return {
+      node_id: node.node_id,
+      anchor_id: node.anchor_id || null,
+      status: complete ? "complete" : index === 0 || nodes.slice(0, index).every((prior) => {
+        const priorSteps = Array.isArray(prior.legacy_step_ids) ? prior.legacy_step_ids : [];
+        if (prior.node_id === "a1_entry") return true;
+        if (prior.node_id === "user_b_readback") return missionState === "complete";
+        return priorSteps.length > 0 && priorSteps.every((stepId) => done.has(stepId));
+      }) ? "available" : "locked",
+      legacy_step_ids: legacySteps
+    };
+  });
+  const current = node_status.find((node) => node.status !== "complete") || node_status[node_status.length - 1] || null;
+
+  return {
+    mission_state: missionState,
+    completed_steps: Array.from(done),
+    beacon_count: runtimeBeacons.length,
+    current_node_id: current?.node_id || null,
+    node_status
+  };
+}
+
+export function buildStoryGraphMissionRuntimeContract({
+  baseUrl,
+  space,
+  state = null,
+  endpoints = null
+} = {}) {
+  const publicBaseUrl = cleanPublicBaseUrl(baseUrl);
+  const endpointMap = endpoints || buildEndpointMap(publicBaseUrl, space?.space_id || INNERWORLD_SPACE_ID);
+  const graph = missionStoryGraph(space);
+  const endpointKeys = storyGraphEndpointKeys(graph);
+  const endpointSubset = Object.fromEntries(endpointKeys.map((key) => [key, endpointMap[key]]).filter(([, endpoint]) => endpoint));
+
+  return {
+    contract_id: graph.contract_id || STORY_GRAPH_MISSION_RUNTIME_ID,
+    schema: graph.schema || STORY_GRAPH_MISSION_RUNTIME_SCHEMA,
+    runtime_scope: graph.runtime_scope || "hardware_independent_first_slice",
+    final_direction: graph.final_direction || "real Rokid campus wall A1/A2/A3",
+    scope_guard: {
+      campus_wall_only: graph.scope_guard?.campus_wall_only !== false,
+      generic_tour_or_ugc: graph.scope_guard?.generic_tour_or_ugc === true,
+      open_ugc: graph.scope_guard?.open_ugc === true,
+      phone_or_ppt_primary: graph.scope_guard?.phone_or_ppt_primary === true,
+      required_anchor_ids: Array.isArray(graph.scope_guard?.required_anchor_ids)
+        ? graph.scope_guard.required_anchor_ids
+        : ["A1", "A2", "A3"]
+    },
+    node_order: storyGraphList(graph, "nodes").map((node) => node.node_id).filter(Boolean),
+    edge_order: storyGraphList(graph, "edges").map((edge) => edge.edge_id).filter(Boolean),
+    guard_order: storyGraphList(graph, "guards").map((guard) => guard.guard_id).filter(Boolean),
+    action_order: storyGraphList(graph, "actions").map((action) => action.action_id).filter(Boolean),
+    endpoints: endpointSubset,
+    nodes: storyGraphList(graph, "nodes").map((node) => ({
+      ...node,
+      endpoints: Object.fromEntries((Array.isArray(node.endpoint_keys) ? node.endpoint_keys : [])
+        .map((key) => [key, endpointMap[key]])
+        .filter(([, endpoint]) => endpoint))
+    })),
+    edges: storyGraphList(graph, "edges").map((edge) => ({
+      ...edge,
+      endpoint: endpointMap[edge.endpoint_key] || null
+    })),
+    guards: storyGraphList(graph, "guards").map((guard) => ({
+      ...guard,
+      endpoint: endpointMap[guard.endpoint_key] || null
+    })),
+    actions: storyGraphList(graph, "actions").map((action) => ({
+      ...action,
+      endpoint: endpointMap[action.endpoint_key] || null
+    })),
+    runtime: storyGraphRuntimeStatus({ graph, state }),
+    legacy_compat: {
+      mission_id: space?.mission?.mission_id || null,
+      step_ids: missionSteps(space).map((step) => step.step_id),
+      service_action_remains_legacy_stage: true
+    }
+  };
 }
 
 export function anchors(space) {
@@ -210,7 +339,13 @@ export function buildDeviceBootstrap({
         label: step.label,
         anchor_id: step.anchor_id,
         hint: step.hint
-      }))
+      })),
+      story_graph: buildStoryGraphMissionRuntimeContract({
+        baseUrl: publicBaseUrl,
+        space,
+        state,
+        endpoints
+      })
     },
     runtime: {
       active_user: state?.active_user,

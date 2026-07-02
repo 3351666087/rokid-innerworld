@@ -3,6 +3,7 @@ const WRITE_BACK_DEFAULT = "后来的人，别忘了抬头看这里。";
 const FIELD_MARKER_ANCHOR_IDS = ["A1", "A2", "A3"];
 const FIELD_MARKER_REQUIRED_IDS = ["A1:qr-entry", "A2:image-target", "A3:image-target"];
 const HARDWARE_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
+const JUDGE_REPLAY_SEQUENCE = ["A1 entry", "A2 memory", "A3 writeback", "User B readback"];
 
 const api = {
   async getSpace() {
@@ -56,6 +57,9 @@ const api = {
   async getLedgerEvents() {
     return requestJson("/api/ledger/events", { cache: "no-store" }, "Read ledger events failed");
   },
+  async getEvidenceChain() {
+    return requestJson("/api/evidence/chain", { cache: "no-store" }, "Read evidence replay judge mode failed");
+  },
   async generateHud(payload) {
     return requestJson("/api/ai/hud", jsonPost(payload), "生成 HUD 失败");
   },
@@ -82,6 +86,8 @@ const model = {
   datasetCatalog: null,
   ledgerSummary: null,
   ledgerEvents: null,
+  evidenceChain: null,
+  evidenceChainError: null,
   ledgerErrors: {},
   localLedgerCounts: {
     serviceActions: 0,
@@ -1757,6 +1763,9 @@ function renderEvidenceChain() {
   const releaseOk = model.ops?.release_index?.ok;
   const dryRunOk = model.ops?.deploy_dry_run?.ok;
   const schemaTitle = model.bootstrap?.ai?.output_schema_title || "InnerWorld HUD AI Output";
+  const judge = model.evidenceChain?.evidence_replay_judge_mode || null;
+  const judgeSteps = listFrom(judge?.replay_steps);
+  const judgeSources = listFrom(judge?.source_evidence);
   const items = [
     ["01", "WeChat Evidence", "群聊、PDF、附件和时间线留在本地证据区，不进公开仓库。", "locked"],
     ["02", "Space Contract", `${anchors().length} anchors · ${model.space?.beacons?.length || 0} beacons · stable JSON`, "ready"],
@@ -1766,6 +1775,65 @@ function renderEvidenceChain() {
   ];
 
   els.evidenceRail.innerHTML = "";
+  if (judge) {
+    const header = document.createElement("div");
+    header.className = `evidence-item ${judge.overall_status === "ready" ? "ready" : "warn"}`;
+    const badgeNode = document.createElement("span");
+    badgeNode.className = "evidence-badge";
+    badgeNode.textContent = "JM";
+    const copy = document.createElement("div");
+    const titleNode = document.createElement("strong");
+    titleNode.textContent = "evidence_replay_judge_mode";
+    const bodyNode = document.createElement("p");
+    bodyNode.textContent = `${listFrom(judge.sequence).length ? listFrom(judge.sequence).join(" -> ") : JUDGE_REPLAY_SEQUENCE.join(" -> ")} | ${judge.privacy?.note || "sanitized public manifest"}`;
+    copy.append(titleNode, bodyNode);
+    const stateNode = document.createElement("span");
+    stateNode.className = "evidence-state";
+    stateNode.textContent = judge.overall_status || "rehearsal";
+    header.append(badgeNode, copy, stateNode);
+    els.evidenceRail.append(header);
+
+    judgeSteps.forEach((step, index) => {
+      const item = document.createElement("div");
+      item.className = `evidence-item ${step.status === "ready" ? "ready" : "warn"}`;
+      const badge = document.createElement("span");
+      badge.className = "evidence-badge";
+      badge.textContent = `J${index + 1}`;
+      const stepCopy = document.createElement("div");
+      const stepTitle = document.createElement("strong");
+      stepTitle.textContent = step.title || step.id;
+      const stepBody = document.createElement("p");
+      stepBody.textContent = `${step.expected_action || "judge step"} | source: ${step.source || "sanitized evidence chain"}`;
+      stepCopy.append(stepTitle, stepBody);
+      const stepState = document.createElement("span");
+      stepState.className = "evidence-state";
+      stepState.textContent = step.status || "pending";
+      item.append(badge, stepCopy, stepState);
+      els.evidenceRail.append(item);
+    });
+
+    judgeSources.forEach((source) => {
+      const item = document.createElement("div");
+      item.className = `evidence-item ${source.status === "ready" ? "ready" : "fallback"}`;
+      const badge = document.createElement("span");
+      badge.className = "evidence-badge";
+      badge.textContent = "SRC";
+      const sourceCopy = document.createElement("div");
+      const sourceTitle = document.createElement("strong");
+      sourceTitle.textContent = source.title || source.id;
+      const sourceBody = document.createElement("p");
+      sourceBody.textContent = `${source.source || "source pending"} | sanitized: ${listFrom(source.sanitized_fields).join(", ")}`;
+      sourceCopy.append(sourceTitle, sourceBody);
+      const sourceState = document.createElement("span");
+      sourceState.className = "evidence-state";
+      sourceState.textContent = source.status || "review";
+      item.append(badge, sourceCopy, sourceState);
+      els.evidenceRail.append(item);
+    });
+  } else if (model.evidenceChainError) {
+    els.evidenceRail.append(renderInfoCard("evidence-item warn", "JM", "evidence_replay_judge_mode pending", model.evidenceChainError.message || "Read evidence chain failed"));
+  }
+
   items.forEach(([badge, title, body, state]) => {
     const item = document.createElement("div");
     item.className = `evidence-item ${state}`;
@@ -2346,7 +2414,7 @@ async function submitAllSimulatedCalibration() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, evidenceResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
@@ -2356,6 +2424,7 @@ async function refreshOps() {
     api.getDatasetCatalog(),
     api.getLedgerSummary(),
     api.getLedgerEvents(),
+    api.getEvidenceChain(),
     api.getWallCalibration(),
     api.getFieldMarkers(),
     api.getFieldAcceptance()
@@ -2388,10 +2457,17 @@ async function refreshOps() {
   }
   if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
   if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
+  if (evidenceResult.status === "fulfilled") {
+    model.evidenceChain = evidenceResult.value;
+    model.evidenceChainError = null;
+  } else {
+    model.evidenceChainError = evidenceResult.reason;
+  }
   model.ledgerErrors = {
     summary: ledgerSummaryResult.status === "rejected" ? ledgerSummaryResult.reason : null,
     events: ledgerEventsResult.status === "rejected" ? ledgerEventsResult.reason : null
   };
+  renderEvidenceChain();
   renderOps(model.ops, model.bootstrap, {
     ops: opsResult.status === "rejected" ? opsResult.reason : null,
     bootstrap: bootstrapResult.status === "rejected" ? bootstrapResult.reason : null
@@ -2507,6 +2583,20 @@ function renderLog() {
       expires_at: pairing.expires_at_raw,
       has_code: Boolean(pairing.code),
       error: pairing.error
+    },
+    evidence_replay_judge_mode: model.evidenceChain?.evidence_replay_judge_mode ? {
+      schema: model.evidenceChain.evidence_replay_judge_mode.schema,
+      overall_status: model.evidenceChain.evidence_replay_judge_mode.overall_status,
+      sequence: model.evidenceChain.evidence_replay_judge_mode.sequence,
+      replay_steps: listFrom(model.evidenceChain.evidence_replay_judge_mode.replay_steps).map((step) => ({
+        id: step.id,
+        status: step.status,
+        source: step.source
+      })),
+      privacy: model.evidenceChain.evidence_replay_judge_mode.privacy
+    } : {
+      endpoint: "/api/evidence/chain",
+      error: model.evidenceChainError?.message || null
     },
     ledger: {
       online: Boolean(model.ledgerSummary || model.ledgerEvents),

@@ -9,6 +9,52 @@ export function ensureRuntimeArrays(state) {
   state.events = Array.isArray(state.events) ? state.events : [];
 }
 
+function storyGraph(space) {
+  const graph = space?.mission?.story_graph;
+  return graph && typeof graph === "object" && !Array.isArray(graph) ? graph : {};
+}
+
+function storyGraphNodes(space) {
+  const graph = storyGraph(space);
+  return Array.isArray(graph.nodes) ? graph.nodes : [];
+}
+
+export function storyGraphMissionRuntimeV2Status({ space, state } = {}) {
+  const nodes = storyGraphNodes(space);
+  const done = new Set(Array.isArray(state?.completed_steps) ? state.completed_steps : []);
+  const beacons = Array.isArray(state?.beacons) ? state.beacons : [];
+  const missionState = state?.mission_state || space?.mission?.state || "entered";
+
+  const node_status = nodes.map((node) => {
+    const legacyStepIds = Array.isArray(node.legacy_step_ids) ? node.legacy_step_ids : [];
+    let complete = false;
+    if (node.node_id === "a1_entry") {
+      complete = Boolean(state?.active_user) || ["reading", "doing", "service_ready", "writing", "complete"].includes(missionState);
+    } else if (node.node_id === "user_b_readback") {
+      complete = missionState === "complete" && beacons.length >= 3;
+    } else if (legacyStepIds.length > 0) {
+      complete = legacyStepIds.every((stepId) => done.has(stepId));
+    }
+
+    return {
+      node_id: node.node_id,
+      anchor_id: node.anchor_id || null,
+      status: complete ? "complete" : "pending",
+      legacy_step_ids: legacyStepIds
+    };
+  });
+
+  return {
+    contract_id: storyGraph(space).contract_id || "story_graph_mission_runtime_v2",
+    schema: storyGraph(space).schema || "innerworld-story-graph-mission-runtime/v2",
+    current_node_id: node_status.find((node) => node.status !== "complete")?.node_id || node_status[node_status.length - 1]?.node_id || null,
+    mission_state: missionState,
+    completed_steps: Array.from(done),
+    beacon_count: beacons.length,
+    node_status
+  };
+}
+
 const SENSITIVE_EVENT_KEYS = new Set([
   "access_token",
   "address",

@@ -42,6 +42,21 @@ const requiredGoalReviewerTokens = [
   "feed every major implementation checkpoint back to it"
 ];
 
+const requiredLongModuleTokens = [
+  "Hardware-Independent Long Modules",
+  "a1_spatial_entry_experience",
+  "story_graph_mission_runtime_v2",
+  "evidence_replay_judge_mode",
+  "premium_unity_spatial_shell_2",
+  "controlled_timemark_authoring",
+  "ai_hud_contract_hardening",
+  "institution_lite_content_compiler",
+  "spatial_audio_gesture_feedback_pack",
+  "one-wall A1/A2/A3/User B Rokid spatial memory loop",
+  "regression check or release/evidence assertion",
+  "visual polish alone is not enough"
+];
+
 const requiredCombinedDirection = [
   "Space API",
   "write-back",
@@ -173,6 +188,7 @@ async function main() {
   const fieldMarkers = JSON.parse(sources.fieldMarkers);
   const directionChecks = includesAll(sources.goal, requiredGoalDirection);
   const reviewerChecks = includesAll(sources.goal, requiredGoalReviewerTokens);
+  const longModuleChecks = includesAll(sources.goal, requiredLongModuleTokens);
   const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}\n${sources.apiRouter}\n${sources.deviceRuntime}`, requiredCombinedDirection);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
@@ -200,6 +216,7 @@ async function main() {
   const failures = [
     ...directionChecks.filter((item) => !item.ok).map((item) => `active goal missing: ${item.needle}`),
     ...reviewerChecks.filter((item) => !item.ok).map((item) => `Kepler reviewer rule missing: ${item.needle}`),
+    ...longModuleChecks.filter((item) => !item.ok).map((item) => `hardware-independent long module missing: ${item.needle}`),
     ...combinedDirectionChecks.filter((item) => !item.ok).map((item) => `mainline contract missing: ${item.needle}`),
     ...webChecks.filter((item) => !item.ok).map((item) => `web module missing: ${item.needle}`),
     ...contractChecks.filter((item) => !item.ok).map((item) => `contract token missing: ${item.needle}`),
@@ -236,6 +253,16 @@ async function main() {
     contract_tokens: requiredContractTokens.length,
     unity_tokens: requiredUnityTokens.length,
     storage_tokens: requiredStorageTokens.length,
+    long_modules: [
+      "a1_spatial_entry_experience",
+      "story_graph_mission_runtime_v2",
+      "evidence_replay_judge_mode",
+      "premium_unity_spatial_shell_2",
+      "controlled_timemark_authoring",
+      "ai_hud_contract_hardening",
+      "institution_lite_content_compiler",
+      "spatial_audio_gesture_feedback_pack"
+    ],
     reviewer: "Kepler",
     field_markers: fieldMarkers.markers.map((marker) => marker.marker_id),
     sqlite_backup_tokens: requiredBackupTokens.length

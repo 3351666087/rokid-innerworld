@@ -78,13 +78,24 @@ namespace InnerWorld.Rokid
         private string currentGazeAnchorLabel = string.Empty;
         private bool currentGazeSelecting;
         private string selectedAnchorId = string.Empty;
+        private bool a1SpatialEntryLocked;
+        private bool a1SpatialEntryConfirmed;
+        private string a1EntryLockState = RokidA1SpatialEntryStates.WaitingForA1;
+        private string entryConfirmationStatus = "entry_confirmation_pending";
+        private string spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
+        private string spatialLayerTransitionLabel = "Spatial layer waits for A1 deliberate confirmation.";
+        private float a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
         private GameObject gazeReticle;
         private LineRenderer gazeReticleLine;
         private Material gazeReticleMaterial;
         private float visualClockSeconds;
 
+        private const string A1EntryAnchorId = "A1";
         private const float GazeHitRadiusMeters = 0.16f;
         private const int GazeReticleSegments = 48;
+        private const float A1EntryConfirmMinDistanceMeters = 0.4f;
+        private const float A1EntryConfirmMaxDistanceMeters = 0.5f;
+        private const float A1EntryConfirmationFallbackDistanceMeters = 0.45f;
         private const string UnityClientVersion = "unity-runtime-0.2.0";
         private const string OperatorPairingCodeEnv = "INNERWORLD_OPERATOR_PAIRING_CODE";
         private const string OperatorPairingCodeArg = "--innerworld-pairing-code";
@@ -115,7 +126,7 @@ namespace InnerWorld.Rokid
             TickPremiumSpatialSurfaces();
 
             if (Input.GetKeyDown(KeyCode.R)) StartCoroutine(BootstrapAndLoadSpace());
-            if (!IsRokidInputActive() && Input.GetKeyDown(KeyCode.Space)) CompleteNextStep();
+            if (!IsRokidInputActive() && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) ConfirmEntryOrCompleteNextStep();
             if (Input.GetKeyDown(KeyCode.S)) StartCoroutine(PostServiceAction());
             if (Input.GetKeyDown(KeyCode.W)) StartCoroutine(PostWriteBack());
             if (Input.GetKeyDown(KeyCode.B)) StartCoroutine(SwitchUserB());
@@ -124,6 +135,7 @@ namespace InnerWorld.Rokid
 
         private IEnumerator BootstrapAndLoadSpace()
         {
+            ResetA1SpatialEntryExperience();
             EnsureApiClient();
             yield return LoadBootstrap();
             yield return LoadDeviceManifest();
@@ -298,6 +310,10 @@ namespace InnerWorld.Rokid
             {
                 missionState.SelectAnchor(selectedAnchorId, anchor != null ? anchor.label : string.Empty, anchor != null ? anchor.kind : string.Empty);
             }
+            if (IsA1EntryAnchor(selectedAnchorId))
+            {
+                PrimeA1SpatialEntryLock("anchor_select");
+            }
 
             BeaconData[] beacons = FindBeacons(anchorId);
             string beaconLine = beacons.Length == 0 ? "No beacon yet" : beacons[beacons.Length - 1].display_text;
@@ -306,6 +322,99 @@ namespace InnerWorld.Rokid
             SetDetail(beaconLine + "\n" + GetMissionLine());
             RefreshAnchorVisualStates();
             RefreshTargetHud();
+        }
+
+        private void ConfirmEntryOrCompleteNextStep()
+        {
+            if (ShouldConfirmA1SpatialEntry())
+            {
+                ConfirmA1SpatialEntryExperience("keyboard_confirm");
+                return;
+            }
+
+            CompleteNextStep();
+        }
+
+        private bool ShouldConfirmA1SpatialEntry()
+        {
+            return !a1SpatialEntryConfirmed && IsA1EntryAnchor(CurrentActiveAnchorId());
+        }
+
+        private void ResetA1SpatialEntryExperience()
+        {
+            a1SpatialEntryLocked = false;
+            a1SpatialEntryConfirmed = false;
+            a1EntryLockState = RokidA1SpatialEntryStates.WaitingForA1;
+            entryConfirmationStatus = "entry_confirmation_pending";
+            spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
+            spatialLayerTransitionLabel = "Spatial layer waits for A1 deliberate confirmation.";
+            a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
+            ApplyLocalA1SpatialEntryToMissionState();
+        }
+
+        private void PrimeA1SpatialEntryLock(string source)
+        {
+            if (a1SpatialEntryConfirmed)
+            {
+                return;
+            }
+
+            a1SpatialEntryLocked = true;
+            a1EntryLockState = RokidA1SpatialEntryStates.LockCandidate;
+            entryConfirmationStatus = "entry_confirmation_ready";
+            spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
+            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 开启空间层.";
+            ApplyLocalA1SpatialEntryToMissionState();
+        }
+
+        private void ConfirmA1SpatialEntryExperience(string source)
+        {
+            selectedAnchorId = A1EntryAnchorId;
+            AnchorData anchor = FindAnchor(A1EntryAnchorId);
+            a1SpatialEntryLocked = true;
+            a1SpatialEntryConfirmed = true;
+            a1EntryLockState = RokidA1SpatialEntryStates.DeliberateConfirmed;
+            entryConfirmationStatus = "entry_confirmation_confirmed";
+            spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerOpening;
+            spatialLayerTransitionLabel = "开启空间层 transition armed from A1 deliberate confirmation.";
+            a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
+
+            if (missionState != null)
+            {
+                missionState.SelectAnchor(A1EntryAnchorId, anchor != null ? anchor.label : "Entry Poster", anchor != null ? anchor.kind : "entry");
+            }
+            ApplyLocalA1SpatialEntryToMissionState();
+            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation · 开启空间层 · fallback is not hardware ready");
+            RefreshAnchorVisualStates();
+            RefreshHud();
+        }
+
+        private void ApplyLocalA1SpatialEntryToMissionState()
+        {
+            if (missionState == null || missionState.ar_shell == null)
+            {
+                return;
+            }
+
+            missionState.ar_shell.SetA1SpatialEntryExperience(
+                "a1_spatial_entry_experience",
+                a1EntryLockState,
+                A1EntryLockLabel(),
+                entryConfirmationStatus,
+                A1EntryConfirmMinDistanceMeters,
+                A1EntryConfirmMaxDistanceMeters,
+                a1EntryConfirmationDistanceMeters,
+                spatialLayerTransitionState,
+                spatialLayerTransitionLabel,
+                false);
+
+            if (a1SpatialEntryConfirmed)
+            {
+                missionState.ar_shell.SetSpatialEntry(
+                    RokidSpatialEntryStates.A1EntryConfirmed,
+                    "Spatial entry: A1 deliberate confirmation, fallback not hardware ready");
+            }
+            missionState.ar_shell.RefreshStatusLabel();
         }
 
         private IEnumerator LoadSpace()
@@ -875,6 +984,7 @@ namespace InnerWorld.Rokid
             return missionLine
                 + "\n" + MissionProgressLabel() + " | anchors " + SafeAnchors().Length + " | beacons " + SafeBeacons().Length
                 + "\nDevice " + ShortId(deviceSessionId) + " | " + PairingHudBadge() + " | " + AdapterBoundaryLabel()
+                + "\nEntry " + BuildA1SpatialEntryHudLine()
                 + "\nAdapter " + BuildAdapterReadinessStatusLine()
                 + "\nWall " + WallCalibrationHudBadge() + " | " + BuildFieldMarkerReadinessLine()
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
@@ -1353,6 +1463,10 @@ namespace InnerWorld.Rokid
                 AnchorData anchor = FindAnchor(currentGazeAnchorId);
                 missionState.FocusAnchor(currentGazeAnchorId, currentGazeAnchorLabel, anchor != null ? anchor.kind : string.Empty);
             }
+            if (IsA1EntryAnchor(currentGazeAnchorId))
+            {
+                PrimeA1SpatialEntryLock("gaze_focus");
+            }
 
             UpdateGazeReticle(hitPoint, isSelecting, currentGazeAnchorId == selectedAnchorId);
             RefreshAnchorVisualStates();
@@ -1524,6 +1638,7 @@ namespace InnerWorld.Rokid
         {
             FieldMarkerAnchor marker = ResolveCurrentFieldMarkerAnchor();
             return SpatialFocusLine()
+                + "\n" + BuildA1SpatialEntryHudLine()
                 + "\n" + FieldMarkerTargetSummary(marker)
                 + "\n" + ImageTargetAssetCardLine(marker)
                 + "\n" + CalibrationCompactLine()
@@ -1537,6 +1652,54 @@ namespace InnerWorld.Rokid
             string mode = string.IsNullOrEmpty(selectedAnchorId) ? "focus" : "locked";
             if (!string.IsNullOrEmpty(currentGazeAnchorId) && currentGazeSelecting) mode = "selecting";
             return mode.ToUpperInvariant() + " " + focusAnchor + " | " + label;
+        }
+
+        private string BuildA1SpatialEntryHudLine()
+        {
+            return "a1_spatial_entry_experience | " + a1EntryLockState
+                + " | " + entryConfirmationStatus
+                + " | " + A1EntryConfirmationWindowLabel()
+                + " | " + spatialLayerTransitionState
+                + " | " + spatialLayerTransitionLabel
+                + " | fallback_not_hardware_ready";
+        }
+
+        private string BuildA1SpatialEntryHeartbeatLine()
+        {
+            return "a1_spatial_entry_experience: a1_lock_state " + a1EntryLockState
+                + ", entry_confirmation_status " + entryConfirmationStatus
+                + ", confirmation_window_m " + A1EntryConfirmMinDistanceMeters.ToString("0.00") + "-" + A1EntryConfirmMaxDistanceMeters.ToString("0.00")
+                + ", confirmation_distance_m " + a1EntryConfirmationDistanceMeters.ToString("0.00")
+                + ", spatial_layer_transition_state " + spatialLayerTransitionState
+                + ", readiness " + A1SpatialEntryReadinessStatus()
+                + ", fallback_hardware_ready false";
+        }
+
+        private string A1SpatialEntryReadinessStatus()
+        {
+            if (a1SpatialEntryConfirmed) return "ready_to_open_spatial_layer";
+            if (a1SpatialEntryLocked) return "ready_for_deliberate_confirmation";
+            return "waiting_for_a1_lock";
+        }
+
+        private string A1EntryLockLabel()
+        {
+            if (a1SpatialEntryConfirmed)
+            {
+                return "A1 lock confirmed at " + A1EntryConfirmationFallbackDistanceMeters.ToString("0.00") + "m; fallback does not claim hardware ready";
+            }
+
+            if (a1SpatialEntryLocked)
+            {
+                return "A1 lock candidate; deliberate confirmation window " + A1EntryConfirmationWindowLabel();
+            }
+
+            return "A1 lock waiting; stand near Entry Poster before opening spatial layer";
+        }
+
+        private string A1EntryConfirmationWindowLabel()
+        {
+            return A1EntryConfirmMinDistanceMeters.ToString("0.0") + "m-" + A1EntryConfirmMaxDistanceMeters.ToString("0.0") + "m deliberate confirmation";
         }
 
         private string FieldMarkerTargetSummary(FieldMarkerAnchor marker)
@@ -1629,6 +1792,7 @@ namespace InnerWorld.Rokid
                 + "  ->  " + RadarAnchorSegment("A3", "WRITE")
                 + "\n" + MissionProgressLabel()
                 + " | " + SpatialLockQualityLabel()
+                + " | A1 " + A1SpatialEntryReadinessStatus()
                 + " | " + ArShellStatusCompactLabel()
                 + " | " + PairingHudBadge()
                 + " | " + FieldAcceptanceHudBadge();
@@ -1854,10 +2018,11 @@ namespace InnerWorld.Rokid
             string adapterReadiness = BuildAdapterReadinessCompactLine();
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status
                 + "\nSERVER " + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + CurrentDeviceProfile() + " | " + acceptanceStatus
+                + "\nENTRY " + BuildA1SpatialEntryHudLine()
                 + "\nADAPTER " + adapterReadiness;
             if (systemText != null)
             {
-                systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation + " | " + adapterReadiness;
+                systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + A1SpatialEntryReadinessStatus() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation + " | " + adapterReadiness;
             }
         }
 
@@ -2076,6 +2241,7 @@ namespace InnerWorld.Rokid
             if (missionState != null && presentationStrategy != null)
             {
                 missionState.ApplyPresentationStrategy(presentationStrategy);
+                ApplyLocalA1SpatialEntryToMissionState();
             }
         }
 
@@ -2140,7 +2306,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -2383,8 +2549,8 @@ namespace InnerWorld.Rokid
                 input_ray_ready = false,
                 pointable_ui_ready = false,
                 pointable_ui_curve_ready = false,
-                a1_entry_lock_ready = false,
-                entry_lock_ready = false,
+                a1_entry_lock_ready = IsA1EntryLockReady(),
+                entry_lock_ready = IsA1EntryLockReady(),
                 qr_entry_lock_ready = false,
                 image_tracking_ready = false,
                 image_target_library_ready = false,
@@ -2398,7 +2564,7 @@ namespace InnerWorld.Rokid
                 hardware_proof_ready = false,
                 performance_gate_ready = false,
                 fps_target_ready = false,
-                spatial_panels_readable = false
+                spatial_panels_readable = a1SpatialEntryConfirmed
             };
         }
 
@@ -2412,6 +2578,7 @@ namespace InnerWorld.Rokid
         private string BuildFieldAcceptanceHeartbeatMessage(string sdkMessage)
         {
             return BuildWallCalibrationHeartbeatMessage(sdkMessage)
+                + " | " + BuildA1SpatialEntryHeartbeatLine()
                 + " | " + BuildAdapterReadinessHeartbeatLine()
                 + " | " + BuildFieldAcceptanceHeartbeatLine()
                 + " | " + BuildFieldAcceptanceBlockingLine();
@@ -2444,17 +2611,19 @@ namespace InnerWorld.Rokid
                 + " | RKCameraRig " + AdapterChecklistItemStatus("rk_camera_rig", "rokid_pose_provider")
                 + " | RKInput 3DoF ray " + AdapterChecklistItemStatus("rk_input_3dof_ray", "rokid_arstudio_input")
                 + " | PointableUI " + AdapterChecklistItemStatus("pointable_ui", "unity_overlay_renderer")
+                + " | A1 entry lock " + A1EntryAdapterStatus()
                 + " | A2/A3 ImageTracking " + AdapterChecklistItemStatus("a2_a3_image_tracking", "image_tracking")
                 + " | SLAM heartbeat " + AdapterChecklistItemStatus("slam_heartbeat", "rokid_pose_provider");
         }
 
         private string AdapterChecklistSummaryLabel()
         {
-            int total = 5;
+            int total = 6;
             int ready = 0;
             if (IsAdapterChecklistItemReady("rk_camera_rig", "rokid_pose_provider")) ready++;
             if (IsAdapterChecklistItemReady("rk_input_3dof_ray", "rokid_arstudio_input")) ready++;
             if (IsAdapterChecklistItemReady("pointable_ui", "unity_overlay_renderer")) ready++;
+            if (IsA1EntryLockReady()) ready++;
             if (IsAdapterChecklistItemReady("a2_a3_image_tracking", "image_tracking")) ready++;
             if (IsAdapterChecklistItemReady("slam_heartbeat", "rokid_pose_provider")) ready++;
 
@@ -2487,6 +2656,24 @@ namespace InnerWorld.Rokid
             }
 
             return HasAdapterSlot(fallbackSlotId) && CurrentSdkBindingReport().LiveBindingReady;
+        }
+
+        private bool IsA1EntryLockReady()
+        {
+            return a1SpatialEntryConfirmed
+                && string.Equals(a1EntryLockState, RokidA1SpatialEntryStates.DeliberateConfirmed, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string A1EntryAdapterStatus()
+        {
+            if (IsA1EntryLockReady()) return "rehearsal_confirmed";
+            if (a1SpatialEntryLocked) return "candidate_0.45m";
+            return "pending_0.4m_0.5m";
+        }
+
+        private bool IsA1EntryAnchor(string anchorId)
+        {
+            return string.Equals(anchorId, A1EntryAnchorId, StringComparison.OrdinalIgnoreCase);
         }
 
         private DeviceAdapterChecklistItem FindAdapterChecklistItem(string checklistId)

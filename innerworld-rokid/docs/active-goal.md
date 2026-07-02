@@ -53,6 +53,31 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Localhost-first server release and deploy dry-run chain.
 - Printable field kit and release evidence.
 
+## Hardware-Independent Long Modules
+
+While waiting for physical hardware, SDK account access, or live Rokid package binding, long-running worker agents may advance difficult modules that can be completed on localhost/LAN, SQLite, Web operator console, and Unity fallback without changing the final product direction.
+
+P0.5 modules:
+
+- `a1_spatial_entry_experience`: A1 lock state, spatial recognition frame, 0.4m-0.5m deliberate confirmation, entry transition, HUD/heartbeat fields, and Web operator observation. This must feel like the Rokid glasses opening a layer on the real wall, not a phone scan page or Web reveal.
+- `story_graph_mission_runtime_v2`: model A1 entry, A2 memory read, A3 write-back, and User B readback as a controlled spatial task graph backed by Space API and SQLite. It must stay scoped to one wall and three anchors, not a broad campus route or task platform.
+- `evidence_replay_judge_mode`: create a sanitized replay chain proving A1 -> A2 -> A3 -> User B, SQLite write-back, field acceptance, and release evidence. This is for competition judging and field proof, not an institution analytics dashboard.
+
+P1 modules:
+
+- `premium_unity_spatial_shell_2`: strengthen radar, anchor halo, route, near/far layout, transition states, overlap protection, performance budgets, and low-noise motion in Unity fallback so the audience runtime reads as a polished spatial product.
+- `controlled_timemark_authoring`: make A3 write-back richer but still bounded: local sanitized text/media metadata, review/cleaning state, User B visibility, and AI semantic compression. This is not open UGC social, public voice upload, or a personal homepage.
+- `ai_hud_contract_hardening`: version AI schemas/prompts, add fixtures and negative tests, keep AI as a spatial task interpreter and content reducer rather than a chatbot or generic guide writer.
+
+P2 reference modules:
+
+- `institution_lite_content_compiler`: offline JSON/YAML-to-space compiler for changing wall content at build time. It is not a live institution backend, account system, or operations dashboard.
+- `spatial_audio_gesture_feedback_pack`: controlled A2 memory or A3 confirmation audio and gesture-state feedback. Audio must be user-initiated, never autoplaying UGC.
+
+All of these modules must answer yes to the same mainline test: they strengthen the one-wall A1/A2/A3/User B Rokid spatial memory loop, reuse the existing Space API / SQLite / shared contract, and avoid parallel state models. Simulator/manual/local rehearsal remains rehearsal only and must never be counted as hardware readiness.
+
+Each module must ship with at least one regression check or release/evidence assertion before it can be marked complete; visual polish alone is not enough for mainline acceptance.
+
 ## Current Checkpoint
 
 - Latest implementation checkpoint: the project now has a Field Acceptance runtime bus that turns the field marker/calibration/release/hardware state into one executable site gate contract.

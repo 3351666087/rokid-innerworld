@@ -66,6 +66,184 @@
     "mission_id": "M_FIND_YEAR",
     "state": "entered",
     "title": "寻找隐藏年份",
+    "story_graph": {
+      "contract_id": "story_graph_mission_runtime_v2",
+      "schema": "innerworld-story-graph-mission-runtime/v2",
+      "runtime_scope": "hardware_independent_first_slice",
+      "final_direction": "real Rokid campus wall A1/A2/A3",
+      "scope_guard": {
+        "campus_wall_only": true,
+        "generic_tour_or_ugc": false,
+        "open_ugc": false,
+        "phone_or_ppt_primary": false,
+        "required_anchor_ids": ["A1", "A2", "A3"]
+      },
+      "nodes": [
+        {
+          "node_id": "a1_entry",
+          "label": "A1 entry",
+          "actor": "User A",
+          "anchor_id": "A1",
+          "role": "entry",
+          "mission_state": "entered",
+          "guard_ids": ["a1_entry_confirmed"],
+          "endpoint_keys": ["device_bootstrap", "interactions"],
+          "action_ids": ["confirm_a1_entry"],
+          "legacy_step_ids": []
+        },
+        {
+          "node_id": "a2_memory",
+          "label": "A2 memory",
+          "actor": "User A",
+          "anchor_id": "A2",
+          "role": "memory",
+          "mission_state": "reading",
+          "guard_ids": ["a2_memory_read"],
+          "endpoint_keys": ["ai_hud", "interactions"],
+          "action_ids": ["read_a2_memory", "resolve_a2_memory"],
+          "legacy_step_ids": ["read", "find_year"]
+        },
+        {
+          "node_id": "a3_write_back",
+          "label": "A3 write_back",
+          "actor": "User A",
+          "anchor_id": "A3",
+          "role": "write_back",
+          "mission_state": "writing",
+          "guard_ids": ["a3_write_back_committed"],
+          "endpoint_keys": ["ai_hud", "write_back"],
+          "action_ids": ["submit_a3_write_back"],
+          "legacy_step_ids": ["write_back"]
+        },
+        {
+          "node_id": "user_b_readback",
+          "label": "User B readback",
+          "actor": "User B",
+          "anchor_id": "A3",
+          "role": "readback",
+          "mission_state": "complete",
+          "guard_ids": ["user_b_can_read_back"],
+          "endpoint_keys": ["state", "evidence_chain"],
+          "action_ids": ["verify_user_b_readback"],
+          "legacy_step_ids": []
+        }
+      ],
+      "edges": [
+        {
+          "edge_id": "a1_to_a2",
+          "from": "a1_entry",
+          "to": "a2_memory",
+          "guard_id": "a1_entry_confirmed",
+          "endpoint_key": "interactions",
+          "action_id": "confirm_a1_entry"
+        },
+        {
+          "edge_id": "a2_to_a3",
+          "from": "a2_memory",
+          "to": "a3_write_back",
+          "guard_id": "a2_memory_read",
+          "endpoint_key": "interactions",
+          "action_id": "resolve_a2_memory"
+        },
+        {
+          "edge_id": "a3_to_user_b",
+          "from": "a3_write_back",
+          "to": "user_b_readback",
+          "guard_id": "a3_write_back_committed",
+          "endpoint_key": "write_back",
+          "action_id": "submit_a3_write_back"
+        }
+      ],
+      "guards": [
+        {
+          "guard_id": "a1_entry_confirmed",
+          "label": "A1 entry confirmed",
+          "endpoint_key": "interactions",
+          "requires": ["anchor_id:A1", "actor:User A", "campus_wall_context"]
+        },
+        {
+          "guard_id": "a2_memory_read",
+          "label": "A2 memory read",
+          "endpoint_key": "interactions",
+          "requires": ["anchor_id:A2", "completed_steps:read", "completed_steps:find_year"]
+        },
+        {
+          "guard_id": "a3_write_back_committed",
+          "label": "A3 write-back committed",
+          "endpoint_key": "write_back",
+          "requires": ["anchor_id:A3", "layer:time_capsule", "review_visibility"]
+        },
+        {
+          "guard_id": "user_b_can_read_back",
+          "label": "User B sees wall memory after write-back",
+          "endpoint_key": "state",
+          "requires": ["actor:User B", "mission_state:complete", "beacon_count_increased"]
+        }
+      ],
+      "actions": [
+        {
+          "action_id": "confirm_a1_entry",
+          "label": "Confirm A1 entry",
+          "endpoint_key": "interactions",
+          "method": "POST",
+          "payload": {
+            "user_id": "A",
+            "anchor_id": "A1",
+            "graph_node_id": "a1_entry",
+            "mission_state": "entered"
+          }
+        },
+        {
+          "action_id": "read_a2_memory",
+          "label": "Read A2 memory",
+          "endpoint_key": "interactions",
+          "method": "POST",
+          "payload": {
+            "user_id": "A",
+            "anchor_id": "A2",
+            "graph_node_id": "a2_memory",
+            "step_id": "read",
+            "mission_state": "reading"
+          }
+        },
+        {
+          "action_id": "resolve_a2_memory",
+          "label": "Resolve A2 memory clue",
+          "endpoint_key": "interactions",
+          "method": "POST",
+          "payload": {
+            "user_id": "A",
+            "anchor_id": "A2",
+            "graph_node_id": "a2_memory",
+            "step_id": "find_year",
+            "mission_state": "doing"
+          }
+        },
+        {
+          "action_id": "submit_a3_write_back",
+          "label": "Submit A3 write-back",
+          "endpoint_key": "write_back",
+          "method": "POST",
+          "payload": {
+            "user_id": "A",
+            "anchor_id": "A3",
+            "graph_node_id": "a3_write_back",
+            "layer": "time_capsule"
+          }
+        },
+        {
+          "action_id": "verify_user_b_readback",
+          "label": "Verify User B readback",
+          "endpoint_key": "state",
+          "method": "GET",
+          "payload": {
+            "user_id": "B",
+            "anchor_id": "A3",
+            "graph_node_id": "user_b_readback"
+          }
+        }
+      ]
+    },
     "steps": [
       {
         "step_id": "read",

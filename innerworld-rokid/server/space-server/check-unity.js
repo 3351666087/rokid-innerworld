@@ -86,6 +86,11 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("FindAdapterChecklistItem"), "Unity controller adapter checklist lookup missing");
   assert(controller.includes("RKCameraRig") && controller.includes("RKInput 3DoF ray") && controller.includes("PointableUI"), "Unity controller Rokid live adapter checklist UI missing");
   assert(controller.includes("A2/A3 ImageTracking") && controller.includes("SLAM heartbeat"), "Unity controller image tracking / SLAM checklist UI missing");
+  assert(controller.includes("a1_spatial_entry_experience"), "Unity controller A1 spatial entry contract missing");
+  assert(controller.includes("A1EntryConfirmMinDistanceMeters = 0.4f") && controller.includes("A1EntryConfirmMaxDistanceMeters = 0.5f"), "Unity controller A1 deliberate confirmation window must be 0.4m-0.5m");
+  assert(controller.includes("BuildA1SpatialEntryHudLine") && controller.includes("BuildA1SpatialEntryHeartbeatLine"), "Unity controller A1 entry HUD/heartbeat lines missing");
+  assert(controller.includes("entry_confirmation_status") && controller.includes("spatial_layer_transition_state") && controller.includes("开启空间层"), "Unity controller A1 confirmation / spatial layer transition fields missing");
+  assert(controller.includes("fallback_not_hardware_ready") && controller.includes("fallback_hardware_ready false"), "Unity controller fallback must not claim hardware ready for A1 entry");
   assert(controller.includes("bootstrap.endpoints.wall_calibration"), "Unity controller bootstrap wall calibration endpoint missing");
   assert(controller.includes("apiClient.WallCalibrationUrl"), "Unity controller wall calibration fallback URL missing");
   assert(controller.includes("JsonUtility.FromJson<WallCalibrationManifest>"), "Unity controller wall calibration manifest parsing missing");
@@ -152,10 +157,19 @@ async function assertUnityAdapterBoundary() {
   assert(/BuildFieldMarkerImageTargetAssetLine\(FieldMarkerAnchor marker\)[\s\S]*marker\.image_target_asset[\s\S]*asset\.asset_id[\s\S]*asset\.unity_target_library_status[\s\S]*asset\.rokid_import_status[\s\S]*ImageTargetPhysicalSizeLabel\(asset\)[\s\S]*asset\.dpi[\s\S]*asset\.print_version[\s\S]*ShortSha\(asset\.sha256\)[\s\S]*asset\.asset_path/.test(controller), "Unity controller image target asset line must consume required asset fields");
   assert(/ImageTargetPhysicalSizeLabel\(FieldMarkerImageTargetAsset asset\)[\s\S]*asset\.physical_width_mm[\s\S]*asset\.physical_height_mm/.test(controller), "Unity controller image target asset line must consume physical target dimensions");
   assert(/BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*FieldAcceptanceReadyForHardwareFlag[\s\S]*FieldAcceptanceHardwareEvidenceCount[\s\S]*FieldAcceptanceTrackingGuardLabel[\s\S]*simulator_rehearsal_is_not_hardware_ready/.test(controller), "Unity controller field acceptance heartbeat must include hardware evidence and simulator guard flags");
+  assert(controller.includes("a1_spatial_entry_experience"), "Unity controller A1 spatial entry experience token missing");
+  assert(controller.includes("A1EntryConfirmMinDistanceMeters = 0.4f") && controller.includes("A1EntryConfirmMaxDistanceMeters = 0.5f"), "Unity controller A1 deliberate confirmation distance guard missing");
+  assert(controller.includes("ResetA1SpatialEntryExperience") && controller.includes("PrimeA1SpatialEntryLock") && controller.includes("ConfirmA1SpatialEntryExperience"), "Unity controller A1 entry state machine missing");
+  assert(/ConfirmEntryOrCompleteNextStep\(\)[\s\S]*ShouldConfirmA1SpatialEntry\(\)[\s\S]*ConfirmA1SpatialEntryExperience/.test(controller), "Unity controller A1 entry confirmation must gate first action");
+  assert(/BuildA1SpatialEntryHeartbeatLine\(\)[\s\S]*entry_confirmation_status[\s\S]*confirmation_window_m[\s\S]*fallback_hardware_ready false/.test(controller), "Unity controller A1 heartbeat must expose confirmation and fallback guard");
+  assert(/BuildSdkBindingStatusPayload[\s\S]*adapter_checklist = BuildAdapterChecklistReportPayload\(report\)/.test(controller), "Unity SDK binding payload must include adapter checklist report");
+  assert(/BuildAdapterChecklistReportPayload\(RokidSdkBindingReport report\)[\s\S]*a1_entry_lock_ready = IsA1EntryLockReady\(\)[\s\S]*spatial_panels_readable = a1SpatialEntryConfirmed/.test(controller), "Unity adapter checklist report must include A1 lock rehearsal signal");
+  assert(controller.includes("fallback_not_hardware_ready") && controller.includes("fallback does not claim hardware ready"), "Unity A1 entry labels must not claim hardware ready");
   assert(/private IEnumerator LoadDeviceManifest\(\)[\s\S]*bootstrap\.endpoints\.device_manifest[\s\S]*apiClient\.DeviceManifestUrl[\s\S]*UnityWebRequest\.Get\(url\)[\s\S]*JsonUtility\.FromJson<DeviceManifestResponse>/.test(controller), "Unity controller must actively GET and parse the device manifest");
-  assert(/BuildAdapterReadinessCompactLine\(\)[\s\S]*RKCameraRig[\s\S]*rk_camera_rig[\s\S]*RKInput 3DoF ray[\s\S]*rk_input_3dof_ray[\s\S]*PointableUI[\s\S]*pointable_ui[\s\S]*A2\/A3 ImageTracking[\s\S]*a2_a3_image_tracking[\s\S]*SLAM heartbeat[\s\S]*slam_heartbeat/.test(controller), "Unity controller adapter readiness must expose RKCameraRig/RKInput/PointableUI/ImageTracking/SLAM checklist");
+  assert(/BuildAdapterReadinessCompactLine\(\)[\s\S]*RKCameraRig[\s\S]*rk_camera_rig[\s\S]*RKInput 3DoF ray[\s\S]*rk_input_3dof_ray[\s\S]*PointableUI[\s\S]*pointable_ui[\s\S]*A1 entry lock[\s\S]*A1EntryAdapterStatus[\s\S]*A2\/A3 ImageTracking[\s\S]*a2_a3_image_tracking[\s\S]*SLAM heartbeat[\s\S]*slam_heartbeat/.test(controller), "Unity controller adapter readiness must expose RKCameraRig/RKInput/PointableUI/A1/ImageTracking/SLAM checklist");
   assert(/BuildAdapterReadinessHeartbeatLine\(\)[\s\S]*BuildAdapterReadinessCompactLine[\s\S]*AdapterChecklistSummaryLabel[\s\S]*live_binding_ready/.test(controller), "Unity controller heartbeat must include adapter readiness checklist status");
   assert(/AdapterChecklistSummaryLabel\(\)[\s\S]*hardware acceptance remains gated/.test(controller), "Unity controller must not claim hardware ready from adapter checklist alone");
+  assert(/BuildAdapterChecklistReportPayload[\s\S]*a1_entry_lock_ready\s*=\s*IsA1EntryLockReady\(\)[\s\S]*entry_lock_ready\s*=\s*IsA1EntryLockReady\(\)[\s\S]*trusted_hardware_proof_ready\s*=\s*false/.test(controller), "Unity controller A1 entry checklist must report local lock without trusted hardware proof");
   assert(/private string BuildRuntimeContractLine\(\)[\s\S]*BuildWallCalibrationStatusLine[\s\S]*BuildFieldMarkerStatusLine[\s\S]*BuildFieldAcceptanceStatusLine/.test(controller), "Unity controller HUD runtime line must expose wall calibration, field marker, and field acceptance status");
   assert(/private string BuildWallCalibrationHeartbeatLine\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerHeartbeatLine[\s\S]*BuildFieldAcceptanceHeartbeatLine/.test(controller), "Unity controller heartbeat payload must expose last calibration observation, field marker status, and field acceptance status");
   assert(/private void RefreshHud\(\)[\s\S]*FieldAcceptanceHudBadge/.test(controller), "Unity controller main HUD must expose field acceptance status");
@@ -164,7 +178,7 @@ async function assertUnityAdapterBoundary() {
   assert(/BuildPremiumTargetCardLine\(string debugLine\)[\s\S]*SpatialFocusLine[\s\S]*FieldMarkerTargetSummary[\s\S]*ImageTargetAssetCardLine[\s\S]*CalibrationCompactLine[\s\S]*AcceptanceCompactLine/.test(controller), "Unity controller premium target card must summarize focus, marker, image asset, calibration, and acceptance");
   assert(/BuildRadarHudLine\(\)[\s\S]*RadarAnchorSegment\("A1"[\s\S]*RadarAnchorSegment\("A2"[\s\S]*RadarAnchorSegment\("A3"[\s\S]*ArShellStatusCompactLabel/.test(controller), "Unity controller radar HUD must expose A1/A2/A3 route and AR shell status");
   assert(/BuildSdkBindingStatusPayload[\s\S]*message = BuildFieldAcceptanceHeartbeatMessage\(report.Message\)/.test(controller), "Unity controller SDK heartbeat payload must include field acceptance status");
-  assert(/private string BuildFieldAcceptanceHeartbeatMessage\(string sdkMessage\)[\s\S]*BuildWallCalibrationHeartbeatMessage\(sdkMessage\)[\s\S]*BuildAdapterReadinessHeartbeatLine\(\)[\s\S]*BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*BuildFieldAcceptanceBlockingLine\(\)/.test(controller), "Unity controller field acceptance heartbeat message must include adapter readiness, wall calibration, acceptance summary, and blockers");
+  assert(/private string BuildFieldAcceptanceHeartbeatMessage\(string sdkMessage\)[\s\S]*BuildWallCalibrationHeartbeatMessage\(sdkMessage\)[\s\S]*BuildA1SpatialEntryHeartbeatLine\(\)[\s\S]*BuildAdapterReadinessHeartbeatLine\(\)[\s\S]*BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*BuildFieldAcceptanceBlockingLine\(\)/.test(controller), "Unity controller field acceptance heartbeat message must include A1 entry, adapter readiness, wall calibration, acceptance summary, and blockers");
   assert(controller.includes("BuildSdkBindingStatusPayload"), "Unity controller SDK binding heartbeat payload missing");
   assert(controller.includes("BuildDeviceRegisterRequest"), "Unity controller device register payload builder missing");
   assert(/\[NonSerialized\]\s+public string operatorPairingCode/.test(controller), "Unity controller pairing code must be non-serialized runtime memory");
@@ -210,10 +224,12 @@ async function assertUnityAdapterBoundary() {
   assert(presentationMode.includes("RokidDiscoveryLayerStates"), "Unity presentation strategy discovery/radar states missing");
   assert(presentationMode.includes("RokidWritebackReadinessStates"), "Unity presentation strategy writeback readiness states missing");
   assert(presentationMode.includes("RokidDeviceSafetyModes"), "Unity presentation strategy operator-safe device states missing");
+  assert(presentationMode.includes("RokidA1SpatialEntryStates") && presentationMode.includes("a1_spatial_entry_experience") && presentationMode.includes("entry_confirmation_min_meters") && presentationMode.includes("fallback_claims_hardware_ready = false"), "Unity presentation strategy A1 spatial entry slice missing");
   assert(presentationMode.includes("premium_metrics"), "Unity presentation strategy premium metrics missing");
   assert(missionState.includes("public InnerWorldArShellState ar_shell"), "Unity mission state AR shell aggregate missing");
   assert(missionState.includes("ApplyPresentationStrategy") && missionState.includes("RefreshArShellState"), "Unity mission state must consume presentation strategy and refresh AR shell state");
   assert(missionState.includes("image_target_lock_quality") && missionState.includes("discovery_radar_anchor_count") && missionState.includes("operator_safe_device_mode"), "Unity mission state AR shell metrics missing");
+  assert(missionState.includes("public string a1_spatial_entry_experience") && missionState.includes("public string entry_confirmation_status") && missionState.includes("public string spatial_layer_transition_state") && missionState.includes("fallback_claims_hardware_ready"), "Unity mission state A1 entry runtime fields missing");
   assert(docs.includes("RokidAdapterResolver.Resolve"), "Rokid adapter boundary docs missing");
   assert(docs.includes("ROKID_UXR"), "Rokid UXR docs missing");
 
@@ -243,9 +259,12 @@ async function assertUnityAdapterBoundary() {
   assert(payloads.includes("public bool rk_camera_rig_ready;") && payloads.includes("public bool a2_a3_image_tracking_ready;") && payloads.includes("public bool trusted_hardware_proof_ready;"), "Unity adapter checklist report keys missing");
   assert(dtos.includes("public sealed class DeviceRuntimeSessionResponse"), "Unity device register response DTO missing");
   assert(dtos.includes("public sealed class DeviceManifestResponse"), "Unity device manifest response DTO missing");
+  assert(dtos.includes("public DeviceA1SpatialEntryExperience a1_spatial_entry_experience;"), "Unity DTO A1 spatial entry field missing");
+  assert(dtos.includes("public sealed class DeviceA1SpatialEntryExperience") && dtos.includes("public string entry_confirmation_status;") && dtos.includes("public string spatial_layer_transition_state;") && dtos.includes("public bool fallback_claims_hardware_ready;"), "Unity DTO A1 spatial entry contract missing");
   assert(dtos.includes("public SpaceApiEndpoint device_adapter_checklist;"), "Unity endpoint DTO device adapter checklist missing");
   assert(dtos.includes("public DeviceAdapterSlot[] adapter_slots;"), "Unity device manifest adapter_slots DTO missing");
   assert(dtos.includes("public DeviceAdapterReadiness adapter_readiness;"), "Unity device manifest adapter_readiness DTO missing");
+  assert(dtos.includes("public DeviceA1SpatialEntryExperience a1_spatial_entry_experience;") && dtos.includes("public bool fallback_claims_hardware_ready;"), "Unity A1 spatial entry DTO missing");
   assert(dtos.includes("public sealed class DeviceAdapterChecklistItem"), "Unity device manifest adapter checklist DTO missing");
   assert(dtos.includes("public RokidSdkBindingManifestStatus sdk_binding_status;"), "Unity device manifest SDK binding status DTO missing");
   assert(dtos.includes("public RokidSdkClientReportContract client_report_contract;"), "Unity SDK binding report contract DTO missing");

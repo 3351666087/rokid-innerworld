@@ -581,6 +581,16 @@ namespace InnerWorld.Rokid.Runtime
     {
         public string spatial_entry_state;
         public string spatial_entry_label;
+        public string a1_spatial_entry_experience;
+        public string a1_entry_lock_state;
+        public string a1_entry_lock_label;
+        public string entry_confirmation_status;
+        public float entry_confirmation_min_meters;
+        public float entry_confirmation_max_meters;
+        public float entry_confirmation_distance_meters;
+        public string spatial_layer_transition_state;
+        public string spatial_layer_transition_label;
+        public bool fallback_claims_hardware_ready;
         public string image_target_lock_state;
         public string image_target_lock_label;
         public float image_target_lock_quality;
@@ -608,6 +618,16 @@ namespace InnerWorld.Rokid.Runtime
             {
                 spatial_entry_state = RokidSpatialEntryStates.SimulatedWall,
                 spatial_entry_label = "Spatial entry: gallery wall rehearsal",
+                a1_spatial_entry_experience = "a1_spatial_entry_experience",
+                a1_entry_lock_state = RokidA1SpatialEntryStates.WaitingForA1,
+                a1_entry_lock_label = "A1 lock: waiting for entry poster focus",
+                entry_confirmation_status = "entry_confirmation_pending",
+                entry_confirmation_min_meters = 0.4f,
+                entry_confirmation_max_meters = 0.5f,
+                entry_confirmation_distance_meters = 0.45f,
+                spatial_layer_transition_state = RokidA1SpatialEntryStates.SpatialLayerStandby,
+                spatial_layer_transition_label = "开启空间层 waits for deliberate A1 confirmation",
+                fallback_claims_hardware_ready = false,
                 image_target_lock_state = RokidImageTargetLockStates.Searching,
                 image_target_lock_label = "Image target lock: scanning wall targets",
                 image_target_lock_quality = 0.35f,
@@ -644,6 +664,21 @@ namespace InnerWorld.Rokid.Runtime
             if (!string.IsNullOrWhiteSpace(strategy.spatial_entry_state) || !string.IsNullOrWhiteSpace(strategy.spatial_entry_label))
             {
                 SetSpatialEntry(strategy.spatial_entry_state, strategy.spatial_entry_label);
+            }
+
+            if (!string.IsNullOrWhiteSpace(strategy.a1_spatial_entry_experience) || !string.IsNullOrWhiteSpace(strategy.a1_entry_lock_state))
+            {
+                SetA1SpatialEntryExperience(
+                    strategy.a1_spatial_entry_experience,
+                    strategy.a1_entry_lock_state,
+                    strategy.a1_entry_lock_label,
+                    strategy.entry_confirmation_status,
+                    strategy.entry_confirmation_min_meters,
+                    strategy.entry_confirmation_max_meters,
+                    0.45f,
+                    strategy.spatial_layer_transition_state,
+                    strategy.spatial_layer_transition_label,
+                    strategy.fallback_claims_hardware_ready);
             }
 
             if (!string.IsNullOrWhiteSpace(strategy.image_target_lock_state) || !string.IsNullOrWhiteSpace(strategy.image_target_lock_label))
@@ -714,6 +749,30 @@ namespace InnerWorld.Rokid.Runtime
             spatial_entry_label = CleanOrDefault(label, "Spatial entry: gallery wall rehearsal");
         }
 
+        public void SetA1SpatialEntryExperience(
+            string experience,
+            string lockState,
+            string lockLabel,
+            string confirmationStatus,
+            float minMeters,
+            float maxMeters,
+            float distanceMeters,
+            string transitionState,
+            string transitionLabel,
+            bool fallbackHardwareReady)
+        {
+            a1_spatial_entry_experience = CleanOrDefault(experience, "a1_spatial_entry_experience");
+            a1_entry_lock_state = CleanOrDefault(lockState, RokidA1SpatialEntryStates.WaitingForA1);
+            a1_entry_lock_label = CleanOrDefault(lockLabel, "A1 lock: waiting for entry poster focus");
+            entry_confirmation_status = CleanOrDefault(confirmationStatus, "entry_confirmation_pending");
+            entry_confirmation_min_meters = ClampDistance(minMeters, 0.4f);
+            entry_confirmation_max_meters = ClampDistance(maxMeters, 0.5f);
+            entry_confirmation_distance_meters = ClampDistance(distanceMeters, 0.45f);
+            spatial_layer_transition_state = CleanOrDefault(transitionState, RokidA1SpatialEntryStates.SpatialLayerStandby);
+            spatial_layer_transition_label = CleanOrDefault(transitionLabel, "开启空间层 waits for deliberate A1 confirmation");
+            fallback_claims_hardware_ready = fallbackHardwareReady;
+        }
+
         public void SetImageTargetLock(string state, string label, float quality)
         {
             image_target_lock_state = CleanOrDefault(state, RokidImageTargetLockStates.Searching);
@@ -753,8 +812,9 @@ namespace InnerWorld.Rokid.Runtime
 
         public void RefreshStatusLabel()
         {
-            status_label = "AR shell | " + ShortLabel(spatial_entry_label) + " | " + ShortLabel(image_target_lock_label) + " | " + ShortLabel(writeback_readiness_label);
+            status_label = "AR shell | " + ShortLabel(spatial_entry_label) + " | " + ShortLabel(a1_entry_lock_label) + " | " + ShortLabel(spatial_layer_transition_label) + " | " + ShortLabel(image_target_lock_label) + " | " + ShortLabel(writeback_readiness_label);
             metrics_label = "progress " + PercentLabel(progress_ratio)
+                + " | a1 " + PercentLabel(A1EntryScore(a1_entry_lock_state))
                 + " | target " + PercentLabel(image_target_lock_quality)
                 + " | radar " + discovery_radar_anchor_count.ToString();
             metrics = BuildMetrics();
@@ -766,6 +826,16 @@ namespace InnerWorld.Rokid.Runtime
             {
                 spatial_entry_state = spatial_entry_state,
                 spatial_entry_label = spatial_entry_label,
+                a1_spatial_entry_experience = a1_spatial_entry_experience,
+                a1_entry_lock_state = a1_entry_lock_state,
+                a1_entry_lock_label = a1_entry_lock_label,
+                entry_confirmation_status = entry_confirmation_status,
+                entry_confirmation_min_meters = entry_confirmation_min_meters,
+                entry_confirmation_max_meters = entry_confirmation_max_meters,
+                entry_confirmation_distance_meters = entry_confirmation_distance_meters,
+                spatial_layer_transition_state = spatial_layer_transition_state,
+                spatial_layer_transition_label = spatial_layer_transition_label,
+                fallback_claims_hardware_ready = fallback_claims_hardware_ready,
                 image_target_lock_state = image_target_lock_state,
                 image_target_lock_label = image_target_lock_label,
                 image_target_lock_quality = image_target_lock_quality,
@@ -795,6 +865,7 @@ namespace InnerWorld.Rokid.Runtime
             {
                 InnerWorldArShellMetric.Create("mission_progress", "Mission progress", "percent", progress_ratio, active_step_id),
                 InnerWorldArShellMetric.Create("spatial_entry", "Spatial entry", "quality", SpatialEntryScore(spatial_entry_state), spatial_entry_state),
+                InnerWorldArShellMetric.Create("a1_spatial_entry_experience", "A1 spatial entry", "readiness", A1EntryScore(a1_entry_lock_state), a1_entry_lock_state),
                 InnerWorldArShellMetric.Create("image_target_lock", "Image target lock", "quality", image_target_lock_quality, image_target_lock_state),
                 InnerWorldArShellMetric.Create("discovery_radar", "Discovery/radar layer", "anchors", discovery_radar_anchor_count, discovery_layer_state),
                 InnerWorldArShellMetric.Create("writeback_readiness", "Writeback readiness", "readiness", writeback_ready ? 1f : 0.42f, writeback_readiness_state),
@@ -821,8 +892,18 @@ namespace InnerWorld.Rokid.Runtime
         private static float SpatialEntryScore(string state)
         {
             if (string.Equals(state, RokidSpatialEntryStates.HardwareAnchored, StringComparison.OrdinalIgnoreCase)) return 1f;
+            if (string.Equals(state, RokidSpatialEntryStates.A1EntryConfirmed, StringComparison.OrdinalIgnoreCase)) return 0.84f;
             if (string.Equals(state, RokidSpatialEntryStates.MarkerAssisted, StringComparison.OrdinalIgnoreCase)) return 0.78f;
             if (string.Equals(state, RokidSpatialEntryStates.SimulatedWall, StringComparison.OrdinalIgnoreCase)) return 0.58f;
+            return 0f;
+        }
+
+        private static float A1EntryScore(string state)
+        {
+            if (string.Equals(state, RokidA1SpatialEntryStates.SpatialLayerOpen, StringComparison.OrdinalIgnoreCase)) return 1f;
+            if (string.Equals(state, RokidA1SpatialEntryStates.DeliberateConfirmed, StringComparison.OrdinalIgnoreCase)) return 0.86f;
+            if (string.Equals(state, RokidA1SpatialEntryStates.LockCandidate, StringComparison.OrdinalIgnoreCase)) return 0.64f;
+            if (string.Equals(state, RokidA1SpatialEntryStates.WaitingForA1, StringComparison.OrdinalIgnoreCase)) return 0.38f;
             return 0f;
         }
 
@@ -862,6 +943,14 @@ namespace InnerWorld.Rokid.Runtime
         {
             if (value < 0f) return 0f;
             if (value > 1f) return 1f;
+            return value;
+        }
+
+        private static float ClampDistance(float value, float fallback)
+        {
+            if (value <= 0f) return fallback;
+            if (value < 0.1f) return 0.1f;
+            if (value > 5f) return 5f;
             return value;
         }
 

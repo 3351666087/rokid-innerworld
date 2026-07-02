@@ -11,12 +11,16 @@ import {
   INNERWORLD_SPACE_ID,
   MISSION_STEP_IDS,
   MISSION_STATES,
+  STORY_GRAPH_MISSION_RUNTIME_ID,
+  STORY_GRAPH_MISSION_RUNTIME_SCHEMA,
+  STORY_GRAPH_NODE_IDS,
   WALL_CALIBRATION_OBSERVATION_SCHEMA,
   WALL_CALIBRATION_SCHEMA,
   SESSION_PLAN_SCHEMA,
   buildDemoStatus,
   buildDeviceBootstrap,
   buildEndpointMap,
+  buildStoryGraphMissionRuntimeContract,
   createInnerWorldClient,
   normalizeMissionState
 } from "../../shared/innerworld-contract.js";
@@ -24,7 +28,7 @@ import { buildDeviceManifest, createDeviceRuntimeStore } from "./src/domain/devi
 import { buildEvidenceChain } from "./src/domain/evidence-chain.js";
 import { buildFieldMarkerManifest } from "./src/domain/field-markers.js";
 import { generateHudOutput } from "./src/domain/hud-generator.js";
-import { applyInteraction, applyServiceAction, applyWriteBack } from "./src/domain/mission-engine.js";
+import { applyInteraction, applyServiceAction, applyWriteBack, storyGraphMissionRuntimeV2Status } from "./src/domain/mission-engine.js";
 import { buildSessionPlan } from "./src/domain/session-planner.js";
 import { buildWallCalibrationManifest, createWallCalibrationObservation } from "./src/domain/wall-calibration.js";
 
@@ -92,6 +96,34 @@ function assertEndpointMap(endpoints) {
   assert(Object.keys(endpoints).length >= 31, "endpoint map count mismatch");
 }
 
+function assertStoryGraphContract(graph, context = "story graph") {
+  assert(graph?.contract_id === STORY_GRAPH_MISSION_RUNTIME_ID, `${context} contract id mismatch`);
+  assert(graph?.schema === STORY_GRAPH_MISSION_RUNTIME_SCHEMA, `${context} schema mismatch`);
+  assert(graph.runtime_scope === "hardware_independent_first_slice", `${context} runtime scope mismatch`);
+  assert(graph.final_direction === "real Rokid campus wall A1/A2/A3", `${context} final direction mismatch`);
+  assert(graph.scope_guard?.campus_wall_only === true, `${context} campus wall guard mismatch`);
+  assert(graph.scope_guard?.generic_tour_or_ugc === false, `${context} generic tour/UGC guard mismatch`);
+  assert(graph.scope_guard?.open_ugc === false, `${context} open UGC guard mismatch`);
+  assert(graph.scope_guard?.phone_or_ppt_primary === false, `${context} phone/PPT guard mismatch`);
+  assert(graph.scope_guard?.required_anchor_ids?.join(",") === "A1,A2,A3", `${context} anchor guard mismatch`);
+
+  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const edges = Array.isArray(graph.edges) ? graph.edges : [];
+  const guards = Array.isArray(graph.guards) ? graph.guards : [];
+  const actions = Array.isArray(graph.actions) ? graph.actions : [];
+  const nodeIds = graph.node_order || nodes.map((node) => node.node_id);
+  assert(nodeIds.join(",") === STORY_GRAPH_NODE_IDS.join(","), `${context} node order mismatch`);
+  assert(nodes.map((node) => node.anchor_id).join(",") === "A1,A2,A3,A3", `${context} node anchors mismatch`);
+  assert(edges.map((edge) => edge.edge_id).join(",") === "a1_to_a2,a2_to_a3,a3_to_user_b", `${context} edges mismatch`);
+  assert(guards.map((guard) => guard.guard_id).join(",") === "a1_entry_confirmed,a2_memory_read,a3_write_back_committed,user_b_can_read_back", `${context} guards mismatch`);
+  assert(actions.some((action) => action.action_id === "submit_a3_write_back" && action.endpoint_key === "write_back" && action.payload?.anchor_id === "A3"), `${context} A3 write-back action mismatch`);
+  assert(actions.some((action) => action.action_id === "verify_user_b_readback" && action.endpoint_key === "state" && action.payload?.user_id === "B" && action.payload?.anchor_id === "A3"), `${context} User B readback action mismatch`);
+  assert(nodes.find((node) => node.node_id === "a2_memory")?.legacy_step_ids?.join(",") === "read,find_year", `${context} A2 legacy mapping mismatch`);
+  assert(nodes.find((node) => node.node_id === "a3_write_back")?.legacy_step_ids?.join(",") === "write_back", `${context} A3 legacy mapping mismatch`);
+  assert(edges.every((edge) => edge.from && edge.to && edge.guard_id && edge.action_id && edge.endpoint_key), `${context} edge contract incomplete`);
+  assert(guards.every((guard) => Array.isArray(guard.requires) && guard.requires.length > 0 && guard.endpoint_key), `${context} guard contract incomplete`);
+}
+
 function assertSpaceContract(space) {
   assert(space.space_id === INNERWORLD_SPACE_ID, "space id mismatch");
   assert(Array.isArray(space.anchors) && space.anchors.length === 3, "expected 3 anchors");
@@ -99,6 +131,7 @@ function assertSpaceContract(space) {
   assert(space.anchors.some((anchor) => anchor.anchor_id === "A3" && anchor.default_state === "locked"), "A3 locked default missing");
   assert(Array.isArray(space.mission?.steps), "mission steps missing");
   assert(space.mission.steps.map((step) => step.step_id).join(",") === MISSION_STEP_IDS.join(","), "mission step ids mismatch");
+  assertStoryGraphContract(space.mission?.story_graph, "space mission story graph");
   assert(space.service_actions?.some((action) => action.action_id === "JOIN_EVENT_1430"), "service action JOIN_EVENT_1430 missing");
 }
 
@@ -229,6 +262,8 @@ function assertBootstrapContract(space, aiSchema) {
   assert(bootstrap.space.space_id === INNERWORLD_SPACE_ID, "bootstrap space id mismatch");
   assert(bootstrap.anchors.length === 3, "bootstrap anchors mismatch");
   assert(bootstrap.mission.steps.length === MISSION_STEP_IDS.length, "bootstrap mission length mismatch");
+  assertStoryGraphContract(bootstrap.mission.story_graph, "bootstrap mission story graph");
+  assert(bootstrap.mission.story_graph.endpoints.write_back.path === `/api/spaces/${INNERWORLD_SPACE_ID}/beacons`, "bootstrap story graph write-back endpoint mismatch");
   assert(bootstrap.acceptance.completed_steps === MISSION_STEP_IDS.length, "bootstrap acceptance steps mismatch");
   assert(bootstrap.client_hints.write_back_anchor_id === "A3", "bootstrap write-back anchor mismatch");
   assert(bootstrap.unity_compat.config.base_url === "http://localhost:5177", "unity base_url mismatch");
@@ -513,6 +548,12 @@ function assertSessionPlanContract(space, aiSchema) {
   assert(plan.space.stage_order.join(",") === FIELD_SESSION_STAGE_IDS.join(","), "session plan stage order mismatch");
   assert(plan.stages.map((stage) => stage.stage_id).join(",") === FIELD_SESSION_STAGE_IDS.join(","), "session plan stages mismatch");
   assert(plan.stages.length === 5, "session plan stage count mismatch");
+  assert(plan.stages.find((stage) => stage.stage_id === "handoff")?.anchor_id === "A3", "session plan handoff anchor must use A3 write-back");
+  assert(plan.space.story_graph_contract_id === STORY_GRAPH_MISSION_RUNTIME_ID, "session plan story graph id mismatch");
+  assert(plan.space.story_node_order.join(",") === STORY_GRAPH_NODE_IDS.join(","), "session plan story node order mismatch");
+  assertStoryGraphContract(plan.story_graph, "session plan story graph");
+  assert(plan.story_graph.runtime.current_node_id === "a2_memory", "session plan story graph current node mismatch");
+  assert(plan.story_graph.endpoints.ai_hud.path === "/api/ai/hud", "session plan story graph AI HUD endpoint mismatch");
   assert(plan.endpoints.evidence_chain.path === "/api/evidence/chain", "session plan evidence endpoint mismatch");
   assert(plan.endpoints.write_back.method === "POST", "session plan writeback endpoint method mismatch");
   assert(plan.operator_prompts.length === 5, "session plan operator prompts mismatch");
@@ -677,6 +718,20 @@ function assertStateMachine(space) {
   assert(flowState.completed_steps.join(",") === MISSION_STEP_IDS.join(","), "domain flow completed steps mismatch");
   assert(flowState.beacons.length === 3, "domain flow beacon count mismatch");
   assert(flowState.events.length === 4, "domain flow event count mismatch");
+
+  const graphRuntime = storyGraphMissionRuntimeV2Status({ space, state: flowState });
+  assert(graphRuntime.contract_id === STORY_GRAPH_MISSION_RUNTIME_ID, "mission graph runtime id mismatch");
+  assert(graphRuntime.node_status.map((node) => node.node_id).join(",") === STORY_GRAPH_NODE_IDS.join(","), "mission graph runtime node order mismatch");
+  assert(graphRuntime.node_status.every((node) => node.status === "complete"), "mission graph runtime did not complete first slice");
+  assert(graphRuntime.current_node_id === "user_b_readback", "mission graph runtime current node mismatch");
+
+  const sharedGraphRuntime = buildStoryGraphMissionRuntimeContract({
+    baseUrl: "http://localhost:5177",
+    space,
+    state: flowState
+  });
+  assertStoryGraphContract(sharedGraphRuntime, "shared story graph runtime");
+  assert(sharedGraphRuntime.runtime.node_status.every((node) => node.status === "complete"), "shared story graph runtime did not complete first slice");
 }
 
 async function assertUnityProtocolSkeleton() {

@@ -3,6 +3,7 @@ import {
   SESSION_PLAN_SCHEMA,
   anchors,
   buildEndpointMap,
+  buildStoryGraphMissionRuntimeContract,
   cleanPublicBaseUrl,
   completedSteps,
   missionSteps
@@ -45,6 +46,12 @@ export function buildSessionPlan({
 }) {
   const publicBaseUrl = cleanPublicBaseUrl(baseUrl);
   const endpoints = buildEndpointMap(publicBaseUrl, space?.space_id);
+  const storyGraph = buildStoryGraphMissionRuntimeContract({
+    baseUrl: publicBaseUrl,
+    space,
+    state,
+    endpoints
+  });
   const steps = missionSteps(space);
   const entryAnchor = findAnchor(space, (anchor) => anchor.kind === "entry", "A1");
   const memoryAnchor = findAnchor(space, (anchor) => anchor.kind === "memory", "A2");
@@ -212,7 +219,7 @@ export function buildSessionPlan({
     stageFrom({
       stageId: "handoff",
       label: "Handoff",
-      anchor: memoryAnchor || writeBackAnchor,
+      anchor: writeBackAnchor || memoryAnchor,
       step: stepById.get("write_back"),
       intent: "Switch to User B and verify the new memory is visible from the wall layer.",
       promptId: "op_handoff",
@@ -241,7 +248,9 @@ export function buildSessionPlan({
       space_id: space?.space_id,
       mission_id: space?.mission?.mission_id,
       current_stage_id: currentStageId(state),
-      stage_order: FIELD_SESSION_STAGE_IDS
+      stage_order: FIELD_SESSION_STAGE_IDS,
+      story_graph_contract_id: storyGraph.contract_id,
+      story_node_order: storyGraph.node_order
     },
     endpoints: {
       device_bootstrap: endpoints.device_bootstrap,
@@ -250,6 +259,7 @@ export function buildSessionPlan({
       service_actions: endpoints.service_actions,
       write_back: endpoints.write_back
     },
+    story_graph: storyGraph,
     stages,
     operator_prompts: operatorPrompts,
     device_handoff_notes: deviceHandoffNotes,

@@ -106,6 +106,138 @@ function evidenceStatus(condition, fallback = "warn") {
   return condition ? "ready" : fallback;
 }
 
+function publicAnchor(anchor, fallbackId, fallbackRole) {
+  return {
+    anchor_id: anchor?.anchor_id || fallbackId,
+    label: anchor?.label || fallbackRole,
+    role: anchor?.kind || fallbackRole,
+    has_pose: Boolean(anchor?.pose)
+  };
+}
+
+function buildEvidenceReplayJudgeMode({ spaceAnchors, steps, runtimeState, runtimeBeacons, endpoints, release, hardware }) {
+  const done = completedSteps(runtimeState);
+  const entryAnchor = spaceAnchors.find((anchor) => anchor.kind === "entry")
+    || spaceAnchors.find((anchor) => anchor.anchor_id === "A1")
+    || null;
+  const memoryAnchor = spaceAnchors.find((anchor) => anchor.kind === "memory")
+    || spaceAnchors.find((anchor) => anchor.anchor_id === "A2")
+    || null;
+  const writeBackAnchor = spaceAnchors.find((anchor) => anchor.kind === "write_back")
+    || spaceAnchors.find((anchor) => anchor.anchor_id === "A3")
+    || null;
+  const writeBackBeacons = runtimeBeacons.filter((beacon) => {
+    return beacon.anchor_id === writeBackAnchor?.anchor_id || beacon.layer === "time_capsule";
+  });
+  const activeUser = runtimeState.active_user || "A";
+  const missionComplete = runtimeState.mission_state === "complete" || done.length >= steps.length;
+  const userBReadbackReady = activeUser === "B" && missionComplete && writeBackBeacons.length > 0;
+
+  const replaySteps = [
+    {
+      id: "a1_entry",
+      title: "A1 entry",
+      status: evidenceStatus(Boolean(entryAnchor)),
+      expected_action: "Operator points to the real entry poster and starts the spatial layer.",
+      public_evidence: publicAnchor(entryAnchor, "A1", "entry"),
+      source: "data/space_demo.json anchors"
+    },
+    {
+      id: "a2_memory",
+      title: "A2 memory",
+      status: evidenceStatus(Boolean(memoryAnchor && (done.includes("read") || done.includes("find_year") || missionComplete)), "pending"),
+      expected_action: "User A reads the memory beacon and advances read/find-year mission steps.",
+      public_evidence: {
+        anchor: publicAnchor(memoryAnchor, "A2", "memory"),
+        completed_steps: done.filter((stepId) => stepId === "read" || stepId === "find_year")
+      },
+      source: "SQLite runtime_state via Space API"
+    },
+    {
+      id: "a3_writeback",
+      title: "A3 writeback",
+      status: evidenceStatus(Boolean(writeBackAnchor && writeBackBeacons.length > 0), "pending"),
+      expected_action: "User A writes a public time-capsule beacon at the write-back anchor.",
+      public_evidence: {
+        anchor: publicAnchor(writeBackAnchor, "A3", "write_back"),
+        write_back_count: writeBackBeacons.length
+      },
+      source: endpoints.write_back.path
+    },
+    {
+      id: "user_b_readback",
+      title: "User B readback",
+      status: evidenceStatus(userBReadbackReady, "pending"),
+      expected_action: "Switch to User B and show that the A3 write-back remains visible in the same space.",
+      public_evidence: {
+        active_user: activeUser,
+        mission_state: runtimeState.mission_state || "unknown",
+        completed_step_count: done.length,
+        write_back_count: writeBackBeacons.length
+      },
+      source: "SQLite-backed Space API state"
+    }
+  ];
+
+  const sourceEvidence = [
+    {
+      id: "sqlite_runtime",
+      title: "SQLite runtime evidence",
+      status: evidenceStatus(Boolean(runtimeState.mission_state)),
+      source: "data/innerworld.sqlite via /api/state and /api/ledger/*",
+      sanitized_fields: ["mission_state", "active_user", "completed_steps", "beacon counts"]
+    },
+    {
+      id: "writeback_api",
+      title: "Write-back evidence",
+      status: evidenceStatus(writeBackBeacons.length > 0, "pending"),
+      source: endpoints.write_back.path,
+      sanitized_fields: ["anchor_id", "beacon counts", "public display text only"]
+    },
+    {
+      id: "field_acceptance",
+      title: "Field acceptance evidence",
+      status: "review",
+      source: endpoints.field_acceptance.path,
+      sanitized_fields: ["gate ids", "status", "blocking item summaries"]
+    },
+    {
+      id: "release_chain",
+      title: "Release evidence",
+      status: release.status === "dry_run_verified" ? "ready" : "pending",
+      source: "ops status release summary",
+      sanitized_fields: ["package file names", "sha256", "warning/error counts"]
+    }
+  ];
+
+  return {
+    schema: "innerworld-evidence-replay-judge-mode/v1",
+    mode: "evidence_replay_judge_mode",
+    purpose: "Prove the real campus wall loop A1 -> A2 -> A3 -> User B without exposing secrets or raw runtime data.",
+    read_only: true,
+    sequence: ["A1 entry", "A2 memory", "A3 writeback", "User B readback"],
+    overall_status: replaySteps.every((step) => step.status === "ready") ? "ready" : "rehearsal",
+    replay_steps: replaySteps,
+    source_evidence: sourceEvidence,
+    judge_checks: {
+      anchors_bound: Boolean(entryAnchor && memoryAnchor && writeBackAnchor),
+      writeback_visible: writeBackBeacons.length > 0,
+      user_b_readback_visible: userBReadbackReady,
+      sqlite_runtime_source: true,
+      field_acceptance_source: endpoints.field_acceptance.path,
+      release_source: release.status,
+      hardware_fit: hardware.fit || "unknown"
+    },
+    privacy: {
+      includes_secrets: false,
+      includes_raw_chat: false,
+      includes_runtime_db_dump: false,
+      includes_private_ids: false,
+      note: "Only sanitized public anchor ids, counts, endpoint paths, package file names, and readiness states are exposed."
+    }
+  };
+}
+
 export function buildEvidenceChain({
   baseUrl,
   space,
@@ -141,6 +273,15 @@ export function buildEvidenceChain({
   const hardware = summarizeHardware(opsStatus?.hardware);
   const aiReady = Boolean(aiSchema?.title && aiSchema?.properties?.write_back_review && endpoints.ai_schema && endpoints.ai_prompt);
   const writebackReady = Boolean(writeBackAnchor && endpoints.write_back && aiReady);
+  const evidenceReplayJudgeMode = buildEvidenceReplayJudgeMode({
+    spaceAnchors,
+    steps,
+    runtimeState,
+    runtimeBeacons,
+    endpoints,
+    release,
+    hardware
+  });
 
   const items = [
     {
@@ -191,6 +332,13 @@ export function buildEvidenceChain({
       status: release.status === "dry_run_verified" ? "ready" : release.status === "release_index_ready" ? "warn" : "pending",
       summary: `release=${release.status}; server package exists=${release.packages.server_package.exists}.`,
       source: "ops status release summary"
+    },
+    {
+      id: "evidence_replay_judge_mode",
+      title: "Evidence replay judge mode",
+      status: evidenceReplayJudgeMode.overall_status === "ready" ? "ready" : "warn",
+      summary: `${evidenceReplayJudgeMode.sequence.join(" -> ")}; privacy sanitized=${evidenceReplayJudgeMode.privacy.includes_secrets === false}.`,
+      source: "/api/evidence/chain"
     }
   ];
 
@@ -248,6 +396,7 @@ export function buildEvidenceChain({
     },
     hardware,
     release,
+    evidence_replay_judge_mode: evidenceReplayJudgeMode,
     operations: {
       ops_status_ok: opsStatus?.ok === true,
       local_url: opsStatus?.local_url || null,

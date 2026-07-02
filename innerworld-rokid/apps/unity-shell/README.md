@@ -47,6 +47,12 @@ Windows fallback 已做过可视验收：三锚点可见，HUD 显示 localhost 
 - Rokid hardware replacement points are explicit: `RokidAdapterResolver.Resolve(...)` selects input/display adapters from `RokidPresentationStrategy`. `ROKID_UXR` is the only compile symbol allowed to expose future SDK references, while desktop/editor builds continue through `EditorRokidInputSource` and the fallback HUD.
 - `RokidSdkBindingProbe` separates the four hardware-readiness states: `fallback_only`, `boundary_compiled`, `package_detected`, and `live_binding_ready`. Treat only `live_binding_ready` as proof that real Rokid SDK input and overlay adapters are active.
 
+## A1 Spatial Entry Slice
+
+`a1_spatial_entry_experience` is the first hardware-independent viewer-side slice for the real campus wall. In desktop/Android fallback, Space/Enter at A1 performs a deliberate entry confirmation in the 0.4m-0.5m window, records `entry_confirmation_status`, and drives the `开启空间层` transition in HUD and heartbeat text.
+
+Fallback may report `a1_entry_lock_ready` after the deliberate confirmation so the operator can rehearse the flow, but it keeps `trusted_hardware_proof_ready=false` and `fallback_hardware_ready false`. Hardware acceptance still depends on the real Rokid/field evidence contracts.
+
 ## Unity Ledger Fallback
 
 The Unity protocol layer is prepared for the backend mission ledger and service action ledger endpoints:
