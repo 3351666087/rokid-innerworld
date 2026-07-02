@@ -119,6 +119,8 @@ namespace InnerWorld.Rokid.Protocol
     {
         public SpaceApiEndpoint health;
         public SpaceApiEndpoint ops_status;
+        public SpaceApiEndpoint evidence_chain;
+        public SpaceApiEndpoint session_plan;
         public SpaceApiEndpoint device_bootstrap;
         public SpaceApiEndpoint ai_schema;
         public SpaceApiEndpoint ai_prompt;

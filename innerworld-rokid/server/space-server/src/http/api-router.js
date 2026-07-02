@@ -5,6 +5,9 @@ import {
   buildDeviceBootstrap as buildDeviceBootstrapPayload,
   normalizeMissionState
 } from "../../../../shared/innerworld-contract.js";
+import { buildDeviceManifest, createDeviceRuntimeStore } from "../domain/device-runtime.js";
+import { buildEvidenceChain } from "../domain/evidence-chain.js";
+import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
 import { generateHudOutput } from "../domain/hud-generator.js";
 import { readJson } from "../lib/json-file.js";
@@ -26,8 +29,14 @@ export function createApiRouter({
   loadState,
   port,
   resetState,
+  sqliteStore,
   updateState
 }) {
+  const deviceRuntime = createDeviceRuntimeStore({
+    restoreSnapshot: !sqliteStore,
+    sessionStore: sqliteStore
+  });
+
   async function loadDeviceBootstrap(req, url) {
     const [space, state, aiSchema] = await Promise.all([
       loadSpace(),
@@ -38,6 +47,50 @@ export function createApiRouter({
     return buildDeviceBootstrapPayload({
       baseUrl,
       profile: url.searchParams.get("profile") || "rokid-ar",
+      space,
+      state,
+      aiSchema
+    });
+  }
+
+  async function loadDeviceManifest(req, url) {
+    const [space, state, aiSchema] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(aiSchemaPath)
+    ]);
+    return buildDeviceManifest({
+      baseUrl: getRequestBaseUrl(req, url, port),
+      space,
+      state,
+      aiSchema
+    });
+  }
+
+  async function loadEvidenceChain(req, url) {
+    const [space, state, aiSchema, opsStatus] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(aiSchemaPath),
+      buildOpsStatus()
+    ]);
+    return buildEvidenceChain({
+      baseUrl: getRequestBaseUrl(req, url, port),
+      space,
+      state,
+      aiSchema,
+      opsStatus
+    });
+  }
+
+  async function loadSessionPlan(req, url) {
+    const [space, state, aiSchema] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(aiSchemaPath)
+    ]);
+    return buildSessionPlan({
+      baseUrl: getRequestBaseUrl(req, url, port),
       space,
       state,
       aiSchema
@@ -68,8 +121,96 @@ export function createApiRouter({
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/store/status") {
+      sendJson(res, 200, sqliteStore?.status?.() || {
+        ok: false,
+        error: "sqlite_store_unavailable"
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/datasets/catalog") {
+      sendJson(res, 200, sqliteStore?.catalog?.() || {
+        ok: false,
+        error: "dataset_store_unavailable"
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/datasets/call") {
+      const body = await readBody(req);
+      const result = sqliteStore?.datasetCall?.(body) || {
+        ok: false,
+        status: 503,
+        error: "dataset_store_unavailable"
+      };
+      if (result.ok === false) {
+        sendError(res, result.status || 400, result.error || "dataset_call_failed");
+        return;
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/evidence/chain") {
+      sendJson(res, 200, await loadEvidenceChain(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/session/plan") {
+      sendJson(res, 200, await loadSessionPlan(req, url));
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/device/bootstrap") {
       sendJson(res, 200, await loadDeviceBootstrap(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/device/manifest") {
+      sendJson(res, 200, await loadDeviceManifest(req, url));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/device/register") {
+      const [space, state, aiSchema, body] = await Promise.all([
+        loadSpace(),
+        loadState(),
+        readJson(aiSchemaPath),
+        readBody(req)
+      ]);
+      sendJson(res, 201, deviceRuntime.register({
+        body,
+        baseUrl: getRequestBaseUrl(req, url, port),
+        space,
+        state,
+        aiSchema
+      }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/device/heartbeat") {
+      const [space, state, body] = await Promise.all([
+        loadSpace(),
+        loadState(),
+        readBody(req)
+      ]);
+      const result = deviceRuntime.heartbeat({
+        body,
+        baseUrl: getRequestBaseUrl(req, url, port),
+        space,
+        state
+      });
+      if (result.ok === false) {
+        sendError(res, result.status || 400, result.error || "device_heartbeat_failed");
+        return;
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/device/sessions") {
+      sendJson(res, 200, deviceRuntime.sessionsSummary());
       return;
     }
 

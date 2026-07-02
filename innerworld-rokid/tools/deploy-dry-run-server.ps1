@@ -248,6 +248,8 @@ $hashCheck = $null
 $requiredMissing = @()
 $runtimeBefore = $false
 $runtimeAfter = $false
+$sqliteBefore = $false
+$sqliteAfter = $false
 
 try {
   New-Item -ItemType Directory -Force -Path $target | Out-Null
@@ -296,9 +298,14 @@ try {
   }
 
   $runtimePath = Join-Path $target "data\runtime_state.json"
+  $sqlitePath = Join-Path $target "data\innerworld.sqlite"
   $runtimeBefore = Test-Path -LiteralPath $runtimePath
+  $sqliteBefore = Test-Path -LiteralPath $sqlitePath
   if ($runtimeBefore) {
     Add-Issue $errors "Extracted release unexpectedly contains data/runtime_state.json before first start."
+  }
+  if ($sqliteBefore) {
+    Add-Issue $errors "Extracted release unexpectedly contains data/innerworld.sqlite before first start."
   }
 
   $hashCheck = Test-Sha256Sums -ExtractRoot $target
@@ -331,6 +338,16 @@ try {
     $env:HOST = "127.0.0.1"
     $env:BASE_URL = "http://127.0.0.1:$Port"
     try {
+      Push-Location -LiteralPath $target
+      try {
+        & npm install --omit=dev --no-audit
+        if ($LASTEXITCODE -ne 0) {
+          Add-Issue $errors "npm install failed for extracted server release."
+        }
+      } finally {
+        Pop-Location
+      }
+
       $server = Start-Process -FilePath "powershell" `
         -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\start-server.ps1") `
         -WorkingDirectory $target `
@@ -384,6 +401,7 @@ try {
   }
 
   $runtimeAfter = Test-Path -LiteralPath $runtimePath
+  $sqliteAfter = Test-Path -LiteralPath $sqlitePath
 } finally {
   if ($server -and -not $server.HasExited) {
     Stop-ProcessTree -ProcessId $server.Id
@@ -409,6 +427,8 @@ $result = [pscustomobject]@{
   required_missing = @($requiredMissing)
   runtime_before_start = $runtimeBefore
   runtime_after_start = $runtimeAfter
+  sqlite_before_start = $sqliteBefore
+  sqlite_after_start = $sqliteAfter
   sha256sums = $hashCheck
   sh_syntax = $shSyntax
   initial_health = $health

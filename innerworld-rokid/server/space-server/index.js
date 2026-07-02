@@ -1,15 +1,23 @@
 import { createServer } from "node:http";
-import { aiPromptPath, aiSchemaPath, hardwareManifestPath, outputDir, spacePath, statePath, webDir } from "./src/paths.js";
+import { aiPromptPath, aiSchemaPath, databasePath, hardwareManifestPath, outputDir, spacePath, statePath, webDir } from "./src/paths.js";
 import { createRuntimeStore } from "./src/store/runtime-store.js";
 import { createApiRouter } from "./src/http/api-router.js";
 import { sendError, sendPreflight } from "./src/http/response.js";
 import { createStaticFileServer } from "./src/http/static-files.js";
 import { createOpsStatusService } from "./src/ops/status-service.js";
+import { createSqliteStore } from "./src/store/sqlite-store.js";
 
 const port = Number(process.env.PORT || 5177);
 const host = process.env.HOST || "127.0.0.1";
 
-const runtimeStore = createRuntimeStore({ spacePath, statePath });
+const sqliteStore = await createSqliteStore({
+  aiSchemaPath,
+  databasePath,
+  hardwareManifestPath,
+  legacyStatePath: statePath,
+  spacePath
+});
+const runtimeStore = createRuntimeStore({ spacePath, statePath, sqliteStore });
 const { loadSpace, loadState, resetState, updateState } = runtimeStore;
 
 const buildOpsStatus = createOpsStatusService({ loadSpace, loadState, outputDir, hardwareManifestPath, host, port });
@@ -21,6 +29,7 @@ const routeApi = createApiRouter({
   loadState,
   port,
   resetState,
+  sqliteStore,
   updateState
 });
 const serveStatic = createStaticFileServer({ webDir });

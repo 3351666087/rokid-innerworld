@@ -10,6 +10,8 @@ local-secrets/
 node_modules/
 output/
 data/runtime_state.json
+data/innerworld.sqlite
+data/innerworld.sqlite-*
 Logs/
 .utmp/
 UserSettings/

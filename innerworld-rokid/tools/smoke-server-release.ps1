@@ -68,7 +68,9 @@ New-Item -ItemType Directory -Force -Path $target | Out-Null
 Expand-Archive -LiteralPath $ZipPath -DestinationPath $target -Force
 
 $runtimePath = Join-Path $target "data\runtime_state.json"
+$sqlitePath = Join-Path $target "data\innerworld.sqlite"
 $runtimeBefore = Test-Path -LiteralPath $runtimePath
+$sqliteBefore = Test-Path -LiteralPath $sqlitePath
 
 $oldPort = $env:PORT
 $oldHost = $env:HOST
@@ -79,6 +81,16 @@ $env:BASE_URL = "http://127.0.0.1:$Port"
 $server = $null
 
 try {
+  Push-Location -LiteralPath $target
+  try {
+    & npm install --omit=dev --no-audit
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm install failed for server release smoke test"
+    }
+  } finally {
+    Pop-Location
+  }
+
   $server = Start-Process -FilePath "node" `
     -ArgumentList @("server\space-server\index.js") `
     -WorkingDirectory $target `
@@ -116,6 +128,8 @@ try {
     port = $Port
     runtime_before = $runtimeBefore
     runtime_after = (Test-Path -LiteralPath $runtimePath)
+    sqlite_before = $sqliteBefore
+    sqlite_after = (Test-Path -LiteralPath $sqlitePath)
     initial_state = $health.mission_state
     initial_beacons = $health.beacon_count
     initial_completed = $health.completed_step_count

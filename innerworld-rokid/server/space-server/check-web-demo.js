@@ -123,6 +123,16 @@ const requiredModules = [
       "write_back_review",
       "\u98ce\u9669\u62a4\u680f"
     ]
+  },
+  {
+    name: "Hardware Runtime",
+    needles: [
+      "Hardware Runtime",
+      "hardwareGrid",
+      "hardware-grid",
+      "device_manifest",
+      "\u786c\u4ef6\u63a5\u5165"
+    ]
   }
 ];
 
@@ -149,11 +159,54 @@ const requiredContainers = [
   ".showcase-grid",
   ".route-grid",
   ".lens-grid",
+  ".hardware-grid",
   ".evidence-rail",
   ".delivery-timeline",
   ".risk-grid",
   ".ops-grid"
 ];
+
+const requiredContainerGroups = [
+  { name: ".app-shell", selectors: [".app-shell"] },
+  { name: ".spatial-stage", selectors: [".spatial-stage"] },
+  { name: ".stage-frame", selectors: [".stage-frame"] },
+  { name: ".wall-scene", selectors: [".wall-scene"] },
+  { name: ".hud-surface", selectors: [".hud-surface"] },
+  {
+    name: ".operator-panel",
+    selectors: [
+      ".operator-panel",
+      ".operator-dock",
+      ".operator-sidebar",
+      ".control-dock",
+      ".control-sidebar",
+      ".demo-sidebar",
+      ".side-panel",
+      ".sidebar"
+    ]
+  },
+  {
+    name: ".panel-section",
+    selectors: [
+      ".panel-section",
+      ".operator-section",
+      ".dock-section",
+      ".sidebar-section",
+      ".console-section"
+    ]
+  },
+  { name: ".product-grid", selectors: [".product-grid"] },
+  { name: ".agent-queue", selectors: [".agent-queue"] },
+  { name: ".showcase-grid", selectors: [".showcase-grid"] },
+  { name: ".route-grid", selectors: [".route-grid"] },
+  { name: ".lens-grid", selectors: [".lens-grid"] },
+  { name: ".evidence-rail", selectors: [".evidence-rail"] },
+  { name: ".delivery-timeline", selectors: [".delivery-timeline"] },
+  { name: ".risk-grid", selectors: [".risk-grid"] },
+  { name: ".ops-grid", selectors: [".ops-grid"] }
+];
+
+const stageAnchorBlockerSelectors = [".hud-surface", ".stage-telemetry", ".spatial-stack"];
 
 function assert(condition, message, detail = {}) {
   if (!condition) {
@@ -220,10 +273,19 @@ function checkStaticSources(sources) {
     errors.push(`Missing required operator controls: ${missingControls.join(", ")}`);
   }
 
-  const missingContainers = requiredContainers.filter((selector) => {
-    const className = selector.startsWith(".") ? selector.slice(1) : selector;
-    return !includesAny(sources.combined, [className]);
+  const containerResults = requiredContainerGroups.map((group) => {
+    const matched = group.selectors.find((selector) => {
+      const className = selector.startsWith(".") ? selector.slice(1) : selector;
+      return includesAny(sources.combined, [className]);
+    });
+    return {
+      name: group.name,
+      ok: Boolean(matched),
+      matched: matched || null,
+      selectors: group.selectors
+    };
   });
+  const missingContainers = containerResults.filter((group) => !group.ok).map((group) => group.name);
   if (missingContainers.length) {
     errors.push(`Missing required layout containers: ${missingContainers.join(", ")}`);
   }
@@ -278,6 +340,7 @@ function checkStaticSources(sources) {
     { name: "dynamic evidence chain rendering", ok: sources.js.includes("renderEvidenceChain") },
     { name: "dynamic delivery script rendering", ok: sources.js.includes("renderDeliveryScript") },
     { name: "dynamic risk guardrail rendering", ok: sources.js.includes("renderRiskGuardrails") },
+    { name: "dynamic hardware runtime rendering", ok: sources.js.includes("renderHardwareRuntime") },
     { name: "dynamic agent trace/log rendering", ok: sources.js.includes("renderLog") }
   ];
 
@@ -292,6 +355,7 @@ function checkStaticSources(sources) {
     modules: moduleResults,
     controls: requiredControls,
     containers: requiredContainers,
+    container_groups: containerResults,
     css_checks: cssChecks,
     js_checks: jsChecks
   };
@@ -386,8 +450,54 @@ function rectsOverlap(a, b, tolerance = 2) {
     a.bottom > b.top + tolerance;
 }
 
+function overlapMetrics(a, b) {
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+    area: Math.round(width * height)
+  };
+}
+
 async function browserSnapshot(page) {
-  return page.evaluate(({ requiredModules, requiredContainers }) => {
+  return page.evaluate(({ requiredModules, requiredContainerGroups, stageAnchorBlockerSelectors }) => {
+    window.scrollTo(0, 0);
+
+    const isVisible = (node, rect = node.getBoundingClientRect()) => {
+      const style = window.getComputedStyle(node);
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        style.opacity !== "0";
+    };
+    const rectFor = (node, label, extra = {}) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        label,
+        visible: isVisible(node, rect),
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        ...extra
+      };
+    };
+    const queryMany = (selectors) => {
+      const seen = new Set();
+      const matches = [];
+      for (const selector of selectors) {
+        for (const node of document.querySelectorAll(selector)) {
+          if (seen.has(node)) continue;
+          seen.add(node);
+          matches.push({ selector, node });
+        }
+      }
+      return matches;
+    };
     const allText = document.body?.innerText || "";
     const allStructure = [...document.querySelectorAll("[id], [class], [aria-label]")]
       .map((node) => `${node.id || ""} ${node.className || ""} ${node.getAttribute("aria-label") || ""}`)
@@ -398,14 +508,19 @@ async function browserSnapshot(page) {
       const matched = module.needles.find((needle) => lower.includes(String(needle).toLowerCase()));
       return { name: module.name, ok: Boolean(matched), matched: matched || null };
     });
-    const containerResults = requiredContainers.map((selector) => {
-      const nodes = [...document.querySelectorAll(selector)];
-      const visible = nodes.some((node) => {
-        const rect = node.getBoundingClientRect();
-        const style = window.getComputedStyle(node);
-        return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-      });
-      return { selector, count: nodes.length, visible };
+    const containerResults = requiredContainerGroups.map((group) => {
+      const nodes = queryMany(group.selectors);
+      const visibleSelectors = nodes
+        .filter(({ node }) => isVisible(node))
+        .map(({ selector }) => selector);
+      return {
+        name: group.name,
+        selectors: group.selectors,
+        count: nodes.length,
+        visible: visibleSelectors.length > 0,
+        matched_selectors: [...new Set(nodes.map(({ selector }) => selector))],
+        visible_selectors: [...new Set(visibleSelectors)]
+      };
     });
     const scrollingElement = document.scrollingElement || document.documentElement;
     const maxRight = Math.max(
@@ -413,43 +528,67 @@ async function browserSnapshot(page) {
       document.body?.scrollWidth || 0,
       document.documentElement.scrollWidth || 0
     );
-    const panelSections = [...document.querySelectorAll(".operator-panel > .panel-section")].map((node) => {
-      const rect = node.getBoundingClientRect();
-      return {
-        label: node.querySelector(".section-head p")?.textContent?.trim() || node.className,
-        left: rect.left,
-        right: rect.right,
-        top: rect.top,
-        bottom: rect.bottom,
-        width: rect.width,
-        height: rect.height
-      };
+    const visibleRects = [...document.body.querySelectorAll("*")]
+      .map((node) => node.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+    const maxElementRight = Math.max(window.innerWidth, ...visibleRects.map((rect) => rect.right));
+    const minElementLeft = Math.min(0, ...visibleRects.map((rect) => rect.left));
+    const operatorContainers = queryMany([
+      ".operator-panel",
+      ".operator-dock",
+      ".operator-sidebar",
+      ".control-dock",
+      ".control-sidebar",
+      ".demo-sidebar",
+      ".side-panel",
+      ".sidebar"
+    ]);
+    const operatorSectionSelector = [
+      ".panel-section",
+      ".operator-section",
+      ".dock-section",
+      ".sidebar-section",
+      ".console-section"
+    ].join(", ");
+    const panelSections = operatorContainers.flatMap(({ selector: containerSelector, node: container }, containerIndex) => {
+      return [...container.querySelectorAll(operatorSectionSelector)].map((node, sectionIndex) => {
+        return rectFor(
+          node,
+          node.querySelector(".section-head p, h2, h3, [data-section-title]")?.textContent?.trim() ||
+            `${containerSelector} section ${sectionIndex + 1}`,
+          {
+            container: containerSelector,
+            container_index: containerIndex
+          }
+        );
+      });
     });
-    const stageContainers = [".spatial-stage", ".operator-panel", ".hud-surface", ".spatial-stack"]
-      .flatMap((selector) => [...document.querySelectorAll(selector)].map((node) => {
-        const rect = node.getBoundingClientRect();
-        const style = window.getComputedStyle(node);
-        return {
-          label: selector,
-          visible: rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none",
-          left: rect.left,
-          right: rect.right,
-          top: rect.top,
-          bottom: rect.bottom,
-          width: rect.width,
-          height: rect.height
-        };
+    const stageContainers = [".spatial-stage", ".operator-panel", ".hud-surface", ".spatial-stack", ".stage-telemetry"]
+      .flatMap((selector) => [...document.querySelectorAll(selector)].map((node) => rectFor(node, selector)));
+    const stageAnchorBlockers = stageAnchorBlockerSelectors
+      .flatMap((selector) => [...document.querySelectorAll(selector)].map((node, index) => {
+        return rectFor(node, selector, { selector, index });
       }));
+    const stageAnchors = [...document.querySelectorAll(".anchor")].map((node, index) => {
+      const anchorId = node.getAttribute("data-anchor-id") || node.getAttribute("data-anchor") || node.textContent?.trim() || "";
+      return rectFor(node, `.anchor${anchorId ? `[${anchorId}]` : `:${index + 1}`}`, {
+        selector: ".anchor",
+        index,
+        anchor_id: anchorId || null
+      });
+    });
     return {
       title: document.title,
       moduleResults,
       containerResults,
-      horizontalOverflowPx: Math.max(0, maxRight - window.innerWidth),
+      horizontalOverflowPx: Math.ceil(Math.max(0, maxRight - window.innerWidth, maxElementRight - window.innerWidth, -minElementLeft)),
       viewport: { width: window.innerWidth, height: window.innerHeight },
       panelSections,
-      stageContainers
+      stageContainers,
+      stageAnchorBlockers,
+      stageAnchors
     };
-  }, { requiredModules, requiredContainers });
+  }, { requiredModules, requiredContainerGroups, stageAnchorBlockerSelectors });
 }
 
 function findOverlaps(rects, label) {
@@ -469,7 +608,7 @@ function findOverlaps(rects, label) {
 }
 
 function findPanelOverlaps(panelSections) {
-  const visiblePanels = panelSections.map((rect) => ({ ...rect, visible: true }));
+  const visiblePanels = panelSections.filter((rect) => rect.visible);
   return findOverlaps(visiblePanels, "operator-panel sections");
 }
 
@@ -490,12 +629,48 @@ function findStageOverlaps(stageContainers, viewportName) {
   return pairs;
 }
 
+function findStageAnchorOverlaps(stageAnchorBlockers, stageAnchors, viewportName, scenarioName) {
+  const overlaps = [];
+  const visibleBlockers = stageAnchorBlockers.filter((rect) => rect.visible);
+  const visibleAnchors = stageAnchors.filter((rect) => rect.visible);
+
+  for (const blocker of visibleBlockers) {
+    for (const anchor of visibleAnchors) {
+      if (!rectsOverlap(blocker, anchor)) continue;
+      const overlap = overlapMetrics(blocker, anchor);
+      overlaps.push({
+        viewport: viewportName,
+        scenario: scenarioName,
+        blocker: blocker.label,
+        blocker_index: blocker.index,
+        anchor: anchor.label,
+        anchor_id: anchor.anchor_id,
+        overlap_px: overlap
+      });
+    }
+  }
+
+  return overlaps;
+}
+
+function formatStageAnchorOverlap(overlap) {
+  return `${overlap.viewport} ${overlap.scenario}: ${overlap.blocker} overlaps ${overlap.anchor} (${overlap.overlap_px.width}x${overlap.overlap_px.height}px)`;
+}
+
 async function runBrowserGate(playwright) {
   let localServer = null;
   const baseUrl = process.env.BASE_URL || (localServer = await startLocalServer()).baseUrl;
   const browser = await playwright.chromium.launch({ headless: true });
   const viewportSummaries = [];
   const errors = [];
+  const reportedErrors = new Set();
+  const stageAnchorOverlaps = [];
+  const addError = (message) => {
+    if (!reportedErrors.has(message)) {
+      reportedErrors.add(message);
+      errors.push(message);
+    }
+  };
 
   try {
     for (const viewport of viewports) {
@@ -509,21 +684,57 @@ async function runBrowserGate(playwright) {
 
       await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 20000 });
       await page.waitForTimeout(250);
-      const snapshot = await browserSnapshot(page);
-      const missingModules = snapshot.moduleResults.filter((module) => !module.ok).map((module) => module.name);
-      const missingContainers = snapshot.containerResults
-        .filter((item) => item.count === 0 || !item.visible)
-        .map((item) => item.selector);
-      const panelOverlaps = findPanelOverlaps(snapshot.panelSections);
-      const stageOverlaps = findStageOverlaps(snapshot.stageContainers, viewport.name);
+      const scenarioSummaries = [];
 
-      if (consoleErrors.length) errors.push(`${viewport.name} console errors: ${consoleErrors.join(" | ")}`);
-      if (pageErrors.length) errors.push(`${viewport.name} page errors: ${pageErrors.join(" | ")}`);
-      if (snapshot.horizontalOverflowPx > 2) errors.push(`${viewport.name} horizontal overflow: ${snapshot.horizontalOverflowPx}px`);
-      if (missingModules.length) errors.push(`${viewport.name} missing modules: ${missingModules.join(", ")}`);
-      if (missingContainers.length) errors.push(`${viewport.name} missing/hidden containers: ${missingContainers.join(", ")}`);
-      if (panelOverlaps.length) errors.push(...panelOverlaps);
-      if (stageOverlaps.length) errors.push(...stageOverlaps);
+      const recordScenario = async (scenarioName) => {
+        const snapshot = await browserSnapshot(page);
+        const missingModules = snapshot.moduleResults.filter((module) => !module.ok).map((module) => module.name);
+        const missingContainers = snapshot.containerResults
+          .filter((item) => item.count === 0 || !item.visible)
+          .map((item) => item.name);
+        const panelOverlaps = findPanelOverlaps(snapshot.panelSections)
+          .map((message) => `${viewport.name} ${scenarioName}: ${message}`);
+        const stageOverlaps = findStageOverlaps(snapshot.stageContainers, `${viewport.name} ${scenarioName}`);
+        const currentStageAnchorOverlaps = findStageAnchorOverlaps(
+          snapshot.stageAnchorBlockers,
+          snapshot.stageAnchors,
+          viewport.name,
+          scenarioName
+        );
+
+        if (snapshot.horizontalOverflowPx > 2) addError(`${viewport.name} ${scenarioName} horizontal overflow: ${snapshot.horizontalOverflowPx}px`);
+        if (missingModules.length) addError(`${viewport.name} ${scenarioName} missing modules: ${missingModules.join(", ")}`);
+        if (missingContainers.length) addError(`${viewport.name} ${scenarioName} missing/hidden containers: ${missingContainers.join(", ")}`);
+        for (const message of panelOverlaps) addError(message);
+        for (const message of stageOverlaps) addError(message);
+        for (const overlap of currentStageAnchorOverlaps) addError(formatStageAnchorOverlap(overlap));
+
+        stageAnchorOverlaps.push(...currentStageAnchorOverlaps);
+        scenarioSummaries.push({
+          name: scenarioName,
+          horizontal_overflow_px: snapshot.horizontalOverflowPx,
+          missing_modules: missingModules,
+          missing_containers: missingContainers,
+          panel_overlaps: panelOverlaps,
+          stage_overlaps: stageOverlaps,
+          stage_anchor_overlaps: currentStageAnchorOverlaps
+        });
+      };
+
+      await recordScenario("initial");
+      const writeButton = await page.$("#writeBtn");
+      if (writeButton) {
+        try {
+          await writeButton.evaluate((button) => button.click());
+          await page.waitForTimeout(750);
+          await recordScenario("write-back");
+        } catch (error) {
+          addError(`${viewport.name} write-back scenario failed: ${error.message}`);
+        }
+      }
+
+      if (consoleErrors.length) addError(`${viewport.name} console errors: ${consoleErrors.join(" | ")}`);
+      if (pageErrors.length) addError(`${viewport.name} page errors: ${pageErrors.join(" | ")}`);
 
       viewportSummaries.push({
         name: viewport.name,
@@ -531,11 +742,8 @@ async function runBrowserGate(playwright) {
         height: viewport.height,
         console_errors: consoleErrors.length,
         page_errors: pageErrors.length,
-        horizontal_overflow_px: snapshot.horizontalOverflowPx,
-        missing_modules: missingModules,
-        missing_containers: missingContainers,
-        panel_overlaps: panelOverlaps,
-        stage_overlaps: stageOverlaps
+        scenarios: scenarioSummaries,
+        stage_anchor_overlaps: scenarioSummaries.flatMap((scenario) => scenario.stage_anchor_overlaps)
       });
       await page.close();
     }
@@ -550,6 +758,7 @@ async function runBrowserGate(playwright) {
     base: baseUrl,
     errors,
     viewports: viewportSummaries,
+    stage_anchor_overlaps: stageAnchorOverlaps,
     modules: requiredModules.map((module) => module.name)
   };
 }
@@ -565,8 +774,10 @@ async function runStaticGate() {
     modules: result.modules,
     controls: result.controls,
     containers: result.containers,
+    container_groups: result.container_groups,
     css_checks: result.css_checks,
-    js_checks: result.js_checks
+    js_checks: result.js_checks,
+    stage_anchor_overlaps: []
   };
 }
 

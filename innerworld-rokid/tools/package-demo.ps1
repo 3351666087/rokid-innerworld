@@ -160,10 +160,20 @@ if (Test-Path -LiteralPath $runtimeStateInPackage) {
   Assert-UnderPath -Path $runtimeStateInPackage -RootPath $staging
   Remove-Item -LiteralPath $runtimeStateInPackage -Force
 }
+$sqliteRuntimeInPackage = Join-Path $staging "data\innerworld.sqlite"
+if (Test-Path -LiteralPath $sqliteRuntimeInPackage) {
+  Assert-UnderPath -Path $sqliteRuntimeInPackage -RootPath $staging
+  Remove-Item -LiteralPath $sqliteRuntimeInPackage -Force
+}
+Get-ChildItem -LiteralPath (Join-Path $staging "data") -Filter "innerworld.sqlite-*" -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+  Assert-UnderPath -Path $_.FullName -RootPath $staging
+  Remove-Item -LiteralPath $_.FullName -Force
+}
 
 Copy-FileIfExists -Source (Join-Path $root "apps\unity-shell\README.md") -Destination (Join-Path $staging "apps\unity-shell\README.md")
 Copy-FileIfExists -Source (Join-Path $root "output\unity-android\InnerWorldRokid.apk") -Destination (Join-Path $staging "output\unity-android\InnerWorldRokid.apk")
 Copy-FileIfExists -Source (Join-Path $root "package.json") -Destination (Join-Path $staging "package.json")
+Copy-FileIfExists -Source (Join-Path $root "package-lock.json") -Destination (Join-Path $staging "package-lock.json")
 Copy-FileIfExists -Source (Join-Path $root "README.md") -Destination (Join-Path $staging "README.md")
 Copy-FileIfExists -Source (Join-Path $root "..\pdf-renderer\pom.xml") -Destination (Join-Path $staging "pdf-renderer\pom.xml")
 Copy-FileIfExists -Source (Join-Path $root "start-lan.ps1") -Destination (Join-Path $staging "start-lan.ps1")
@@ -180,6 +190,7 @@ Copy-FileIfExists -Source $cacheAfter -Destination (Join-Path $staging "output\p
 $forbiddenEntries = Get-ChildItem -LiteralPath $staging -Recurse -Force | Where-Object {
   $relative = $_.FullName.Substring($staging.Length + 1)
   $relative -match '(^|\\)(Library|PackageCache|node_modules|\.git|Temp|Obj)(\\|$)' -or
+    $relative -match '(^|\\)(runtime_state\.json|innerworld\.sqlite(?:-.+)?)(\\|$)' -or
     $relative -match '(^|\\)RokidCache(\\|$)' -or
     $relative -match '(^|\\)UnityHubDownloads(\\|$)'
 }
@@ -203,6 +214,7 @@ InnerWorld Rokid Demo Package
 Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
 
 Run localhost:
+  npm ci
   powershell -NoProfile -ExecutionPolicy Bypass -File start-localhost.ps1
   open http://localhost:5177/
 
@@ -273,8 +285,9 @@ Cache safety:
   Keep large reusable downloads in D:\Downloads\RokidCache.
 
 Runtime state:
-  data\runtime_state.json is intentionally excluded from the package.
-  The Space Server regenerates it on first run so every package starts from a clean entered state.
+  data\innerworld.sqlite and data\runtime_state.json are intentionally excluded from the package.
+  The Space Server creates the SQLite runtime store on first run from public seed files.
+  The old JSON runtime file is only a migration source when present.
 "@
 $readmePackage | Set-Content -Encoding UTF8 -Path (Join-Path $staging "README-PACKAGE.txt")
 
@@ -329,6 +342,7 @@ $manifest = [pscustomobject]@{
     "apps/unity-shell/Temp",
     "apps/unity-shell/Logs",
     "data/runtime_state.json",
+    "data/innerworld.sqlite",
     "previous output/package zips",
     "node_modules"
   )

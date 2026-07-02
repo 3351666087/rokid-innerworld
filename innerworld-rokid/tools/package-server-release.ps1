@@ -87,6 +87,15 @@ if (Test-Path -LiteralPath $runtimeState) {
   Assert-UnderPath -Path $runtimeState -RootPath $staging
   Remove-Item -LiteralPath $runtimeState -Force
 }
+$sqliteRuntime = Join-Path $staging "data\innerworld.sqlite"
+if (Test-Path -LiteralPath $sqliteRuntime) {
+  Assert-UnderPath -Path $sqliteRuntime -RootPath $staging
+  Remove-Item -LiteralPath $sqliteRuntime -Force
+}
+Get-ChildItem -LiteralPath (Join-Path $staging "data") -Filter "innerworld.sqlite-*" -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+  Assert-UnderPath -Path $_.FullName -RootPath $staging
+  Remove-Item -LiteralPath $_.FullName -Force
+}
 
 $packageJson = [ordered]@{
   name = "innerworld-space-server-release"
@@ -105,6 +114,9 @@ $packageJson = [ordered]@{
   engines = [ordered]@{
     node = ">=20"
   }
+  dependencies = [ordered]@{
+    "sql.js" = "^1.14.1"
+  }
 }
 $packageJson | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -Path (Join-Path $staging "package.json")
 
@@ -113,6 +125,9 @@ $startWindows = @"
 Set-Location -LiteralPath `$PSScriptRoot
 if (`$env:PORT -eq `$null -or `$env:PORT -eq "") { `$env:PORT = "$Port" }
 if (`$env:HOST -eq `$null -or `$env:HOST -eq "") { `$env:HOST = "127.0.0.1" }
+if (!(Test-Path -LiteralPath (Join-Path `$PSScriptRoot "node_modules\sql.js"))) {
+  npm install --omit=dev --no-audit
+}
 node server\space-server\index.js
 "@
 $startWindows | Set-Content -Encoding UTF8 -Path (Join-Path $staging "start-server.ps1")
@@ -122,6 +137,9 @@ $startLanWindows = @"
 Set-Location -LiteralPath `$PSScriptRoot
 if (`$env:PORT -eq `$null -or `$env:PORT -eq "") { `$env:PORT = "$Port" }
 `$env:HOST = "0.0.0.0"
+if (!(Test-Path -LiteralPath (Join-Path `$PSScriptRoot "node_modules\sql.js"))) {
+  npm install --omit=dev --no-audit
+}
 node server\space-server\index.js
 "@
 $startLanWindows | Set-Content -Encoding UTF8 -Path (Join-Path $staging "start-server-lan.ps1")
@@ -133,6 +151,9 @@ cd "`$(dirname "`$0")"
 : "`${PORT:=$Port}"
 : "`${HOST:=127.0.0.1}"
 export PORT HOST
+if [ ! -d "node_modules/sql.js" ]; then
+  npm install --omit=dev --no-audit
+fi
 exec node server/space-server/index.js
 "@
 $startSh | Set-Content -Encoding UTF8 -Path (Join-Path $staging "start-server.sh")
@@ -157,6 +178,7 @@ Run on Linux server:
   PORT=$Port HOST=0.0.0.0 sh ./start-server.sh
 
 Checks:
+  npm install --omit=dev --no-audit
   node server/space-server/check-contract.js
   node server/space-server/check-device.js
   node server/space-server/check-readonly.js
@@ -164,8 +186,9 @@ Checks:
   node server/space-server/capture-rehearsal.js --reset-after
 
 Runtime state:
-  data/runtime_state.json is intentionally excluded.
-  The server regenerates it on first request so every release starts from entered / 2 beacons / 0 completed steps.
+  data/innerworld.sqlite and data/runtime_state.json are intentionally excluded.
+  The Space Server creates data/innerworld.sqlite on first run from public seed files.
+  The old JSON runtime file is only a migration source when present.
 
 Reverse proxy hint:
   Put Nginx/Caddy in front of this process for HTTPS and domain routing.
@@ -175,7 +198,7 @@ $readme | Set-Content -Encoding UTF8 -Path (Join-Path $staging "README-SERVER.tx
 
 $forbiddenEntries = Get-ChildItem -LiteralPath $staging -Recurse -Force | Where-Object {
   $relative = $_.FullName.Substring($staging.Length + 1)
-  $relative -match '(^|\\)(runtime_state\.json|Library|PackageCache|node_modules|\.git|Temp|Obj|target)(\\|$)'
+  $relative -match '(^|\\)(runtime_state\.json|innerworld\.sqlite(?:-.+)?|Library|PackageCache|node_modules|\.git|Temp|Obj|target)(\\|$)'
 }
 if ($forbiddenEntries) {
   $sample = ($forbiddenEntries | Select-Object -First 10 | ForEach-Object { $_.FullName }) -join "`n"
@@ -214,6 +237,7 @@ $manifest = [pscustomobject]@{
   )
   excludes = @(
     "data/runtime_state.json",
+    "data/innerworld.sqlite",
     "node_modules",
     ".git",
     "Unity build outputs",

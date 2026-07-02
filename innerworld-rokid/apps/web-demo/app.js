@@ -11,6 +11,24 @@ const api = {
   async getDeviceBootstrap() {
     return requestJson("/api/device/bootstrap?profile=rokid-ar", { cache: "no-store" }, "读取设备 bootstrap 失败");
   },
+  async getDeviceManifest() {
+    return requestJson("/api/device/manifest", { cache: "no-store" }, "读取设备 manifest 失败");
+  },
+  async registerDevice(payload) {
+    return requestJson("/api/device/register", jsonPost(payload), "注册模拟设备失败");
+  },
+  async sendDeviceHeartbeat(payload) {
+    return requestJson("/api/device/heartbeat", jsonPost(payload), "发送设备心跳失败");
+  },
+  async getDeviceSessions() {
+    return requestJson("/api/device/sessions", { cache: "no-store" }, "读取设备会话失败");
+  },
+  async getStoreStatus() {
+    return requestJson("/api/store/status", { cache: "no-store" }, "读取数据库状态失败");
+  },
+  async getDatasetCatalog() {
+    return requestJson("/api/datasets/catalog", { cache: "no-store" }, "读取数据集目录失败");
+  },
   async generateHud(payload) {
     return requestJson("/api/ai/hud", jsonPost(payload), "生成 HUD 失败");
   },
@@ -33,13 +51,25 @@ const model = {
   runtime: null,
   ops: null,
   bootstrap: null,
+  store: null,
+  datasetCatalog: null,
+  deviceManifest: null,
+  deviceSessions: null,
+  deviceSession: null,
+  deviceLastHeartbeat: null,
   activeUser: "A",
   currentAnchor: null,
   hudByAnchor: new Map(),
   hudErrors: new Map(),
   hudRequestId: 0,
   busy: false,
-  autoRunning: false
+  autoRunning: false,
+  panelCollapsed: false,
+  panelAnimation: {
+    frame: 0,
+    width: 460,
+    velocity: 0
+  }
 };
 
 const els = {
@@ -51,6 +81,7 @@ const els = {
   hudHintLevel: document.querySelector("#hudHintLevel"),
   hudMeta: document.querySelector("#hudMeta"),
   hudTitle: document.querySelector("#hudTitle"),
+  hardwareGrid: document.querySelector("#hardwareGrid"),
   deliveryTimeline: document.querySelector("#deliveryTimeline"),
   evidenceRail: document.querySelector("#evidenceRail"),
   agentQueue: document.querySelector("#agentQueue"),
@@ -59,6 +90,7 @@ const els = {
   log: document.querySelector("#log"),
   missionState: document.querySelector("#missionState"),
   opsGrid: document.querySelector("#opsGrid"),
+  panelToggleBtn: document.querySelector("#panelToggleBtn"),
   productGrid: document.querySelector("#productGrid"),
   progress: document.querySelector("#progress"),
   riskGrid: document.querySelector("#riskGrid"),
@@ -107,6 +139,55 @@ function runAction(action) {
       document.body.classList.remove("is-busy");
     }
   };
+}
+
+function setPanelCollapsed(collapsed) {
+  const shell = document.querySelector(".app-shell");
+  if (!shell || !els.panelToggleBtn) return;
+  model.panelCollapsed = Boolean(collapsed);
+  shell.classList.toggle("panel-collapsed", model.panelCollapsed);
+  els.panelToggleBtn.setAttribute("aria-pressed", collapsed ? "true" : "false");
+  els.panelToggleBtn.setAttribute("aria-label", collapsed ? "展开控制台" : "收起控制台");
+  els.panelToggleBtn.title = collapsed ? "展开控制台" : "收起控制台";
+  animatePanelWidth(shell, model.panelCollapsed ? 0 : panelOpenWidth());
+}
+
+function panelOpenWidth() {
+  const width = Math.round(Math.min(Math.max(window.innerWidth * 0.28, 400), 480));
+  return Number.isFinite(width) ? width : 460;
+}
+
+function animatePanelWidth(shell, targetWidth) {
+  const animation = model.panelAnimation;
+  window.cancelAnimationFrame(animation.frame);
+
+  const stiffness = 0.16;
+  const damping = 0.62;
+  const tick = () => {
+    const previousWidth = animation.width;
+    const delta = targetWidth - animation.width;
+    animation.velocity = (animation.velocity + delta * stiffness) * damping;
+    animation.width += animation.velocity;
+
+    const crossedOpeningTarget = targetWidth >= previousWidth && animation.width > targetWidth;
+    const crossedClosingTarget = targetWidth <= previousWidth && animation.width < targetWidth;
+    if (crossedOpeningTarget || crossedClosingTarget) {
+      animation.width = targetWidth;
+      animation.velocity = 0;
+    }
+
+    if (Math.abs(delta) < 0.35 && Math.abs(animation.velocity) < 0.35) {
+      animation.width = targetWidth;
+      animation.velocity = 0;
+      shell.style.setProperty("--panel-current-width", `${targetWidth.toFixed(1)}px`);
+      return;
+    }
+
+    shell.style.setProperty("--panel-current-width", `${Math.max(0, animation.width).toFixed(1)}px`);
+    animation.frame = window.requestAnimationFrame(tick);
+  };
+
+  animation.frame = window.requestAnimationFrame(tick);
 }
 
 function anchors() {
@@ -205,6 +286,52 @@ function isLoopback(value) {
   } catch {
     return false;
   }
+}
+
+function requiredCapabilityIds() {
+  return (model.deviceManifest?.required_capabilities || []).map((capability) => capability.id).filter(Boolean);
+}
+
+function simulatedDevicePayload() {
+  return {
+    profile: "rokid-ar",
+    device_id: "RA202 operator simulator",
+    client_version: "web-operator-0.1.0",
+    capabilities: requiredCapabilityIds(),
+    network: {
+      online: true,
+      transport: isLoopback(model.bootstrap?.base_url || window.location.origin) ? "localhost" : "wifi",
+      rtt_ms: 28,
+      lan_reachable: true,
+      http_cleartext_allowed: true
+    }
+  };
+}
+
+function simulatedHeartbeatPayload() {
+  return {
+    session_id: model.deviceSession?.session_id,
+    device_id: model.deviceSession?.device_id,
+    battery: {
+      level_percent: 78,
+      charging: false,
+      temperature_c: 32
+    },
+    network: {
+      online: true,
+      transport: isLoopback(model.bootstrap?.base_url || window.location.origin) ? "localhost" : "wifi",
+      rtt_ms: 32,
+      lan_reachable: true,
+      http_cleartext_allowed: true
+    },
+    pose: {
+      confidence: 0.92,
+      position: { x: 0, y: 1.55, z: 2.8 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    active_anchor: model.currentAnchor || entryAnchorId(),
+    current_user: model.activeUser
+  };
 }
 
 function stableAnchorSeed(anchor, index) {
@@ -635,6 +762,53 @@ function renderRiskGuardrails() {
   });
 }
 
+function renderHardwareRuntime() {
+  if (!els.hardwareGrid) return;
+  const endpoints = model.bootstrap?.endpoints || {};
+  const hardware = model.ops?.hardware;
+  const baseUrl = model.bootstrap?.base_url || window.location.origin;
+  const devices = Array.isArray(hardware?.devices) ? hardware.devices : [];
+  const endpointCount = Object.keys(endpoints).length;
+  const deviceManifestReady = Boolean(endpoints.device_manifest);
+  const storeReady = model.store?.engine === "sqlite";
+  const datasetCount = model.datasetCatalog?.datasets?.length ?? 0;
+  const sessions = Array.isArray(model.deviceSessions?.sessions) ? model.deviceSessions.sessions : [];
+  const latestSession = sessions[0] || model.deviceSession;
+  const smoke = model.deviceSessions?.smoke_test_summary;
+  const sessionStatus = latestSession?.session_status || model.deviceLastHeartbeat?.runtime?.session_status || "no session";
+  const heartbeatCount = latestSession?.heartbeat_count ?? model.deviceLastHeartbeat?.heartbeat_count ?? 0;
+
+  els.hardwareGrid.innerHTML = "";
+  els.hardwareGrid.append(
+    renderInfoCard("hardware-card good", "Kit", "Rokid AR Studio", devices.map((device) => `${device.model} x${device.quantity || 1}`).join(" + ") || "RA202 + RAS201"),
+    renderInfoCard("hardware-card good", "Network", isLoopback(baseUrl) ? "Localhost now" : "LAN ready", isLoopback(baseUrl) ? "硬件到场后切 dev:lan 和 Windows 主控机 IP。" : baseUrl),
+    renderInfoCard(storeReady ? "hardware-card good" : "hardware-card warn", "SQLite Store", storeReady ? "authoritative" : "checking", `${datasetCount} safe datasets · ${model.store?.device_sessions ?? 0} device sessions`),
+    renderInfoCard("hardware-card", "Runtime API", `${endpointCount} endpoints`, "bootstrap / AI HUD / evidence / session plan / dataset call / device runtime 同一套契约。"),
+    renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount}` : "点击注册模拟设备，硬件到场后替换为 RA202/RAS201。"),
+    renderInfoCard("hardware-card", "Adapter Slots", "Input + Display", "UXR2.0 到场后只替换 gaze/gesture/overlay adapter，不改任务与证据链。"),
+    renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
+    renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "hardware-actions";
+  const registerBtn = document.createElement("button");
+  registerBtn.type = "button";
+  registerBtn.textContent = model.deviceSession ? "重新注册模拟设备" : "注册模拟设备";
+  registerBtn.addEventListener("click", runAction(registerSimulatedDevice));
+  const heartbeatBtn = document.createElement("button");
+  heartbeatBtn.type = "button";
+  heartbeatBtn.textContent = "发送心跳";
+  heartbeatBtn.disabled = !model.deviceSession;
+  heartbeatBtn.addEventListener("click", runAction(sendSimulatedHeartbeat));
+  const refreshBtn = document.createElement("button");
+  refreshBtn.type = "button";
+  refreshBtn.textContent = "刷新运行库";
+  refreshBtn.addEventListener("click", runAction(refreshOps));
+  actions.append(registerBtn, heartbeatBtn, refreshBtn);
+  els.hardwareGrid.append(actions);
+}
+
 function renderProductModules() {
   if (!els.productGrid) return;
   const anchorCount = anchors().length;
@@ -753,16 +927,57 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   renderEvidenceChain();
   renderShowcase();
   renderRiskGuardrails();
+  renderHardwareRuntime();
+}
+
+async function refreshDeviceRuntime() {
+  const [manifestResult, sessionsResult, storeResult, catalogResult] = await Promise.allSettled([
+    api.getDeviceManifest(),
+    api.getDeviceSessions(),
+    api.getStoreStatus(),
+    api.getDatasetCatalog()
+  ]);
+
+  if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
+  if (sessionsResult.status === "fulfilled") model.deviceSessions = sessionsResult.value;
+  if (storeResult.status === "fulfilled") model.store = storeResult.value;
+  if (catalogResult.status === "fulfilled") model.datasetCatalog = catalogResult.value;
+  renderHardwareRuntime();
+  renderLog();
+}
+
+async function registerSimulatedDevice() {
+  if (!model.deviceManifest) {
+    model.deviceManifest = await api.getDeviceManifest();
+  }
+  model.deviceSession = await api.registerDevice(simulatedDevicePayload());
+  await refreshDeviceRuntime();
+}
+
+async function sendSimulatedHeartbeat() {
+  if (!model.deviceSession?.session_id) {
+    await registerSimulatedDevice();
+  }
+  model.deviceLastHeartbeat = await api.sendDeviceHeartbeat(simulatedHeartbeatPayload());
+  await refreshDeviceRuntime();
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult] = await Promise.allSettled([
     api.getOpsStatus(),
-    api.getDeviceBootstrap()
+    api.getDeviceBootstrap(),
+    api.getDeviceManifest(),
+    api.getDeviceSessions(),
+    api.getStoreStatus(),
+    api.getDatasetCatalog()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
   model.bootstrap = bootstrapResult.status === "fulfilled" ? bootstrapResult.value : null;
+  model.deviceManifest = manifestResult.status === "fulfilled" ? manifestResult.value : model.deviceManifest;
+  model.deviceSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : model.deviceSessions;
+  model.store = storeResult.status === "fulfilled" ? storeResult.value : model.store;
+  model.datasetCatalog = catalogResult.status === "fulfilled" ? catalogResult.value : model.datasetCatalog;
   renderOps(model.ops, model.bootstrap, {
     ops: opsResult.status === "rejected" ? opsResult.reason : null,
     bootstrap: bootstrapResult.status === "rejected" ? bootstrapResult.reason : null
@@ -781,6 +996,16 @@ function renderLog() {
     hardware: model.ops?.hardware ? {
       fit: model.ops.hardware.fit,
       borrow_deadline: model.ops.hardware.borrow_deadline
+    } : null,
+    store: model.store ? {
+      engine: model.store.engine,
+      datasets: model.store.datasets,
+      device_sessions: model.store.device_sessions
+    } : null,
+    device_runtime: model.deviceSessions ? {
+      storage: model.deviceSessions.storage,
+      total: model.deviceSessions.total,
+      smoke: model.deviceSessions.smoke_test_summary
     } : null
   };
   els.log.textContent = JSON.stringify(payload, null, 2);
@@ -818,6 +1043,7 @@ async function refresh(options = {}) {
   renderShowcase();
   renderDeliveryScript();
   renderRiskGuardrails();
+  renderHardwareRuntime();
   await refreshOps();
   requestAiHud(model.currentAnchor);
 }
@@ -903,6 +1129,10 @@ els.anchorLayer?.addEventListener("click", (event) => {
 document.querySelector("#nextBtn")?.addEventListener("click", runAction(completeCurrentStep));
 document.querySelector("#autoBtn")?.addEventListener("click", runAction(autoRun));
 document.querySelector("#opsRefreshBtn")?.addEventListener("click", runAction(refreshOps));
+els.panelToggleBtn?.addEventListener("click", () => {
+  const shell = document.querySelector(".app-shell");
+  setPanelCollapsed(!shell?.classList.contains("panel-collapsed"));
+});
 
 document.querySelector("#serviceBtn")?.addEventListener("click", runAction(async () => {
   await api.serviceAction({ user_id: model.activeUser, action_id: "JOIN_EVENT_1430", label: "加入 14:30 体验活动" });
@@ -937,7 +1167,21 @@ els.writeText?.addEventListener("input", () => {
   }
 });
 
+window.addEventListener("resize", () => {
+  const shell = document.querySelector(".app-shell");
+  if (!shell || model.panelCollapsed) return;
+  const width = panelOpenWidth();
+  model.panelAnimation.width = width;
+  model.panelAnimation.velocity = 0;
+  shell.style.setProperty("--panel-current-width", `${width.toFixed(1)}px`);
+});
+
 try {
+  const shell = document.querySelector(".app-shell");
+  if (shell) {
+    model.panelAnimation.width = panelOpenWidth();
+    shell.style.setProperty("--panel-current-width", `${model.panelAnimation.width.toFixed(1)}px`);
+  }
   await refresh({ anchorId: entryAnchorId() });
   window.setInterval(refreshOps, 15000);
 } catch (error) {

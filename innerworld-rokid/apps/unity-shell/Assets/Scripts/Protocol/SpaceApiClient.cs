@@ -55,6 +55,16 @@ namespace InnerWorld.Rokid.Protocol
             get { return BuildStateUrl(BaseUrl); }
         }
 
+        public string EvidenceChainUrl
+        {
+            get { return BuildEvidenceChainUrl(BaseUrl); }
+        }
+
+        public string SessionPlanUrl
+        {
+            get { return BuildSessionPlanUrl(BaseUrl); }
+        }
+
         public string AiHudUrl
         {
             get { return BuildAiHudUrl(BaseUrl); }
@@ -140,6 +150,16 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/state");
         }
 
+        public static string BuildEvidenceChainUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/evidence/chain");
+        }
+
+        public static string BuildSessionPlanUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/session/plan");
+        }
+
         public static string BuildAiHudUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/ai/hud");
@@ -192,6 +212,8 @@ namespace InnerWorld.Rokid.Protocol
             {
                 health = Endpoint(cleanBaseUrl, "GET", "/api/health"),
                 ops_status = Endpoint(cleanBaseUrl, "GET", "/api/ops/status"),
+                evidence_chain = Endpoint(cleanBaseUrl, "GET", "/api/evidence/chain"),
+                session_plan = Endpoint(cleanBaseUrl, "GET", "/api/session/plan"),
                 device_bootstrap = Endpoint(cleanBaseUrl, "GET", "/api/device/bootstrap"),
                 ai_schema = Endpoint(cleanBaseUrl, "GET", "/api/ai/schema"),
                 ai_prompt = Endpoint(cleanBaseUrl, "GET", "/api/ai/prompt"),

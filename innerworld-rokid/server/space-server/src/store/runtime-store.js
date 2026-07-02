@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { beacons, normalizeMissionState } from "../../../../shared/innerworld-contract.js";
 import { readJson, writeJsonAtomic } from "../lib/json-file.js";
 
-export function createRuntimeStore({ spacePath, statePath }) {
+export function createRuntimeStore({ spacePath, statePath, sqliteStore = null }) {
   let queue = Promise.resolve();
 
   async function loadSpace() {
@@ -23,6 +23,9 @@ export function createRuntimeStore({ spacePath, statePath }) {
   }
 
   async function saveState(state) {
+    if (sqliteStore) {
+      return sqliteStore.saveRuntimeState(state);
+    }
     await writeJsonAtomic(statePath, state);
     return state;
   }
@@ -34,6 +37,11 @@ export function createRuntimeStore({ spacePath, statePath }) {
   }
 
   async function loadState() {
+    if (sqliteStore) {
+      const stored = sqliteStore.loadRuntimeState();
+      if (stored) return stored;
+      return resetState();
+    }
     if (!existsSync(statePath)) {
       return resetState();
     }

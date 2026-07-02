@@ -22,55 +22,72 @@
           <span id="connectionPill" class="status-pill">Localhost</span>
           <span id="missionState" class="status-pill">entered</span>
           <span id="userBadge" class="status-pill">User A</span>
+          <button id="panelToggleBtn" class="panel-toggle" type="button" aria-label="收起控制台" aria-pressed="false" title="收起控制台">
+            <span aria-hidden="true"></span>
+          </button>
         </div>
       </header>
 
       <div class="stage-frame">
-        <div class="wall-scene" id="wallScene">
-          <div class="wall-meta">
-            <span>Campus Memory Wall</span>
-            <strong id="spaceName">校园记忆展墙</strong>
+        <section class="scene-system" aria-label="空间工作台">
+          <div class="scene-header">
+            <div>
+              <p>Spatial Canvas</p>
+              <h2>真实展墙上的记忆层</h2>
+            </div>
+            <span>Rokid / Localhost / LAN Ready</span>
           </div>
-          <div class="route-rail" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <div class="anchor-layer" id="anchorLayer" aria-label="空间锚点"></div>
-        </div>
 
-        <section class="stage-telemetry" aria-label="空间镜头状态">
-          <div class="stage-telemetry-head">
-            <span>Rokid Lens</span>
-            <strong id="lensState">Spatial Ready</strong>
-          </div>
-          <div class="stage-metrics" id="stageMetrics"></div>
-        </section>
+          <div class="scene-grid">
+            <div class="wall-scene" id="wallScene">
+              <div class="wall-meta">
+                <span>Campus Memory Wall</span>
+                <strong id="spaceName">校园记忆展墙</strong>
+              </div>
+              <div class="route-rail" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <div class="anchor-layer" id="anchorLayer" aria-label="空间锚点"></div>
+            </div>
 
-        <section class="hud-surface" aria-label="眼镜端 HUD">
-          <div class="hud-topline">
-            <span id="hudAnchor">A1 入口海报</span>
-            <span id="hudHintLevel">hint none</span>
-          </div>
-          <h2 id="hudTitle">校园记忆层已打开</h2>
-          <p id="hudBody">看向展墙中间的记忆信标，读取前人留在这里的三行摘要。</p>
-          <div class="hud-meta" id="hudMeta"></div>
-          <div class="progress-track" id="progress"></div>
-        </section>
+            <aside class="lens-dock" aria-label="镜头与空间状态">
+              <section class="stage-telemetry" aria-label="空间镜头状态">
+                <div class="stage-telemetry-head">
+                  <span>Rokid Lens</span>
+                  <strong id="lensState">Spatial Ready</strong>
+                </div>
+                <div class="stage-metrics" id="stageMetrics"></div>
+              </section>
 
-        <section class="spatial-stack" aria-label="空间产品层">
-          <div>
-            <span>Input</span>
-            <strong>Gaze / Tap / Voice</strong>
+              <section class="spatial-stack" aria-label="空间产品层">
+                <div>
+                  <span>Input</span>
+                  <strong>Gaze / Tap / Voice</strong>
+                </div>
+                <div>
+                  <span>Layer</span>
+                  <strong>Official · Public · Time Capsule</strong>
+                </div>
+                <div>
+                  <span>Output</span>
+                  <strong>Rokid HUD · Space Server</strong>
+                </div>
+              </section>
+            </aside>
           </div>
-          <div>
-            <span>Layer</span>
-            <strong>Official · Public · Time Capsule</strong>
-          </div>
-          <div>
-            <span>Output</span>
-            <strong>Rokid HUD · Space Server</strong>
-          </div>
+
+          <section class="hud-surface" aria-label="眼镜端 HUD">
+            <div class="hud-topline">
+              <span id="hudAnchor">A1 入口海报</span>
+              <span id="hudHintLevel">hint none</span>
+            </div>
+            <h2 id="hudTitle">校园记忆层已打开</h2>
+            <p id="hudBody">看向展墙中间的记忆信标，读取前人留在这里的三行摘要。</p>
+            <div class="hud-meta" id="hudMeta"></div>
+            <div class="progress-track" id="progress"></div>
+          </section>
         </section>
       </div>
     </section>
@@ -206,6 +223,16 @@
           <button id="opsRefreshBtn" class="icon-button" type="button" title="刷新状态" aria-label="刷新状态">↻</button>
         </div>
         <div class="ops-grid" id="opsGrid"></div>
+      </section>
+
+      <section class="panel-section hardware-section" aria-label="硬件接入运行时">
+        <div class="section-head compact">
+          <div>
+            <p>Hardware Runtime</p>
+            <h2>硬件接入</h2>
+          </div>
+        </div>
+        <div class="hardware-grid" id="hardwareGrid"></div>
       </section>
 
       <section class="panel-section telemetry-section" aria-label="遥测日志">

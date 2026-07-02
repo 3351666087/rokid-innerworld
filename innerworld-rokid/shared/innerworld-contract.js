@@ -1,8 +1,20 @@
 export const INNERWORLD_SPACE_ID = "innerworld_campus_wall";
 export const INNERWORLD_SERVICE_NAME = "innerworld-space-server";
 export const DEVICE_BOOTSTRAP_PROTOCOL = "innerworld-device-bootstrap/v1";
+export const DEVICE_RUNTIME_MANIFEST_SCHEMA = "innerworld-device-runtime-manifest/v1";
+export const DEVICE_RUNTIME_SESSION_PROTOCOL = "innerworld-device-runtime-session/v1";
 export const DEFAULT_DEVICE_PROFILE = "rokid-ar";
 export const DEFAULT_PORT = 5177;
+export const EVIDENCE_CHAIN_SCHEMA = "innerworld-evidence-chain/v1";
+export const SESSION_PLAN_SCHEMA = "innerworld-session-plan/v1";
+
+export const FIELD_SESSION_STAGE_IDS = Object.freeze([
+  "opening",
+  "read",
+  "service",
+  "writeback",
+  "handoff"
+]);
 
 export const MISSION_STEP_IDS = Object.freeze([
   "read",
@@ -55,7 +67,16 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
   return {
     health: apiEndpoint(baseUrl, "/api/health"),
     ops_status: apiEndpoint(baseUrl, "/api/ops/status"),
+    store_status: apiEndpoint(baseUrl, "/api/store/status"),
+    dataset_catalog: apiEndpoint(baseUrl, "/api/datasets/catalog"),
+    dataset_call: apiEndpoint(baseUrl, "/api/datasets/call", "POST"),
+    evidence_chain: apiEndpoint(baseUrl, "/api/evidence/chain"),
+    session_plan: apiEndpoint(baseUrl, "/api/session/plan"),
     device_bootstrap: apiEndpoint(baseUrl, "/api/device/bootstrap"),
+    device_manifest: apiEndpoint(baseUrl, "/api/device/manifest"),
+    device_register: apiEndpoint(baseUrl, "/api/device/register", "POST"),
+    device_heartbeat: apiEndpoint(baseUrl, "/api/device/heartbeat", "POST"),
+    device_sessions: apiEndpoint(baseUrl, "/api/device/sessions"),
     ai_schema: apiEndpoint(baseUrl, "/api/ai/schema"),
     ai_prompt: apiEndpoint(baseUrl, "/api/ai/prompt"),
     ai_hud: apiEndpoint(baseUrl, "/api/ai/hud", "POST"),
@@ -255,8 +276,35 @@ export function createInnerWorldClient({
     getOpsStatus() {
       return request("/api/ops/status", {}, "ops_status_failed");
     },
+    getStoreStatus() {
+      return request("/api/store/status", {}, "store_status_failed");
+    },
+    getDatasetCatalog() {
+      return request("/api/datasets/catalog", {}, "dataset_catalog_failed");
+    },
+    callDataset(payload) {
+      return request("/api/datasets/call", jsonPost(payload), "dataset_call_failed");
+    },
+    getEvidenceChain() {
+      return request("/api/evidence/chain", {}, "evidence_chain_failed");
+    },
+    getSessionPlan() {
+      return request("/api/session/plan", {}, "session_plan_failed");
+    },
     getDeviceBootstrap(profile = DEFAULT_DEVICE_PROFILE) {
       return request(`/api/device/bootstrap?profile=${encodeURIComponent(profile)}`, {}, "device_bootstrap_failed");
+    },
+    getDeviceManifest() {
+      return request("/api/device/manifest", {}, "device_manifest_failed");
+    },
+    registerDevice(payload) {
+      return request("/api/device/register", jsonPost(payload), "device_register_failed");
+    },
+    sendDeviceHeartbeat(payload) {
+      return request("/api/device/heartbeat", jsonPost(payload), "device_heartbeat_failed");
+    },
+    getDeviceSessions() {
+      return request("/api/device/sessions", {}, "device_sessions_failed");
     },
     generateHud(payload) {
       return request("/api/ai/hud", jsonPost(payload), "ai_hud_failed");

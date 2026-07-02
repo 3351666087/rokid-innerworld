@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 14:13 Asia/Shanghai
+Updated: 2026-07-02 17:55 Asia/Shanghai
 
 ## Objective
 
@@ -15,6 +15,8 @@ Build the real project framework and delivery chain, not just an environment dem
 - Before hardware arrives, localhost and LAN are the source of truth.
 - After hardware arrives, Rokid / AR Studio replaces only input and display.
 - The data contract, mission state machine, service actions, write-back flow, AI schema/prompt, and evidence chain stay the same across Web, Unity fallback, Android fallback, and Rokid hardware.
+- Production-shaped modules are pulled forward immediately. Do not defer stable storage, device runtime, deployment automation, or sync automation as "later"; build the final local/server shape now, then harden it.
+- SQLite is the default authoritative local/field database (`data/innerworld.sqlite`) for runtime state, safe dataset catalog, device sessions, and bounded device events. Raw private evidence remains outside the database/API unless explicitly sanitized.
 - Field delivery should show a real spatial wall experience: A1 entry poster, A2 memory beacon, A3 write-back point, mission progress, service action, and User B seeing the new write-back beacon.
 
 ## Current Build Phase
@@ -23,6 +25,7 @@ Move from "environment and demo loop are runnable" to "main project framework an
 
 - Shared API/device contract.
 - Mission state machine and runtime store.
+- SQLite-backed dataset storage and safe dataset call layer.
 - Server core modules instead of one large server file.
 - Device bootstrap and AI contract checks.
 - Web device/ops panel.
@@ -47,6 +50,7 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Keep Chrome available for visual localhost and link verification; wait for pages to load.
 - Monitor and clean C drive frequently. Keep valuable build caches, delete only low-value temp/cache artifacts through guarded scripts.
 - Run anything that will later upload to a server locally first.
+- If a module's final version needs a real environment, dependency, database, or automation, install and wire that environment now instead of building a disposable placeholder.
 - Ask the user for login windows, licenses, hardware access, server credentials, or system prompts when needed.
 - This machine is a full Windows development environment with user-granted local and network permissions.
 
@@ -64,4 +68,4 @@ Active worker lanes:
 - Do not collapse the project into a static web page.
 - Do not make the phone the main artifact.
 - Do not let Unity/Rokid/Web invent separate endpoint or state contracts.
-- Do not package `data/runtime_state.json`, Unity `Library`, `node_modules`, `.git`, or large caches.
+- Do not package `data/innerworld.sqlite`, `data/runtime_state.json`, Unity `Library`, `node_modules`, `.git`, or large caches.

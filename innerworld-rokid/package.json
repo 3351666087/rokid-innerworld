@@ -9,8 +9,10 @@
     "dev:lan": "powershell -NoProfile -ExecutionPolicy Bypass -File start-lan.ps1",
     "start": "node server/space-server/index.js",
     "check": "node server/space-server/check.js",
+    "check:mainline": "node server/space-server/check-mainline.js",
     "check:contract": "node server/space-server/check-contract.js --require-unity",
     "check:device": "node server/space-server/check-device.js",
+    "check:store": "node server/space-server/check-store.js",
     "check:security": "node server/space-server/check-security.js",
     "check:readonly": "node server/space-server/check-readonly.js",
     "check:ops": "node server/space-server/check-ops.js",
@@ -39,10 +41,15 @@
     "cache:clean": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/cache-clean.ps1 -Apply",
     "cache:temp:report": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/temp-clean.ps1",
     "cache:temp:clean": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/temp-clean.ps1 -Apply",
+    "git:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/git-auto-sync.ps1",
+    "git:sync:loop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/git-auto-sync.ps1 -Loop",
     "unity:config": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/set-unity-config.ps1",
     "unity:android:install": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-unity-android.ps1"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
   }
 }

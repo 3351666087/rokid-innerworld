@@ -5,7 +5,8 @@ const homepageModules = [
   "Mission Flow",
   "Product System",
   "Agent Runtime",
-  "Show Mode"
+  "Show Mode",
+  "Hardware Runtime"
 ];
 
 function assert(condition, message) {

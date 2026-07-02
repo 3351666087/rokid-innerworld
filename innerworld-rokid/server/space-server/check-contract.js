@@ -3,17 +3,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEVICE_BOOTSTRAP_PROTOCOL,
+  DEVICE_RUNTIME_MANIFEST_SCHEMA,
+  DEVICE_RUNTIME_SESSION_PROTOCOL,
+  EVIDENCE_CHAIN_SCHEMA,
+  FIELD_SESSION_STAGE_IDS,
   INNERWORLD_SPACE_ID,
   MISSION_STEP_IDS,
   MISSION_STATES,
+  SESSION_PLAN_SCHEMA,
   buildDemoStatus,
   buildDeviceBootstrap,
   buildEndpointMap,
   createInnerWorldClient,
   normalizeMissionState
 } from "../../shared/innerworld-contract.js";
+import { buildDeviceManifest, createDeviceRuntimeStore } from "./src/domain/device-runtime.js";
+import { buildEvidenceChain } from "./src/domain/evidence-chain.js";
 import { generateHudOutput } from "./src/domain/hud-generator.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "./src/domain/mission-engine.js";
+import { buildSessionPlan } from "./src/domain/session-planner.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +45,16 @@ function assertEndpointMap(endpoints) {
   const expected = {
     health: ["GET", "/api/health"],
     ops_status: ["GET", "/api/ops/status"],
+    store_status: ["GET", "/api/store/status"],
+    dataset_catalog: ["GET", "/api/datasets/catalog"],
+    dataset_call: ["POST", "/api/datasets/call"],
+    evidence_chain: ["GET", "/api/evidence/chain"],
+    session_plan: ["GET", "/api/session/plan"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
+    device_manifest: ["GET", "/api/device/manifest"],
+    device_register: ["POST", "/api/device/register"],
+    device_heartbeat: ["POST", "/api/device/heartbeat"],
+    device_sessions: ["GET", "/api/device/sessions"],
     ai_schema: ["GET", "/api/ai/schema"],
     ai_prompt: ["GET", "/api/ai/prompt"],
     ai_hud: ["POST", "/api/ai/hud"],
@@ -57,6 +74,7 @@ function assertEndpointMap(endpoints) {
     assert(endpoint.path === route, `${key} path mismatch`);
     assert(endpoint.url === `http://localhost:5177${route}`, `${key} url mismatch`);
   }
+  assert(Object.keys(endpoints).length >= 22, "endpoint map count mismatch");
 }
 
 function assertSpaceContract(space) {
@@ -84,6 +102,53 @@ function assertHardwareManifest(manifest) {
   const devices = Array.isArray(manifest.applied_hardware) ? manifest.applied_hardware : [];
   assert(devices.some((device) => device.product_name === "Rokid Max Pro" && device.model === "RA202" && device.quantity === 1), "Rokid Max Pro RA202 missing");
   assert(devices.some((device) => device.product_name === "Rokid Station Pro" && device.model === "RAS201" && device.quantity === 1), "Rokid Station Pro RAS201 missing");
+}
+
+function buildContractOpsStatus(hardwareManifest) {
+  const devices = Array.isArray(hardwareManifest.applied_hardware) ? hardwareManifest.applied_hardware : [];
+  return {
+    ok: true,
+    local_url: "http://localhost:5177/",
+    device_bootstrap_url: "http://localhost:5177/api/device/bootstrap",
+    hardware: {
+      status: hardwareManifest.status,
+      kit: hardwareManifest.kit_interpretation,
+      borrow_deadline: hardwareManifest.loan_terms_summary?.borrow_deadline,
+      fit: hardwareManifest.project_fit?.assessment,
+      devices: devices.map((device) => ({
+        product_name: device.product_name,
+        model: device.model,
+        quantity: device.quantity,
+        role: device.role
+      }))
+    },
+    packages: {
+      main_package: {
+        path: "innerworld-rokid-demo.zip",
+        sha256: "contract-main-sha",
+        exists: true
+      },
+      server_package: {
+        path: "innerworld-space-server.zip",
+        sha256: "contract-server-sha",
+        exists: true
+      }
+    },
+    release_index: {
+      ok: true,
+      generated_at: "2026-07-02T00:00:00.000Z",
+      warnings: [],
+      errors: []
+    },
+    deploy_dry_run: {
+      ok: true,
+      generated_at: "2026-07-02T00:00:01.000Z",
+      zip_path: "innerworld-space-server.zip",
+      zip_sha256: "contract-server-sha",
+      warnings: [],
+      errors: []
+    }
+  };
 }
 
 function assertAiHudOutput(output, aiSchema) {
@@ -155,6 +220,207 @@ function assertBootstrapContract(space, aiSchema) {
   assertEndpointMap(bootstrap.endpoints);
 }
 
+function assertDeviceRuntimeContract(space, aiSchema) {
+  const state = {
+    active_user: "A",
+    mission_state: "entered",
+    current_step_index: 0,
+    completed_steps: [],
+    beacons: space.beacons,
+    events: []
+  };
+  const manifest = buildDeviceManifest({
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    aiSchema,
+    generatedAt: "2026-07-02T00:00:01.000Z"
+  });
+
+  assert(manifest.ok === true, "device manifest ok mismatch");
+  assert(manifest.schema === DEVICE_RUNTIME_MANIFEST_SCHEMA, "device manifest schema mismatch");
+  assert(manifest.expected_kit.devices.some((device) => device.model === "RA202"), "device manifest RA202 missing");
+  assert(manifest.expected_kit.devices.some((device) => device.model === "RAS201"), "device manifest RAS201 missing");
+  assert(manifest.required_capabilities.length >= 5, "device manifest required capabilities missing");
+  assert(manifest.network_requirements.cache_policy === "Cache-Control: no-store", "device manifest cache policy mismatch");
+  assert(manifest.runtime_persistence.authoritative_store === "SQLite data/innerworld.sqlite", "device manifest SQLite store mismatch");
+  assert(manifest.runtime_persistence.dataset_api.catalog === "/api/datasets/catalog", "device manifest dataset catalog mismatch");
+  assert(manifest.runtime_persistence.dataset_api.call === "/api/datasets/call", "device manifest dataset call mismatch");
+  assert(manifest.adapter_slots.length >= 4, "device manifest adapter slots mismatch");
+  assert(manifest.endpoints.device_register.method === "POST", "device manifest register endpoint mismatch");
+  assert(manifest.endpoints.device_heartbeat.method === "POST", "device manifest heartbeat endpoint mismatch");
+  assert(manifest.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device manifest mission snapshot mismatch");
+
+  const runtime = createDeviceRuntimeStore();
+  const capabilities = manifest.required_capabilities.map((capability) => capability.id);
+  const register = runtime.register({
+    body: {
+      profile: "rokid-ar",
+      device_id: "RA202 dev kit #1",
+      client_version: "unity-runtime-0.1.0",
+      serial_number: "SN-CONTRACT-SECRET",
+      access_token: "real-contract-token",
+      capabilities,
+      network: {
+        online: true,
+        transport: "wifi",
+        rtt_ms: 12,
+        lan_reachable: true,
+        http_cleartext_allowed: true,
+        ip_address: "10.0.0.18",
+        ssid: "private-contract-wifi",
+        mac: "00:11:22:33:44:55"
+      }
+    },
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    aiSchema,
+    createdAt: new Date("2026-07-02T00:00:02.000Z")
+  });
+
+  assert(register.ok === true, "device register ok mismatch");
+  assert(register.protocol_version === DEVICE_RUNTIME_SESSION_PROTOCOL, "device register protocol mismatch");
+  assert(register.session_id.startsWith("iw-20260702000002-"), "device register session id mismatch");
+  assert(register.device_id === "RA202-dev-kit-1", "device register device id sanitize mismatch");
+  assert(register.capabilities.ok === true, "device register capabilities mismatch");
+  assert(register.capabilities.missing_required.length === 0, "device register missing capabilities mismatch");
+  assert(register.endpoints.heartbeat.path === "/api/device/heartbeat", "device register heartbeat endpoint mismatch");
+  assert(register.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device register mission snapshot mismatch");
+  const registerJson = JSON.stringify(register);
+  assert(registerJson.includes("SN-CONTRACT-SECRET") === false, "device register leaked serial");
+  assert(registerJson.includes("real-contract-token") === false, "device register leaked token");
+  assert(registerJson.includes("10.0.0.18") === false, "device register leaked IP");
+  assert(registerJson.includes("private-contract-wifi") === false, "device register leaked SSID");
+
+  const heartbeat = runtime.heartbeat({
+    body: {
+      session_id: register.session_id,
+      device_id: register.device_id,
+      battery: {
+        level_percent: 82,
+        charging: false,
+        temperature_c: 31
+      },
+      network: {
+        online: true,
+        transport: "wifi",
+        rtt_ms: 28,
+        lan_reachable: true,
+        http_cleartext_allowed: true,
+        ip_address: "10.0.0.18"
+      },
+      pose: {
+        confidence: 0.93,
+        position: { x: 0, y: 1.5, z: 3 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 }
+      },
+      active_anchor: "A2",
+      current_user: "A"
+    },
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    receivedAt: new Date("2026-07-02T00:00:03.000Z")
+  });
+
+  assert(heartbeat.ok === true, "device heartbeat ok mismatch");
+  assert(heartbeat.protocol_version === DEVICE_RUNTIME_SESSION_PROTOCOL, "device heartbeat protocol mismatch");
+  assert(heartbeat.session_id === register.session_id, "device heartbeat session mismatch");
+  assert(heartbeat.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device heartbeat mission snapshot mismatch");
+  assert(heartbeat.mission_snapshot.active_anchor.anchor_id === "A2", "device heartbeat active anchor mismatch");
+  assert(Array.isArray(heartbeat.pending_actions), "device heartbeat pending actions missing");
+  assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action missing");
+  assert(heartbeat.health.severity === "ok", "device heartbeat health severity mismatch");
+  assert(heartbeat.next_poll_ms > 0, "device heartbeat next poll mismatch");
+  assert(JSON.stringify(heartbeat).includes("10.0.0.18") === false, "device heartbeat leaked IP");
+
+  const sessions = runtime.sessionsSummary();
+  assert(sessions.ok === true, "device sessions ok mismatch");
+  assert(sessions.total === 1, "device sessions total mismatch");
+  assert(sessions.sessions[0].session_id === register.session_id, "device sessions session mismatch");
+  assert(sessions.sessions[0].heartbeat_count === 1, "device sessions heartbeat count mismatch");
+  assert(JSON.stringify(sessions).includes("10.0.0.18") === false, "device sessions leaked IP");
+
+  const unknownHeartbeat = runtime.heartbeat({
+    body: {
+      session_id: "missing",
+      device_id: register.device_id
+    },
+    baseUrl: "http://localhost:5177",
+    space,
+    state
+  });
+  assert(unknownHeartbeat.status === 404, "device unknown heartbeat status mismatch");
+}
+
+function assertEvidenceChainContract(space, aiSchema, hardwareManifest) {
+  const state = {
+    active_user: "A",
+    mission_state: "entered",
+    current_step_index: 0,
+    completed_steps: [],
+    beacons: space.beacons,
+    events: []
+  };
+  const evidence = buildEvidenceChain({
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    aiSchema,
+    opsStatus: buildContractOpsStatus(hardwareManifest),
+    generatedAt: "2026-07-02T00:00:02.000Z"
+  });
+
+  assert(evidence.ok === true, "evidence chain ok mismatch");
+  assert(evidence.schema === EVIDENCE_CHAIN_SCHEMA, "evidence chain schema mismatch");
+  assert(evidence.space.space_id === INNERWORLD_SPACE_ID, "evidence chain space mismatch");
+  assert(Array.isArray(evidence.anchors) && evidence.anchors.length === 3, "evidence chain anchors mismatch");
+  assert(evidence.beacons.total === 2, "evidence chain beacon count mismatch");
+  assert(evidence.writeback.ready === true, "evidence chain writeback readiness mismatch");
+  assert(evidence.ai.schema_endpoint.path === "/api/ai/schema", "evidence chain AI schema endpoint mismatch");
+  assert(evidence.ai.prompt_endpoint.path === "/api/ai/prompt", "evidence chain AI prompt endpoint mismatch");
+  assert(evidence.hardware.fit === "fit", "evidence chain hardware fit mismatch");
+  assert(evidence.hardware.devices.length === 2, "evidence chain hardware devices mismatch");
+  assert(evidence.release.status === "dry_run_verified", "evidence chain release status mismatch");
+  assert(evidence.release.packages.server_package.file === "innerworld-space-server.zip", "evidence chain package filename mismatch");
+  assert(Array.isArray(evidence.evidence_items) && evidence.evidence_items.length >= 6, "evidence chain items missing");
+  assert(evidence.evidence_items.some((item) => item.id === "writeback_loop"), "evidence chain writeback item missing");
+  assert(JSON.stringify(evidence.hardware).includes(hardwareManifest.source?.path) === false, "evidence chain leaked source path");
+}
+
+function assertSessionPlanContract(space, aiSchema) {
+  const state = {
+    active_user: "A",
+    mission_state: "entered",
+    current_step_index: 0,
+    completed_steps: [],
+    beacons: space.beacons,
+    events: []
+  };
+  const plan = buildSessionPlan({
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    aiSchema,
+    generatedAt: "2026-07-02T00:00:03.000Z"
+  });
+
+  assert(plan.ok === true, "session plan ok mismatch");
+  assert(plan.schema === SESSION_PLAN_SCHEMA, "session plan schema mismatch");
+  assert(plan.space.space_id === INNERWORLD_SPACE_ID, "session plan space mismatch");
+  assert(plan.space.stage_order.join(",") === FIELD_SESSION_STAGE_IDS.join(","), "session plan stage order mismatch");
+  assert(plan.stages.map((stage) => stage.stage_id).join(",") === FIELD_SESSION_STAGE_IDS.join(","), "session plan stages mismatch");
+  assert(plan.stages.length === 5, "session plan stage count mismatch");
+  assert(plan.endpoints.evidence_chain.path === "/api/evidence/chain", "session plan evidence endpoint mismatch");
+  assert(plan.endpoints.write_back.method === "POST", "session plan writeback endpoint method mismatch");
+  assert(plan.operator_prompts.length === 5, "session plan operator prompts mismatch");
+  assert(plan.device_handoff_notes.length === 5, "session plan device handoff notes mismatch");
+  assert(plan.acceptance_checks.some((check) => check.id === "user_b_visibility"), "session plan User B check missing");
+  assert(plan.fallback_actions.some((action) => action.id === "fallback_localhost"), "session plan fallback missing");
+  assert(plan.target.guardrails.includes("not a PPT"), "session plan guardrail missing");
+}
+
 function assertStateMachine(space) {
   const state = {
     active_user: "A",
@@ -198,11 +464,12 @@ async function assertUnityProtocolSkeleton() {
     return "not_required";
   }
 
-  const [controller, client, dtos, payloads] = await Promise.all([
+  const [controller, client, dtos, payloads, runtimeConfig] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/InnerWorldDemoController.cs"),
     readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceApiClient.cs"),
     readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceProtocolDtos.cs"),
-    readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceProtocolPayloads.cs")
+    readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceProtocolPayloads.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Runtime/InnerWorldRuntimeConfig.cs")
   ]);
 
   assert(controller.includes("using InnerWorld.Rokid.Protocol;"), "Unity controller protocol namespace missing");
@@ -214,7 +481,9 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.InteractionsUrl"), "Unity controller interactions URL not using client");
   assert(controller.includes("apiClient.ServiceActionsUrl"), "Unity controller service URL not using client");
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
-  assert(controller.includes("INNERWORLD_DEVICE_PROFILE"), "Unity controller device profile env override missing");
+  assert(controller.includes("InnerWorldRuntimeConfig.FromCurrentProcess"), "Unity controller runtime config load missing");
+  assert(runtimeConfig.includes("INNERWORLD_DEVICE_PROFILE"), "Unity runtime config device profile env override missing");
+  assert(runtimeConfig.includes("--innerworld-profile"), "Unity runtime config command-line profile override missing");
 
   assert(client.includes("namespace InnerWorld.Rokid.Protocol"), "Unity protocol namespace missing");
   assert(client.includes("DefaultSpaceId = \"innerworld_campus_wall\""), "Unity default space id mismatch");
@@ -246,10 +515,9 @@ async function assertRokidSimulatorSkeleton() {
     return "not_required";
   }
 
-  const [models, poseProvider, inputSource, overlayRenderer, simulatorState, editorInput] = await Promise.all([
+  const [models, poseProvider, overlayRenderer, simulatorState, editorInput] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidInputModels.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
-    readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidInputSource.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidOverlayRenderer.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidDeviceSimulatorState.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/EditorRokidInputSource.cs")
@@ -259,7 +527,7 @@ async function assertRokidSimulatorSkeleton() {
   assert(models.includes("public struct RokidInputFrame"), "RokidInputFrame model missing");
   assert(models.includes("public struct RokidConnectionInfo"), "RokidConnectionInfo model missing");
   assert(poseProvider.includes("interface IRokidPoseProvider"), "IRokidPoseProvider missing");
-  assert(inputSource.includes("interface IRokidInputSource"), "IRokidInputSource missing");
+  assert(poseProvider.includes("interface IRokidInputSource"), "IRokidInputSource missing");
   assert(overlayRenderer.includes("interface IRokidOverlayRenderer"), "IRokidOverlayRenderer missing");
   assert(simulatorState.includes("public sealed class RokidDeviceSimulatorState"), "RokidDeviceSimulatorState missing");
   assert(editorInput.includes("public sealed class EditorRokidInputSource"), "EditorRokidInputSource missing");
@@ -269,12 +537,14 @@ async function assertRokidSimulatorSkeleton() {
 }
 
 async function assertServerCoreSkeleton() {
-  const [index, apiRouter, response, staticFiles, opsStatus] = await Promise.all([
+  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore] = await Promise.all([
     readText("server/space-server/index.js"),
     readText("server/space-server/src/http/api-router.js"),
     readText("server/space-server/src/http/response.js"),
     readText("server/space-server/src/http/static-files.js"),
-    readText("server/space-server/src/ops/status-service.js")
+    readText("server/space-server/src/ops/status-service.js"),
+    readText("server/space-server/src/domain/device-runtime.js"),
+    readText("server/space-server/src/store/sqlite-store.js")
   ]);
 
   assert(index.includes("createApiRouter"), "server index does not use api router module");
@@ -282,6 +552,17 @@ async function assertServerCoreSkeleton() {
   assert(index.includes("createOpsStatusService"), "server index does not use ops status service");
   assert(apiRouter.includes("export function createApiRouter"), "api router factory missing");
   assert(apiRouter.includes("/api/device/bootstrap"), "api router bootstrap route missing");
+  assert(apiRouter.includes("/api/device/manifest"), "api router device manifest route missing");
+  assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
+  assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
+  assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
+  assert(apiRouter.includes("/api/device/register"), "api router device register route missing");
+  assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
+  assert(apiRouter.includes("createDeviceRuntimeStore"), "api router device runtime store missing");
+  assert(apiRouter.includes("/api/evidence/chain"), "api router evidence chain route missing");
+  assert(apiRouter.includes("/api/session/plan"), "api router session plan route missing");
+  assert(apiRouter.includes("buildEvidenceChain"), "api router evidence chain builder missing");
+  assert(apiRouter.includes("buildSessionPlan"), "api router session plan builder missing");
   assert(apiRouter.includes("/api/ai/hud"), "api router AI HUD route missing");
   assert(apiRouter.includes("generateHudOutput"), "api router AI HUD generator call missing");
   assert(apiRouter.includes("applyWriteBack"), "api router write-back domain call missing");
@@ -292,6 +573,13 @@ async function assertServerCoreSkeleton() {
   assert(opsStatus.includes("export function createOpsStatusService"), "ops status service factory missing");
   assert(opsStatus.includes("summarizeHardwareManifest"), "ops hardware manifest summary missing");
   assert(opsStatus.includes("hardware:"), "ops hardware status field missing");
+  assert(deviceRuntime.includes("export function buildDeviceManifest"), "device runtime manifest builder missing");
+  assert(deviceRuntime.includes("export function createDeviceRuntimeStore"), "device runtime store factory missing");
+  assert(deviceRuntime.includes("sanitizeDeviceId"), "device runtime sanitize guard missing");
+  assert(deviceRuntime.includes("device_session_not_found"), "device runtime unknown session guard missing");
+  assert(sqliteStore.includes("export async function createSqliteStore"), "SQLite store factory missing");
+  assert(sqliteStore.includes("CREATE TABLE IF NOT EXISTS datasets"), "SQLite datasets table missing");
+  assert(sqliteStore.includes("raw_sql_api"), "SQLite raw SQL guard marker missing");
   return "verified";
 }
 
@@ -307,6 +595,9 @@ async function main() {
   assertHardwareManifest(hardwareManifest);
   assertEndpointMap(buildEndpointMap("http://localhost:5177", INNERWORLD_SPACE_ID));
   assertBootstrapContract(space, aiSchema);
+  assertDeviceRuntimeContract(space, aiSchema);
+  assertEvidenceChainContract(space, aiSchema, hardwareManifest);
+  assertSessionPlanContract(space, aiSchema);
   assertAiHudGenerator(space, aiSchema);
   assertStateMachine(space);
   const server_core = await assertServerCoreSkeleton();
@@ -314,8 +605,22 @@ async function main() {
   const rokidSimulator = await assertRokidSimulatorSkeleton();
 
   const client = createInnerWorldClient({ baseUrl: "http://localhost:5177" });
+  assert(typeof client.getStoreStatus === "function", "client store status method missing");
+  assert(typeof client.getDatasetCatalog === "function", "client dataset catalog method missing");
+  assert(typeof client.callDataset === "function", "client dataset call method missing");
   assert(typeof client.getDeviceBootstrap === "function", "client bootstrap method missing");
+  assert(typeof client.getDeviceManifest === "function", "client device manifest method missing");
+  assert(typeof client.registerDevice === "function", "client device register method missing");
+  assert(typeof client.sendDeviceHeartbeat === "function", "client device heartbeat method missing");
+  assert(typeof client.getDeviceSessions === "function", "client device sessions method missing");
+  assert(typeof client.getEvidenceChain === "function", "client evidence chain method missing");
+  assert(typeof client.getSessionPlan === "function", "client session plan method missing");
   assert(client.endpoints().space.path === `/api/spaces/${INNERWORLD_SPACE_ID}`, "client endpoints mismatch");
+  assert(client.endpoints().store_status.path === "/api/store/status", "client store endpoint mismatch");
+  assert(client.endpoints().dataset_call.path === "/api/datasets/call", "client dataset call endpoint mismatch");
+  assert(client.endpoints().evidence_chain.path === "/api/evidence/chain", "client evidence endpoint mismatch");
+  assert(client.endpoints().session_plan.path === "/api/session/plan", "client session endpoint mismatch");
+  assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");
 
   console.log(JSON.stringify({
     ok: true,
@@ -325,7 +630,11 @@ async function main() {
     protocol_version: DEVICE_BOOTSTRAP_PROTOCOL,
     ai_schema_title: aiSchema.title,
     hardware_kit: hardwareManifest.kit_interpretation,
+    device_runtime_manifest: DEVICE_RUNTIME_MANIFEST_SCHEMA,
+    device_runtime_session: DEVICE_RUNTIME_SESSION_PROTOCOL,
     ai_hud: "server/space-server/src/domain/hud-generator.js",
+    evidence_chain: "server/space-server/src/domain/evidence-chain.js",
+    session_plan: "server/space-server/src/domain/session-planner.js",
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,

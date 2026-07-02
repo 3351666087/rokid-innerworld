@@ -23,11 +23,15 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Static source checks
         run: |
           node --check apps/web-demo/app.js
           node --check server/space-server/check-web-demo.js
           npm run check:security
+          npm run check:mainline
           npm run check:contract
           npm run check:web
 
@@ -41,6 +45,7 @@ jobs:
         env:
           BASE_URL: http://127.0.0.1:5177
         run: |
+          npm run check:store
           npm run check:device
           npm run check:unity
           npm run check:ops

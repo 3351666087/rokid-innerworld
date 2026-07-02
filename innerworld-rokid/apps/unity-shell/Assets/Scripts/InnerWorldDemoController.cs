@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using InnerWorld.Rokid.Protocol;
+using InnerWorld.Rokid.Runtime;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Networking;
@@ -16,6 +17,7 @@ namespace InnerWorld.Rokid
         public string baseUrl = "http://localhost:5177";
         public string spaceId = "innerworld_campus_wall";
         public string deviceProfile = "rokid-ar";
+        public string presentationMode = "desktop_fallback";
         public string configFileName = "innerworld-config.json";
 
         [Header("Scene")]
@@ -36,8 +38,14 @@ namespace InnerWorld.Rokid
         private Font uiFont;
         private SpaceApiClient apiClient;
         private DeviceBootstrapResponse bootstrap;
+        private InnerWorldRuntimeConfig runtimeConfig;
+        private InnerWorldMissionState missionState = new InnerWorldMissionState();
+        private InnerWorldEvidenceChainResponse evidenceChain;
+        private InnerWorldSessionPlanResponse sessionPlan;
+        private RokidPresentationStrategy presentationStrategy;
         private EditorRokidInputSource editorRokidInputSource;
         private IRokidInputSource rokidInputSource;
+        private IRokidOverlayRenderer rokidOverlayRenderer;
         private string currentGazeAnchorId = string.Empty;
         private string currentGazeAnchorLabel = string.Empty;
         private bool currentGazeSelecting;
@@ -94,12 +102,13 @@ namespace InnerWorld.Rokid
 
             using (UnityWebRequest request = UnityWebRequest.Get(apiClient.BootstrapUrl))
             {
-                request.timeout = 5;
+                request.timeout = RequestTimeoutSeconds();
                 yield return request.SendWebRequest();
 
                 if (request.result == UnityWebRequest.Result.Success)
                 {
                     bootstrap = JsonUtility.FromJson<DeviceBootstrapResponse>(request.downloadHandler.text);
+                    ApplyBootstrapRuntimeContract();
                     SetRokidConnection(RokidConnectionStatus.Connected, "Bootstrap ready");
                 }
                 else
@@ -116,6 +125,7 @@ namespace InnerWorld.Rokid
 
             rokidInputSource.Tick(Time.deltaTime);
             UpdateRokidGazeTarget();
+            RenderRokidOverlayFrame();
 
             RokidInputFrame frame;
             if (rokidInputSource.TryReadFrame(out frame))
@@ -181,6 +191,11 @@ namespace InnerWorld.Rokid
 
             selectedAnchorId = string.IsNullOrEmpty(anchorId) ? string.Empty : anchorId.Trim();
             AnchorData anchor = FindAnchor(anchorId);
+            if (missionState != null)
+            {
+                missionState.SelectAnchor(selectedAnchorId, anchor != null ? anchor.label : string.Empty, anchor != null ? anchor.kind : string.Empty);
+            }
+
             BeaconData[] beacons = FindBeacons(anchorId);
             string beaconLine = beacons.Length == 0 ? "No beacon yet" : beacons[beacons.Length - 1].display_text;
 
@@ -200,7 +215,7 @@ namespace InnerWorld.Rokid
             string url = apiClient.SpaceUrl;
             using (UnityWebRequest request = UnityWebRequest.Get(url))
             {
-                request.timeout = 5;
+                request.timeout = RequestTimeoutSeconds();
                 yield return request.SendWebRequest();
 
                 if (request.result == UnityWebRequest.Result.Success)
@@ -211,16 +226,32 @@ namespace InnerWorld.Rokid
                 }
                 else
                 {
-                    Debug.LogWarning("Space API unavailable, using fallback data: " + request.error);
-                    space = JsonUtility.FromJson<SpaceResponse>(FallbackJson);
-                    usingFallback = true;
-                    SetRokidConnection(RokidConnectionStatus.OfflineFallback, "Using fallback JSON");
+                    bool canUseFallback = runtimeConfig == null || runtimeConfig.IsOfflineFallbackAllowed;
+                    Debug.LogWarning("Space API unavailable: " + request.error);
+                    if (canUseFallback)
+                    {
+                        space = JsonUtility.FromJson<SpaceResponse>(FallbackJson);
+                        usingFallback = true;
+                        SetRokidConnection(RokidConnectionStatus.OfflineFallback, "Using fallback JSON");
+                    }
+                    else
+                    {
+                        space = null;
+                        usingFallback = false;
+                        SetStatus("Space API unavailable", request.error + " " + url);
+                        SetRokidConnection(RokidConnectionStatus.Error, "Offline fallback disabled");
+                        yield break;
+                    }
                 }
             }
 
-            localStepIndex = space != null && space.runtime != null ? space.runtime.current_step_index : 0;
+            SyncMissionStateFromSpace();
             RenderAnchors();
             RefreshHud();
+            if (!usingFallback)
+            {
+                yield return LoadRuntimeServiceContracts();
+            }
         }
 
         private IEnumerator PostInteraction(string stepId)
@@ -291,7 +322,7 @@ namespace InnerWorld.Rokid
                 request.uploadHandler = new UploadHandlerRaw(body);
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json; charset=utf-8");
-                request.timeout = 5;
+                request.timeout = RequestTimeoutSeconds();
                 yield return request.SendWebRequest();
 
                 if (request.result == UnityWebRequest.Result.Success)
@@ -317,6 +348,11 @@ namespace InnerWorld.Rokid
 
             int index = Mathf.Clamp(localStepIndex, 0, space.mission.steps.Length - 1);
             MissionStepData step = space.mission.steps[index];
+            if (missionState != null)
+            {
+                missionState.MarkStepComplete(step.step_id);
+            }
+
             localStepIndex = Mathf.Min(localStepIndex + 1, space.mission.steps.Length);
             StartCoroutine(PostInteraction(step.step_id));
         }
@@ -330,9 +366,9 @@ namespace InnerWorld.Rokid
             }
 
             string source = usingFallback ? "fallback" : "space-api";
-            string runtime = space.runtime != null ? space.runtime.mission_state : "local";
+            string runtime = missionState != null ? missionState.mission_state : "local";
             SetStatus(space.name, space.space_id + " | " + source + " | " + runtime);
-            SetDetail(GetMissionLine() + "\nAnchors: " + SafeAnchors().Length + " / Beacons: " + SafeBeacons().Length);
+            SetDetail(GetMissionLine() + "\nAnchors: " + SafeAnchors().Length + " / Beacons: " + SafeBeacons().Length + "\n" + BuildRuntimeContractLine());
             RefreshInputStatusLine();
             RefreshTargetHud();
             if (keyHintText != null) keyHintText.text = "Keys: R Reload | Space/Enter Confirm | Esc Back | Mouse Gaze | S/W/B";
@@ -345,11 +381,12 @@ namespace InnerWorld.Rokid
                 return "Mission: unavailable";
             }
 
-            int index = Mathf.Clamp(localStepIndex, 0, space.mission.steps.Length - 1);
+            int index = missionState != null ? missionState.current_step_index : Mathf.Clamp(localStepIndex, 0, space.mission.steps.Length - 1);
             MissionStepData step = space.mission.steps[index];
             if (stepText != null)
             {
-                stepText.text = "Step " + (index + 1) + "/" + space.mission.steps.Length + ": " + step.label;
+                string progress = missionState != null ? " | done " + missionState.CompletedStepCount : string.Empty;
+                stepText.text = "Step " + (index + 1) + "/" + space.mission.steps.Length + ": " + step.label + progress;
             }
             return step.label + " - " + step.hint;
         }
@@ -666,6 +703,11 @@ namespace InnerWorld.Rokid
             currentGazeAnchorId = string.IsNullOrEmpty(anchorId) ? string.Empty : anchorId.Trim();
             currentGazeAnchorLabel = string.IsNullOrEmpty(label) ? currentGazeAnchorId : label.Trim();
             currentGazeSelecting = isSelecting;
+            if (missionState != null)
+            {
+                AnchorData anchor = FindAnchor(currentGazeAnchorId);
+                missionState.FocusAnchor(currentGazeAnchorId, currentGazeAnchorLabel, anchor != null ? anchor.kind : string.Empty);
+            }
 
             UpdateGazeReticle(hitPoint, isSelecting, currentGazeAnchorId == selectedAnchorId);
             RefreshAnchorVisualStates();
@@ -682,6 +724,11 @@ namespace InnerWorld.Rokid
             currentGazeAnchorId = string.Empty;
             currentGazeAnchorLabel = string.Empty;
             currentGazeSelecting = false;
+            if (missionState != null && string.IsNullOrEmpty(selectedAnchorId))
+            {
+                missionState.ClearAnchorSelection();
+            }
+
             if (gazeReticle != null) gazeReticle.SetActive(false);
             RefreshAnchorVisualStates();
             RefreshTargetHud();
@@ -895,7 +942,8 @@ namespace InnerWorld.Rokid
 
         private void RefreshApiClient()
         {
-            apiClient = new SpaceApiClient(baseUrl, spaceId, deviceProfile);
+            int nearbyRadius = runtimeConfig != null ? runtimeConfig.nearby_radius_meters : SpaceApiClient.DefaultNearbyRadiusMeters;
+            apiClient = new SpaceApiClient(baseUrl, spaceId, deviceProfile, nearbyRadius);
             baseUrl = apiClient.BaseUrl;
             spaceId = apiClient.SpaceId;
             deviceProfile = apiClient.DeviceProfile;
@@ -917,10 +965,21 @@ namespace InnerWorld.Rokid
 
         private void CreateRokidInputSource()
         {
-            editorRokidInputSource = new EditorRokidInputSource();
-            rokidInputSource = editorRokidInputSource;
-            editorRokidInputSource.SetBaseUrl(apiClient != null ? apiClient.BaseUrl : baseUrl);
-            editorRokidInputSource.SetConnection(RokidConnectionStatus.Disconnected, "Simulator ready");
+            presentationStrategy = RokidPresentationStrategy.Resolve(presentationMode, CurrentPresentationEnvironment());
+            rokidInputSource = CreateHardwareRokidInputSource(presentationStrategy);
+            if (rokidInputSource == null)
+            {
+                editorRokidInputSource = new EditorRokidInputSource();
+                rokidInputSource = editorRokidInputSource;
+            }
+
+            rokidOverlayRenderer = CreateHardwareOverlayRenderer(presentationStrategy);
+            if (editorRokidInputSource != null)
+            {
+                editorRokidInputSource.SetBaseUrl(apiClient != null ? apiClient.BaseUrl : baseUrl);
+                editorRokidInputSource.SetConnection(RokidConnectionStatus.Disconnected, PresentationStatusMessage());
+            }
+
             RefreshInputStatusLine();
         }
 
@@ -944,7 +1003,8 @@ namespace InnerWorld.Rokid
             if (sourceText == null) return;
 
             RokidConnectionInfo connection = CurrentConnectionInfo();
-            sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + connection.Status + " | " + CurrentDeviceProfile()
+            string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
+            sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + connection.Status + " | " + CurrentDeviceProfile()
                 + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl);
         }
 
@@ -977,7 +1037,12 @@ namespace InnerWorld.Rokid
                 return space.runtime.active_user.Trim();
             }
 
-            return "A";
+            if (missionState != null && !string.IsNullOrWhiteSpace(missionState.active_user))
+            {
+                return missionState.active_user.Trim();
+            }
+
+            return runtimeConfig != null ? runtimeConfig.active_user : InnerWorldRuntimeConfig.DefaultActiveUser;
         }
 
         private bool IsPointerOverUi()
@@ -987,68 +1052,35 @@ namespace InnerWorld.Rokid
 
         private void ApplyRuntimeConfig()
         {
-            RuntimeConfig config = LoadRuntimeConfig();
-            if (config != null)
-            {
-                if (!string.IsNullOrWhiteSpace(config.base_url)) baseUrl = config.base_url.Trim();
-                if (!string.IsNullOrWhiteSpace(config.space_id)) spaceId = config.space_id.Trim();
-                if (!string.IsNullOrWhiteSpace(config.device_profile)) deviceProfile = config.device_profile.Trim();
-            }
-
-            string envBaseUrl = Environment.GetEnvironmentVariable("INNERWORLD_API_BASE_URL");
-            if (!string.IsNullOrWhiteSpace(envBaseUrl)) baseUrl = envBaseUrl.Trim();
-
-            string envSpaceId = Environment.GetEnvironmentVariable("INNERWORLD_SPACE_ID");
-            if (!string.IsNullOrWhiteSpace(envSpaceId)) spaceId = envSpaceId.Trim();
-
-            string envDeviceProfile = Environment.GetEnvironmentVariable("INNERWORLD_DEVICE_PROFILE");
-            if (!string.IsNullOrWhiteSpace(envDeviceProfile)) deviceProfile = envDeviceProfile.Trim();
-
-            foreach (string arg in Environment.GetCommandLineArgs())
-            {
-                if (arg.StartsWith("--innerworld-api=", StringComparison.OrdinalIgnoreCase))
-                {
-                    baseUrl = arg.Substring("--innerworld-api=".Length).Trim();
-                }
-                else if (arg.StartsWith("--innerworld-space=", StringComparison.OrdinalIgnoreCase))
-                {
-                    spaceId = arg.Substring("--innerworld-space=".Length).Trim();
-                }
-                else if (arg.StartsWith("--innerworld-profile=", StringComparison.OrdinalIgnoreCase))
-                {
-                    deviceProfile = arg.Substring("--innerworld-profile=".Length).Trim();
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(baseUrl)) baseUrl = "http://localhost:5177";
-            if (string.IsNullOrWhiteSpace(spaceId)) spaceId = "innerworld_campus_wall";
-            if (string.IsNullOrWhiteSpace(deviceProfile)) deviceProfile = "rokid-ar";
-            baseUrl = baseUrl.TrimEnd('/');
+            runtimeConfig = InnerWorldRuntimeConfig.FromCurrentProcess(LoadRuntimeConfigJson());
+            baseUrl = runtimeConfig.base_url;
+            spaceId = runtimeConfig.space_id;
+            deviceProfile = runtimeConfig.device_profile;
+            presentationMode = runtimeConfig.presentation_mode;
         }
 
-        private RuntimeConfig LoadRuntimeConfig()
+        private string LoadRuntimeConfigJson()
         {
             string persistentConfig = System.IO.Path.Combine(Application.persistentDataPath, configFileName);
-            RuntimeConfig config = TryReadConfig(persistentConfig);
-            if (config != null) return config;
+            string json = TryReadConfigJson(persistentConfig);
+            if (!string.IsNullOrWhiteSpace(json)) return json;
 
             string streamingConfig = System.IO.Path.Combine(Application.streamingAssetsPath, configFileName);
             if (!streamingConfig.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
-                config = TryReadConfig(streamingConfig);
-                if (config != null) return config;
+                json = TryReadConfigJson(streamingConfig);
+                if (!string.IsNullOrWhiteSpace(json)) return json;
             }
 
-            return TryReadResourceConfig();
+            return TryReadResourceConfigJson();
         }
 
-        private RuntimeConfig TryReadConfig(string path)
+        private string TryReadConfigJson(string path)
         {
             try
             {
                 if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return null;
-                string json = System.IO.File.ReadAllText(path, Encoding.UTF8);
-                return JsonUtility.FromJson<RuntimeConfig>(json);
+                return System.IO.File.ReadAllText(path, Encoding.UTF8);
             }
             catch (Exception error)
             {
@@ -1057,20 +1089,199 @@ namespace InnerWorld.Rokid
             }
         }
 
-        private RuntimeConfig TryReadResourceConfig()
+        private string TryReadResourceConfigJson()
         {
             try
             {
                 string resourceName = System.IO.Path.GetFileNameWithoutExtension(configFileName);
                 TextAsset asset = Resources.Load<TextAsset>(resourceName);
                 if (asset == null || string.IsNullOrWhiteSpace(asset.text)) return null;
-                return JsonUtility.FromJson<RuntimeConfig>(asset.text);
+                return asset.text;
             }
             catch (Exception error)
             {
                 Debug.LogWarning("Failed to read InnerWorld runtime config resource: " + error.Message);
                 return null;
             }
+        }
+
+        private void SyncMissionStateFromSpace()
+        {
+            if (space == null)
+            {
+                missionState = new InnerWorldMissionState();
+                localStepIndex = 0;
+                return;
+            }
+
+            InnerWorldMissionStepState[] steps = BuildMissionStepStates(space.mission);
+            string missionId = space.mission != null ? space.mission.mission_id : string.Empty;
+            string title = space.mission != null ? space.mission.title : string.Empty;
+            missionState = InnerWorldMissionState.Create(missionId, title, steps);
+
+            RuntimeData runtime = space.runtime;
+            string state = runtime != null ? runtime.mission_state : (space.mission != null ? space.mission.state : InnerWorldMissionStates.Entered);
+            int stepIndex = runtime != null ? runtime.current_step_index : localStepIndex;
+            string[] completedSteps = runtime != null ? runtime.completed_steps : null;
+            string userId = runtime != null ? runtime.active_user : (runtimeConfig != null ? runtimeConfig.active_user : InnerWorldRuntimeConfig.DefaultActiveUser);
+            missionState.ApplyRuntime(state, stepIndex, completedSteps, userId);
+            localStepIndex = missionState.current_step_index;
+        }
+
+        private void ApplyBootstrapRuntimeContract()
+        {
+            if (bootstrap == null) return;
+
+            if (bootstrap.client_hints != null && runtimeConfig != null)
+            {
+                if (bootstrap.client_hints.poll_interval_ms > 0) runtimeConfig.poll_interval_ms = bootstrap.client_hints.poll_interval_ms;
+                if (bootstrap.client_hints.health_interval_ms > 0) runtimeConfig.health_interval_ms = bootstrap.client_hints.health_interval_ms;
+                if (bootstrap.client_hints.request_timeout_ms > 0) runtimeConfig.request_timeout_ms = bootstrap.client_hints.request_timeout_ms;
+            }
+
+            if (bootstrap.runtime != null && missionState != null)
+            {
+                missionState.ApplyRuntime(
+                    bootstrap.runtime.mission_state,
+                    bootstrap.mission != null ? bootstrap.mission.current_step_index : missionState.current_step_index,
+                    bootstrap.runtime.completed_steps,
+                    bootstrap.runtime.active_user);
+                localStepIndex = missionState.current_step_index;
+            }
+        }
+
+        private IEnumerator LoadRuntimeServiceContracts()
+        {
+            EnsureApiClient();
+            yield return LoadEvidenceChain();
+            yield return LoadSessionPlan();
+            RefreshHud();
+        }
+
+        private IEnumerator LoadEvidenceChain()
+        {
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.evidence_chain : null, apiClient.EvidenceChainUrl);
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    evidenceChain = JsonUtility.FromJson<InnerWorldEvidenceChainResponse>(request.downloadHandler.text);
+                }
+            }
+        }
+
+        private IEnumerator LoadSessionPlan()
+        {
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.session_plan : null, apiClient.SessionPlanUrl);
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    sessionPlan = JsonUtility.FromJson<InnerWorldSessionPlanResponse>(request.downloadHandler.text);
+                }
+            }
+        }
+
+        private InnerWorldMissionStepState[] BuildMissionStepStates(MissionData mission)
+        {
+            if (mission == null || mission.steps == null || mission.steps.Length == 0)
+            {
+                return new InnerWorldMissionStepState[0];
+            }
+
+            InnerWorldMissionStepState[] steps = new InnerWorldMissionStepState[mission.steps.Length];
+            for (int index = 0; index < mission.steps.Length; index++)
+            {
+                MissionStepData step = mission.steps[index];
+                steps[index] = step != null
+                    ? InnerWorldMissionStepState.Create(step.step_id, step.label, step.anchor_id, step.hint)
+                    : new InnerWorldMissionStepState();
+            }
+
+            return steps;
+        }
+
+        private string BuildRuntimeContractLine()
+        {
+            string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
+            string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
+            string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
+            return evidence + " | " + session + " | " + device;
+        }
+
+        private int RequestTimeoutSeconds()
+        {
+            int timeoutMs = runtimeConfig != null ? runtimeConfig.request_timeout_ms : InnerWorldRuntimeConfig.DefaultRequestTimeoutMs;
+            return Mathf.Max(1, Mathf.CeilToInt(timeoutMs / 1000f));
+        }
+
+        private string ResolveEndpointUrl(SpaceApiEndpoint endpoint, string fallbackUrl)
+        {
+            if (endpoint != null && !string.IsNullOrWhiteSpace(endpoint.url))
+            {
+                return endpoint.url.Trim();
+            }
+
+            return fallbackUrl;
+        }
+
+        private RokidPresentationEnvironment CurrentPresentationEnvironment()
+        {
+            bool isAndroid = Application.platform == RuntimePlatform.Android;
+            bool isEditor = Application.isEditor;
+            return RokidPresentationEnvironment.Create(isAndroid, isEditor, false, false, false, false);
+        }
+
+        private IRokidInputSource CreateHardwareRokidInputSource(RokidPresentationStrategy strategy)
+        {
+            if (strategy == null || strategy.input_adapter != RokidInputAdapterKind.RokidSdk)
+            {
+                return null;
+            }
+
+            return null;
+        }
+
+        private IRokidOverlayRenderer CreateHardwareOverlayRenderer(RokidPresentationStrategy strategy)
+        {
+            if (strategy == null || strategy.display_adapter != RokidDisplayAdapterKind.RokidSdkOverlay)
+            {
+                return null;
+            }
+
+            return null;
+        }
+
+        private void RenderRokidOverlayFrame()
+        {
+            if (rokidOverlayRenderer == null || rokidInputSource == null)
+            {
+                return;
+            }
+
+            RokidInputFrame inputFrame = rokidInputSource.CurrentFrame;
+            RokidOverlayFrame overlayFrame = new RokidOverlayFrame(
+                RokidOverlayKind.Status,
+                GetMissionLine(),
+                inputFrame.Gaze,
+                inputFrame.AnchorTarget,
+                inputFrame.VoiceText,
+                inputFrame.Connection);
+            rokidOverlayRenderer.Render(overlayFrame);
+        }
+
+        private string PresentationStatusMessage()
+        {
+            if (presentationStrategy == null || string.IsNullOrWhiteSpace(presentationStrategy.fallback_reason))
+            {
+                return "Simulator ready";
+            }
+
+            return presentationStrategy.fallback_reason;
         }
 
         private sealed class AnchorVisualState
@@ -1192,11 +1403,4 @@ namespace InnerWorld.Rokid
         public string status;
     }
 
-    [Serializable]
-    public sealed class RuntimeConfig
-    {
-        public string base_url;
-        public string space_id;
-        public string device_profile;
-    }
 }

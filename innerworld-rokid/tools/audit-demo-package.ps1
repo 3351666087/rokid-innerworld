@@ -148,6 +148,9 @@ try {
   if ($entries -contains "data\runtime_state.json") {
     Add-Failure $failures "Package contains data/runtime_state.json"
   }
+  if ($entries -contains "data\innerworld.sqlite") {
+    Add-Failure $failures "Package contains data/innerworld.sqlite"
+  }
 
   $normalizedEntries = @($entries | ForEach-Object { Normalize-ZipPath -Path $_ })
   $serverReleaseZipCount = @($normalizedEntries | Where-Object { $_ -like "output\server-release\innerworld-space-server-*.zip" }).Count
@@ -157,7 +160,7 @@ try {
   }
   $latestServerReleaseName = Get-LatestServerReleaseName -Entries $entries
 
-  $forbidden = @($entries | Where-Object { $_ -match '(^|[\\/])(Library|PackageCache|node_modules|\.git|Temp|Obj|target)([\\/]|$)' })
+  $forbidden = @($entries | Where-Object { $_ -match '(^|[\\/])(innerworld\.sqlite(?:-.+)?|Library|PackageCache|node_modules|\.git|Temp|Obj|target)([\\/]|$)' })
   if ($forbidden.Count -gt 0) {
     Add-Failure $failures "Package contains forbidden entries: $($forbidden[0..([Math]::Min(4, $forbidden.Count - 1))] -join ', ')"
   }
@@ -233,7 +236,7 @@ try {
           Add-Failure $failures "Nested server release missing required entry: $item"
         }
       }
-      $nestedForbidden = @($nestedEntries | Where-Object { $_ -match '(^|[\\/])(runtime_state\.json|output|node_modules|\.git|Unity|Library|Temp|Obj|target)([\\/]|$)' })
+      $nestedForbidden = @($nestedEntries | Where-Object { $_ -match '(^|[\\/])(runtime_state\.json|innerworld\.sqlite(?:-.+)?|output|node_modules|\.git|Unity|Library|Temp|Obj|target)([\\/]|$)' })
       if ($nestedForbidden.Count -gt 0) {
         Add-Failure $failures "Nested server release contains forbidden entries: $($nestedForbidden[0..([Math]::Min(4, $nestedForbidden.Count - 1))] -join ', ')"
       }
