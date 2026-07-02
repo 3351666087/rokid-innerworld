@@ -8,6 +8,7 @@ import {
   publicServiceActionRecord,
   sanitizeServiceActionValue
 } from "../domain/service-action-runtime.js";
+import { getDeviceSessionStatus } from "../domain/device-runtime.js";
 import { WALL_CALIBRATION_OBSERVATION_SCHEMA, WALL_CALIBRATION_SCHEMA } from "../domain/wall-calibration.js";
 
 const STORE_SCHEMA = "innerworld-sqlite-store/v1";
@@ -67,7 +68,7 @@ function redactSensitiveText(value) {
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "[redacted_ip]")
     .replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "[redacted_mac]")
     .replace(/\b[A-Z0-9._:-]*(?:token|secret)[A-Z0-9._:-]*\b/gi, "[redacted_secret]")
-    .replace(/\bSN[-_A-Z0-9]*\b/gi, "[redacted_serial]")
+    .replace(/\bSN[-_:]?[A-Z0-9][A-Z0-9._:-]{2,}\b/g, "[redacted_serial]")
     .replace(/\bprivate[-_\w]*wifi\b/gi, "[redacted_ssid]");
 }
 
@@ -106,6 +107,18 @@ function sanitizeLedgerValue(value, depth = 0) {
     return clean;
   }
   return String(value).slice(0, 160);
+}
+
+function sanitizePublicWallId(value, fallback = null, maxLength = 96) {
+  const clean = trimText(redactSensitiveText(value), maxLength)
+    .replace(/\[redacted_([a-z]+)\]/gi, "redacted_$1")
+    .replace(/[^A-Za-z0-9_.:-]/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return clean || fallback;
+}
+
+function sanitizeWallCalibrationAcceptance(value) {
+  return sanitizeLedgerValue(value) || {};
 }
 
 function summarizeRuntimeState(state) {
@@ -166,8 +179,8 @@ function wallCalibrationObservationFromRow(row) {
     space_id: row.space_id,
     anchor_id: row.anchor_id,
     tracking_mode: row.tracking_mode,
-    session_id: row.session_id,
-    device_id: row.device_id,
+    session_id: sanitizePublicWallId(row.session_id),
+    device_id: sanitizePublicWallId(row.device_id),
     observed_pose: parseJson(row.observed_pose_json, null),
     expected_pose: parseJson(row.expected_pose_json, null),
     confidence: Number(row.confidence || 0),
@@ -175,7 +188,7 @@ function wallCalibrationObservationFromRow(row) {
     notes: row.notes || "",
     client_time: row.client_time || null,
     created_at: row.created_at,
-    acceptance: parseJson(row.acceptance_json, {}),
+    acceptance: sanitizeWallCalibrationAcceptance(parseJson(row.acceptance_json, {})),
     privacy: "Sanitized calibration observation. Device/network identifiers and secrets are not stored."
   };
 }
@@ -637,6 +650,52 @@ export async function createSqliteStore({
     `, [clampLimit(limit)]).map(sessionFromRow).filter(Boolean);
   }
 
+  function trustedHardwareSessionForObservation(observation, referenceTime = new Date()) {
+    const proof = observation?.acceptance?.hardware_session || null;
+    if (proof?.trusted === true) {
+      return {
+        session_id: proof.session_id || observation.session_id,
+        device_id: proof.device_id || observation.device_id,
+        profile: proof.profile || null,
+        session_status: proof.session_status_at_observation || "online",
+        sdk_binding_stage: proof.sdk_binding_stage || "live_binding_ready",
+        live_binding_ready: true,
+        last_seen_at: proof.session_last_seen_at || null,
+        heartbeat_count: Number(proof.heartbeat_count_at_observation || 0)
+      };
+    }
+    if (proof && proof.trusted !== true) {
+      return null;
+    }
+
+    if (!observation?.session_id || !observation?.device_id) {
+      return null;
+    }
+
+    const session = loadDeviceSession(observation.session_id);
+    if (!session || session.device_id !== observation.device_id) {
+      return null;
+    }
+
+    const sdk = session.sdk_binding_status || {};
+    const online = getDeviceSessionStatus(session, referenceTime) === "online";
+    const live = sdk.live_binding_ready === true && sdk.input_binding_ready === true && sdk.overlay_binding_ready === true;
+    if (!online || !live) {
+      return null;
+    }
+
+    return {
+      session_id: session.session_id,
+      device_id: session.device_id,
+      profile: session.profile,
+      session_status: getDeviceSessionStatus(session, referenceTime),
+      sdk_binding_stage: sdk.stage || "unknown",
+      live_binding_ready: true,
+      last_seen_at: session.last_seen_at || null,
+      heartbeat_count: Number(session.heartbeat_count || 0)
+    };
+  }
+
   function appendDeviceEvent({ session_id = null, device_id = null, event_type, event }) {
     const eventId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     writeTransaction(() => {
@@ -880,11 +939,15 @@ export async function createSqliteStore({
   }
 
   function appendWallCalibrationObservation(observation) {
+    const acceptance = sanitizeWallCalibrationAcceptance(observation?.acceptance || {});
     const clean = {
       ...observation,
       schema: observation?.schema || WALL_CALIBRATION_OBSERVATION_SCHEMA,
       observation_id: cleanId(observation?.observation_id, RECORD_ID_PATTERN, `cal-${Date.now().toString(36)}`),
       status: String(observation?.status || "rejected"),
+      session_id: sanitizePublicWallId(observation?.session_id),
+      device_id: sanitizePublicWallId(observation?.device_id),
+      acceptance,
       created_at: observation?.created_at || nowIso()
     };
     return writeTransaction(() => {
@@ -911,14 +974,14 @@ export async function createSqliteStore({
         clean.position_error_m,
         trimText(clean.notes, 240),
         clean.client_time || null,
-        stringifyJson(clean.acceptance || {}),
+        stringifyJson(acceptance),
         clean.created_at
       ]);
       return clean;
     });
   }
 
-  function wallCalibrationSummary({ limit = 25 } = {}) {
+  function wallCalibrationSummary({ limit = 25, referenceTime = new Date() } = {}) {
     const counts = wallCalibrationCounts();
     const latest = select(`
       SELECT observation_id, schema, status, issues_json, space_id, anchor_id, tracking_mode,
@@ -961,6 +1024,20 @@ export async function createSqliteStore({
     const readyAnchorIds = readyAnchors.map((observation) => observation.anchor_id).sort();
     const hardwareReadyAnchors = readyAnchors.filter((observation) => HARDWARE_CALIBRATION_TRACKING_MODES.has(observation.tracking_mode));
     const hardwareReadyAnchorIds = hardwareReadyAnchors.map((observation) => observation.anchor_id).sort();
+    const trustedHardwarePairs = hardwareReadyAnchors
+      .map((observation) => ({
+        observation,
+        session: trustedHardwareSessionForObservation(observation, referenceTime)
+      }))
+      .filter((item) => item.session);
+    const trustedHardwareAnchors = trustedHardwarePairs.map((item) => item.observation);
+    const trustedHardwareAnchorIds = trustedHardwareAnchors.map((observation) => observation.anchor_id).sort();
+    const trustedHardwareSessions = Array.from(
+      new Map(trustedHardwarePairs.map((item) => [item.session.session_id, item.session])).values()
+    );
+    const untrustedHardwareAnchorIds = hardwareReadyAnchorIds
+      .filter((anchorId) => !trustedHardwareAnchorIds.includes(anchorId))
+      .sort();
     return {
       ok: true,
       schema: `${WALL_CALIBRATION_SCHEMA}/summary`,
@@ -975,7 +1052,13 @@ export async function createSqliteStore({
       hardware_calibrated_anchor_count: hardwareReadyAnchors.length,
       hardware_calibrated_anchor_ids: hardwareReadyAnchorIds,
       hardware_tracking_modes: Array.from(HARDWARE_CALIBRATION_TRACKING_MODES),
-      ready_for_hardware: REQUIRED_WALL_ANCHOR_IDS.every((anchorId) => hardwareReadyAnchorIds.includes(anchorId)),
+      trusted_hardware_calibrated_anchor_count: trustedHardwareAnchors.length,
+      trusted_hardware_calibrated_anchor_ids: trustedHardwareAnchorIds,
+      trusted_hardware_session_count: trustedHardwareSessions.length,
+      trusted_hardware_sessions: trustedHardwareSessions,
+      untrusted_hardware_anchor_ids: untrustedHardwareAnchorIds,
+      sdk_live_binding_required: true,
+      ready_for_hardware: REQUIRED_WALL_ANCHOR_IDS.every((anchorId) => trustedHardwareAnchorIds.includes(anchorId)),
       latest_anchor_observations: latestAnchorObservations,
       latest_by_anchor: latestByAnchor,
       latest,

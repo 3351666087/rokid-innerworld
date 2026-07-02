@@ -24,6 +24,7 @@ const DEVICE_RUNTIME_SNAPSHOT_SCHEMA = "innerworld-device-runtime-snapshot/v1";
 const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "output", "runtime", "device-runtime-snapshot.json");
 const ROKID_SDK_BINDING_SCHEMA = "innerworld-rokid-sdk-binding/v1";
 const ROKID_UXR_DEFINE_SYMBOL = "ROKID_UXR";
+const HARDWARE_OBSERVATION_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
 
 const SDK_BINDING_STAGES = Object.freeze([
   "fallback_only",
@@ -132,11 +133,11 @@ function trimText(value, maxLength) {
   return String(value || "").trim().slice(0, maxLength);
 }
 
-export function sanitizeDeviceId(value) {
-  const cleaned = trimText(value, DEVICE_ID_MAX_LENGTH)
+export function sanitizeDeviceId(value, { allowFallback = true } = {}) {
+  const cleaned = trimText(redactSensitiveText(value, DEVICE_ID_MAX_LENGTH), DEVICE_ID_MAX_LENGTH)
     .replace(/[^\w.:-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return cleaned || `device-${Math.random().toString(36).slice(2, 8)}`;
+  return cleaned || (allowFallback ? `device-${Math.random().toString(36).slice(2, 8)}` : null);
 }
 
 function sanitizeProfile(value) {
@@ -192,12 +193,20 @@ function redactSensitiveText(value, maxLength = 180) {
   text = text
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[redacted-ip]")
     .replace(/\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b/gi, "[redacted-mac]")
-    .replace(/\bSN[-_:]?[A-Za-z0-9._:-]+\b/gi, "[redacted-serial]")
-    .replace(/\bserial[-_:]?[A-Za-z0-9._:-]+\b/gi, "[redacted-serial]")
+    .replace(/\bSN[-_:]?[A-Z0-9][A-Z0-9._:-]{2,}\b/g, "[redacted-serial]")
+    .replace(/(?<!redacted-)\bserial[-_:][A-Za-z0-9._:-]+\b/gi, "[redacted-serial]")
     .replace(/\b[A-Za-z0-9._:-]*(?:token|secret|password|api[-_]?key|access[-_]?key)[A-Za-z0-9._:-]*\b/gi, "[redacted-secret]")
     .replace(/\b[A-Za-z0-9._:-]*(?:ssid|wifi|wi-fi|phone|address)[A-Za-z0-9._:-]*\b/gi, "[redacted-private]");
 
   return trimText(text, maxLength);
+}
+
+function sanitizeProofId(value, maxLength = 64) {
+  const redacted = redactSensitiveText(value, maxLength)
+    .replace(/\[redacted-([a-z]+)\]/gi, "redacted-$1");
+  return trimText(redacted, maxLength)
+    .replace(/[^\w.:-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || null;
 }
 
 function normalizeSdkBindingStage(value, fallback = "fallback_only") {
@@ -872,6 +881,66 @@ export function createDeviceRuntimeStore({
     }
   }
 
+  function resolveHardwareObservationProof({ sessionId, deviceId, anchorId, trackingMode, referenceTime = new Date() } = {}) {
+    hydratePersistentSessions();
+    const cleanSessionId = trimText(sessionId, 64);
+    const cleanDeviceId = sanitizeDeviceId(deviceId, { allowFallback: false });
+    const cleanAnchorId = sanitizeEnumText(anchorId, 32);
+    const cleanTrackingMode = sanitizeEnumText(trackingMode, 32) || "unknown";
+    const issues = [];
+
+    if (!HARDWARE_OBSERVATION_TRACKING_MODES.has(cleanTrackingMode)) {
+      issues.push("tracking_mode_not_hardware");
+    }
+    if (!cleanSessionId) issues.push("session_id_missing");
+    if (!cleanDeviceId) issues.push("device_id_missing");
+
+    const session = cleanSessionId
+      ? sessions.get(cleanSessionId) || rememberPersistentSession(sessionStore?.loadDeviceSession?.(cleanSessionId))
+      : null;
+    if (!session) {
+      issues.push("device_session_not_found");
+    }
+
+    const sdkBindingStatus = session?.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported");
+    const sessionStatus = session ? getDeviceSessionStatus(session, referenceTime) : "missing";
+    if (session && cleanDeviceId && session.device_id !== cleanDeviceId) issues.push("device_id_mismatch");
+    if (session && sessionStatus !== "online") issues.push("device_session_not_online");
+    if (session && Number(session.heartbeat_count || 0) <= 0) issues.push("device_heartbeat_missing");
+    if (session && session.last_health_severity !== "ok") issues.push("device_health_not_ok");
+    if (session && !session.last_pose_present) issues.push("device_pose_not_reported");
+    if (session && cleanAnchorId && session.last_active_anchor && session.last_active_anchor !== cleanAnchorId) {
+      issues.push("active_anchor_mismatch");
+    }
+    if (sdkBindingStatus.boundary_compiled !== true) issues.push("sdk_boundary_not_compiled");
+    if (sdkBindingStatus.package_detected !== true) issues.push("sdk_package_not_detected");
+    if (sdkBindingStatus.input_binding_ready !== true) issues.push("sdk_input_binding_not_ready");
+    if (sdkBindingStatus.overlay_binding_ready !== true) issues.push("sdk_overlay_binding_not_ready");
+    if (sdkBindingStatus.live_binding_ready !== true) issues.push("sdk_live_binding_not_ready");
+
+    const trusted = issues.length === 0;
+    return {
+      schema: "innerworld-hardware-observation-proof/v1",
+      trusted,
+      trust_status: trusted ? "trusted" : "untrusted",
+      issues,
+      session_id: session?.session_id || sanitizeProofId(cleanSessionId),
+      device_id: session?.device_id || sanitizeProofId(cleanDeviceId, DEVICE_ID_MAX_LENGTH),
+      anchor_id: cleanAnchorId || null,
+      tracking_mode: cleanTrackingMode,
+      session_status_at_observation: sessionStatus,
+      session_last_seen_at: session?.last_seen_at || null,
+      heartbeat_count_at_observation: Number(session?.heartbeat_count || 0),
+      active_anchor_at_observation: session?.last_active_anchor || null,
+      sdk_binding_stage: sdkBindingStatus.stage || "unknown",
+      sdk_live_binding_ready: sdkBindingStatus.live_binding_ready === true,
+      sdk_input_binding_ready: sdkBindingStatus.input_binding_ready === true,
+      sdk_overlay_binding_ready: sdkBindingStatus.overlay_binding_ready === true,
+      sdk_package_detected: sdkBindingStatus.package_detected === true,
+      sdk_boundary_compiled: sdkBindingStatus.boundary_compiled === true
+    };
+  }
+
   function register({ body = {}, baseUrl, space, state, aiSchema, createdAt = new Date() }) {
     const publicBaseUrl = cleanPublicBaseUrl(baseUrl);
     const endpoints = buildEndpointMap(publicBaseUrl, space?.space_id);
@@ -1159,6 +1228,7 @@ export function createDeviceRuntimeStore({
     register,
     heartbeat,
     sessionsSummary,
+    resolveHardwareObservationProof,
     smokeSummary(options = {}) {
       return buildDeviceRuntimeSmokeSummary({
         devices,

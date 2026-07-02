@@ -5,6 +5,7 @@ const DEFAULT_CONFIDENCE_MIN = 0.55;
 const DEFAULT_ERROR_WARN_M = 0.18;
 const DEFAULT_ERROR_REJECT_M = 0.35;
 const TRACKING_MODES = new Set(["qr", "image_tracking", "slam", "manual", "simulator", "unknown"]);
+const HARDWARE_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -19,7 +20,7 @@ function redactSensitiveText(value) {
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "[redacted_ip]")
     .replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "[redacted_mac]")
     .replace(/\b[A-Z0-9._:-]*(?:token|secret)[A-Z0-9._:-]*\b/gi, "[redacted_secret]")
-    .replace(/\bSN[-_A-Z0-9]*\b/gi, "[redacted_serial]")
+    .replace(/\bSN[-_:]?[A-Z0-9][A-Z0-9._:-]{2,}\b/g, "[redacted_serial]")
     .replace(/\bprivate[-_\w]*wifi\b/gi, "[redacted_ssid]");
 }
 
@@ -206,6 +207,12 @@ export function buildWallCalibrationManifest({
         hardware_calibrated_anchor_count: 0,
         hardware_calibrated_anchor_ids: [],
         hardware_tracking_modes: ["qr", "image_tracking", "slam"],
+        trusted_hardware_calibrated_anchor_count: 0,
+        trusted_hardware_calibrated_anchor_ids: [],
+        trusted_hardware_session_count: 0,
+        trusted_hardware_sessions: [],
+        untrusted_hardware_anchor_ids: [],
+        sdk_live_binding_required: true,
         ready_for_hardware: false
       }
     },
@@ -213,7 +220,7 @@ export function buildWallCalibrationManifest({
   };
 }
 
-export function createWallCalibrationObservation({ body = {}, space, receivedAt = nowIso() }) {
+export function createWallCalibrationObservation({ body = {}, space, receivedAt = nowIso(), hardwareObservationProof = null }) {
   const anchors = Array.isArray(space?.anchors) ? space.anchors : [];
   const anchorId = cleanId(body.anchor_id, "");
   const anchor = anchors.find((item) => item.anchor_id === anchorId) || null;
@@ -222,6 +229,8 @@ export function createWallCalibrationObservation({ body = {}, space, receivedAt 
   const positionError = distanceMeters(observedPose?.position, expectedPose?.position);
   const confidence = clamp(body.confidence, 0, 1, 0);
   const mode = trackingMode(body.tracking_mode);
+  const hardwareMode = HARDWARE_TRACKING_MODES.has(mode);
+  const safeHardwareObservationProof = hardwareMode ? hardwareObservationProof : null;
   const notes = trimText(redactSensitiveText(body.notes), 240);
   const hasPose = Boolean(observedPose?.position);
   const status = !anchor || confidence < DEFAULT_CONFIDENCE_MIN || !hasPose
@@ -238,6 +247,9 @@ export function createWallCalibrationObservation({ body = {}, space, receivedAt 
   if (confidence < DEFAULT_CONFIDENCE_MIN) issues.push("confidence_below_threshold");
   if (positionError !== null && positionError > DEFAULT_ERROR_WARN_M) issues.push("position_error_above_warning");
   if (positionError !== null && positionError > DEFAULT_ERROR_REJECT_M) issues.push("position_error_above_reject");
+  if (hardwareMode && safeHardwareObservationProof?.trusted !== true) {
+    issues.push("live_sdk_session_not_bound");
+  }
 
   return {
     ok: true,
@@ -260,7 +272,18 @@ export function createWallCalibrationObservation({ body = {}, space, receivedAt 
     acceptance: {
       confidence_min: DEFAULT_CONFIDENCE_MIN,
       position_error_warn_m: DEFAULT_ERROR_WARN_M,
-      position_error_reject_m: DEFAULT_ERROR_REJECT_M
+      position_error_reject_m: DEFAULT_ERROR_REJECT_M,
+      hardware_observation_trusted: hardwareMode && safeHardwareObservationProof?.trusted === true,
+      hardware_session: safeHardwareObservationProof || {
+        schema: "innerworld-hardware-observation-proof/v1",
+        trusted: false,
+        trust_status: hardwareMode ? "untrusted" : "not_required",
+        issues: hardwareMode ? ["live_sdk_session_not_bound"] : ["tracking_mode_not_hardware"],
+        session_id: cleanPublicId(body.session_id, null),
+        device_id: cleanPublicId(body.device_id, null),
+        anchor_id: anchorId || null,
+        tracking_mode: mode
+      }
     },
     privacy: "Sanitized calibration observation. Device/network identifiers and secrets are not accepted into the calibration record."
   };

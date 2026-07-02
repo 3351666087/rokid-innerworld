@@ -17,6 +17,8 @@ import { generateHudOutput } from "../domain/hud-generator.js";
 import { readJson } from "../lib/json-file.js";
 import { readBody, sendError, sendJson } from "./response.js";
 
+const HARDWARE_OBSERVATION_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
+
 function getRequestBaseUrl(req, url, port) {
   const explicitBaseUrl = url.searchParams.get("base_url") || url.searchParams.get("public_url");
   if (explicitBaseUrl && /^https?:\/\//i.test(explicitBaseUrl)) {
@@ -291,10 +293,21 @@ export function createApiRouter({
         loadSpace(),
         readBody(req)
       ]);
+      const trackingMode = String(body.tracking_mode || "").trim().toLowerCase();
+      const hardwareObservationProof = HARDWARE_OBSERVATION_TRACKING_MODES.has(trackingMode)
+        ? deviceRuntime.resolveHardwareObservationProof({
+            sessionId: body.session_id,
+            deviceId: body.device_id,
+            anchorId: body.anchor_id,
+            trackingMode: body.tracking_mode,
+            referenceTime: new Date()
+          })
+        : null;
       const observation = createWallCalibrationObservation({
         body,
         space,
-        receivedAt: new Date().toISOString()
+        receivedAt: new Date().toISOString(),
+        hardwareObservationProof
       });
       const stored = sqliteStore?.appendWallCalibrationObservation?.(observation) || observation;
       sendJson(res, 201, {

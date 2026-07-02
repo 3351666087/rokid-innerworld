@@ -49,7 +49,8 @@ const requiredCombinedDirection = [
   "calibration",
   "field_markers",
   "/api/field/acceptance",
-  "innerworld-field-acceptance/v1"
+  "innerworld-field-acceptance/v1",
+  "trusted_hardware_session"
 ];
 
 const requiredWebModules = [

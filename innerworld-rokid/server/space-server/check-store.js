@@ -165,6 +165,53 @@ async function main() {
   assert(acceptedA3Simulator.summary?.hardware_calibrated_anchor_count === 0, "simulator observations must not count as hardware calibrated anchors");
   assert(Array.isArray(acceptedA3Simulator.summary?.hardware_calibrated_anchor_ids) && acceptedA3Simulator.summary.hardware_calibrated_anchor_ids.length === 0, "simulator observations must not appear in hardware calibrated ids");
 
+  const fakeHardwareObservations = [
+    {
+      anchor_id: "A1",
+      tracking_mode: "qr",
+      observed_pose: {
+        position: { x: -1.6, y: 1.25, z: 3.1 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 }
+      }
+    },
+    {
+      anchor_id: "A2",
+      tracking_mode: "image_tracking",
+      observed_pose: {
+        position: { x: 0, y: 1.5, z: 3 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 }
+      }
+    },
+    {
+      anchor_id: "A3",
+      tracking_mode: "slam",
+      observed_pose: {
+        position: { x: 1.55, y: 1.18, z: 3.2 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 }
+      }
+    }
+  ];
+  let fakeHardwareSummary = null;
+  for (const fakeHardwareObservation of fakeHardwareObservations) {
+    const result = await postJson("/api/calibration/observations", `fake_hardware_${fakeHardwareObservation.anchor_id}`, {
+      session_id: "script-posted-tracking-mode-only",
+      device_id: "tracking-mode-script",
+      confidence: 0.98,
+      notes: "Tracking mode alone must not prove trusted Rokid hardware.",
+      client_time: "2026-07-02T10:10:04.000Z",
+      ...fakeHardwareObservation
+    });
+    assert(result.ok === true, "fake hardware observation ok failed");
+    assert(result.observation?.status === "accepted", "fake hardware geometry should remain accepted");
+    assert(result.observation?.issues?.includes("live_sdk_session_not_bound"), "fake hardware observation must expose missing live SDK session issue");
+    fakeHardwareSummary = result.summary;
+  }
+  assert(fakeHardwareSummary?.hardware_calibrated_anchor_count === 3, "fake hardware modes should only prove raw hardware-mode evidence");
+  assert(fakeHardwareSummary?.trusted_hardware_calibrated_anchor_count === 0, "fake hardware modes must not count as trusted hardware anchors");
+  assert(fakeHardwareSummary?.trusted_hardware_session_count === 0, "fake hardware modes must not create trusted hardware sessions");
+  assert(Array.isArray(fakeHardwareSummary?.untrusted_hardware_anchor_ids) && fakeHardwareSummary.untrusted_hardware_anchor_ids.length === 3, "fake hardware anchors must be listed as untrusted");
+  assert(fakeHardwareSummary?.ready_for_hardware === false, "fake hardware modes without live SDK session must not set hardware readiness");
+
   const rejectedCalibration = await postJson("/api/calibration/observations", "calibration_reject_latest", {
     session_id: "store-check-reject",
     device_id: "RA202 operator simulator",

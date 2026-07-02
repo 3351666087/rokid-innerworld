@@ -28,6 +28,9 @@ $projectRootFull = (Resolve-Path -LiteralPath $projectRoot).Path
 $repoRootUri = [Uri](($repoRootFull.TrimEnd('\') + '\'))
 $projectRootUri = [Uri](($projectRootFull.TrimEnd('\') + '\'))
 $projectPrefix = [Uri]::UnescapeDataString($repoRootUri.MakeRelativeUri($projectRootUri).ToString()).TrimEnd('/')
+$extraSyncPaths = @(
+  'README.md'
+)
 
 $denyPathPatterns = @(
   '(^|/)\.git($|/)',
@@ -133,6 +136,10 @@ function Test-InProjectPath {
   param([string]$Path)
 
   $normalized = ConvertTo-GitPath -Path $Path
+  if ($extraSyncPaths -contains $normalized) {
+    return $true
+  }
+
   if ([string]::IsNullOrWhiteSpace($projectPrefix)) {
     return $true
   }

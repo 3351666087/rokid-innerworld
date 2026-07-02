@@ -866,8 +866,11 @@ async function assertFieldAcceptanceCheckSkeleton() {
   assert(check.includes("print_kit"), "field acceptance print kit gate missing");
   assert(check.includes("simulator_rehearsal"), "field acceptance simulator rehearsal gate missing");
   assert(check.includes("hardware_alignment"), "field acceptance hardware alignment gate missing");
+  assert(check.includes("trusted_hardware_session") || check.includes("sdk_live_binding"), "field acceptance trusted hardware session gate missing");
   assert(check.includes("all_simulator_ready_for_hardware"), "field acceptance simulator hardware guard missing");
   assert(check.includes("ready_for_hardware === false"), "field acceptance hardware-ready negative assertion missing");
+  assert(check.includes("tracking-mode-only hardware observations must not set hardware_acceptance_ready"), "field acceptance tracking-mode-only guard missing");
+  assert(check.includes("trusted_hardware_evidence_count"), "field acceptance trusted hardware evidence count missing");
   assert(check.includes("required_tracking_modes") && check.includes("qr") && check.includes("image_tracking") && check.includes("slam"), "field acceptance hardware tracking modes missing");
   assert(packageJson.includes("\"check:field-acceptance\""), "package field acceptance check script missing");
   return "verified";

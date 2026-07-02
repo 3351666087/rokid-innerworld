@@ -98,27 +98,58 @@ function wallRehearsalGate(summary) {
 }
 
 function hardwareAlignmentGate(summary) {
-  const hardwareReady = summary?.ready_for_hardware === true;
   const hardwareIds = list(summary?.hardware_calibrated_anchor_ids);
   const hardwareModes = list(summary?.hardware_tracking_modes).length
     ? list(summary.hardware_tracking_modes)
     : HARDWARE_TRACKING_MODES;
+  const modeReady = REQUIRED_ANCHOR_IDS.every((anchorId) => hardwareIds.includes(anchorId));
 
   return gate({
     id: "hardware_alignment",
     title: "Hardware wall lock",
-    status: hardwareReady ? "ready" : "pending",
-    summary: hardwareReady
-      ? "A1/A2/A3 are locked by QR/image tracking/SLAM hardware observations."
+    status: modeReady ? "ready" : "pending",
+    summary: modeReady
+      ? "A1/A2/A3 have QR/image tracking/SLAM alignment observations."
       : `${hardwareIds.length}/3 hardware observations accepted; simulator/manual cannot satisfy this gate.`,
-    source: "/api/calibration/wall runtime.summary.ready_for_hardware",
+    source: "/api/calibration/wall runtime.summary.hardware_calibrated_anchor_ids",
     required: HARDWARE_TRACKING_MODES,
     requiredTrackingModes: HARDWARE_TRACKING_MODES,
     evidence: {
-      ready_for_hardware: hardwareReady,
+      hardware_alignment_ready: modeReady,
       hardware_calibrated_anchor_count: Number(summary?.hardware_calibrated_anchor_count) || 0,
       hardware_calibrated_anchor_ids: hardwareIds,
-      hardware_tracking_modes: hardwareModes
+      hardware_tracking_modes: hardwareModes,
+      simulator_manual_excluded: true
+    }
+  });
+}
+
+function trustedHardwareSessionGate(summary) {
+  const trustedIds = list(summary?.trusted_hardware_calibrated_anchor_ids);
+  const trustedSessions = list(summary?.trusted_hardware_sessions);
+  const untrustedIds = list(summary?.untrusted_hardware_anchor_ids);
+  const trustedReady = summary?.ready_for_hardware === true
+    && REQUIRED_ANCHOR_IDS.every((anchorId) => trustedIds.includes(anchorId));
+
+  return gate({
+    id: "trusted_hardware_session",
+    title: "Trusted SDK live session",
+    status: trustedReady ? "ready" : "pending",
+    summary: trustedReady
+      ? "A1/A2/A3 hardware observations are tied to an online Rokid SDK live session."
+      : `${trustedIds.length}/3 trusted hardware observations; script-posted tracking modes are not accepted.`,
+    source: "/api/device/sessions + /api/calibration/wall runtime.summary.trusted_hardware_*",
+    required: ["online_device_session", "sdk_binding_status.live_binding_ready", "input_binding_ready", "overlay_binding_ready"],
+    evidence: {
+      trusted_hardware_ready: trustedReady,
+      ready_for_hardware: trustedReady,
+      sdk_live_binding_required: summary?.sdk_live_binding_required !== false,
+      trusted_hardware_calibrated_anchor_count: Number(summary?.trusted_hardware_calibrated_anchor_count) || 0,
+      trusted_hardware_calibrated_anchor_ids: trustedIds,
+      trusted_hardware_session_count: Number(summary?.trusted_hardware_session_count) || trustedSessions.length,
+      trusted_hardware_sessions: trustedSessions,
+      untrusted_hardware_anchor_ids: untrustedIds,
+      hardware_tracking_modes: list(summary?.hardware_tracking_modes).length ? list(summary.hardware_tracking_modes) : HARDWARE_TRACKING_MODES
     }
   });
 }
@@ -238,12 +269,13 @@ function acceptanceStatus(gates) {
   const printReady = gateById.get("print_kit")?.status === "ready";
   const rehearsalReady = gateById.get("simulator_rehearsal")?.status === "ready";
   const hardwareReady = gateById.get("hardware_alignment")?.status === "ready";
+  const trustedHardwareReady = gateById.get("trusted_hardware_session")?.status === "ready";
   const missionReady = gateById.get("mission_loop")?.status === "ready";
   const sqliteReady = gateById.get("sqlite_evidence")?.status === "ready";
   const releaseReady = gateById.get("release_chain")?.status === "ready";
   const kitReady = gateById.get("hardware_kit")?.status === "ready";
 
-  if (printReady && hardwareReady && missionReady && sqliteReady && releaseReady && kitReady) return "hardware_acceptance_ready";
+  if (printReady && hardwareReady && trustedHardwareReady && missionReady && sqliteReady && releaseReady && kitReady) return "hardware_acceptance_ready";
   if (printReady && rehearsalReady) return "rehearsal_ready";
   if (printReady) return "site_install_ready";
   return "pending";
@@ -266,6 +298,7 @@ export function buildFieldAcceptance({
     fieldMarkerGate(fieldMarkers),
     wallRehearsalGate(summary),
     hardwareAlignmentGate(summary),
+    trustedHardwareSessionGate(summary),
     missionLoopGate(space, state),
     ledgerGate(ledgerSummary),
     releaseGate(opsStatus),
@@ -273,6 +306,7 @@ export function buildFieldAcceptance({
   ];
   const status = acceptanceStatus(gates);
   const hardwareGate = gates.find((item) => item.id === "hardware_alignment");
+  const trustedHardwareGate = gates.find((item) => item.id === "trusted_hardware_session");
   const blockingItems = gates
     .filter((item) => item.status === "pending" || item.status === "blocked")
     .map((item) => ({
@@ -295,8 +329,12 @@ export function buildFieldAcceptance({
       warn_gates: countStatus(gates, "warn"),
       pending_gates: countStatus(gates, "pending"),
       blocked_gates: countStatus(gates, "blocked"),
-      ready_for_hardware: hardwareGate?.evidence?.ready_for_hardware === true,
+      ready_for_hardware: trustedHardwareGate?.evidence?.ready_for_hardware === true,
       hardware_evidence_count: Number(hardwareGate?.evidence?.hardware_calibrated_anchor_count) || 0,
+      trusted_hardware_evidence_count: Number(trustedHardwareGate?.evidence?.trusted_hardware_calibrated_anchor_count) || 0,
+      trusted_hardware_session_count: Number(trustedHardwareGate?.evidence?.trusted_hardware_session_count) || 0,
+      trusted_hardware_ready: trustedHardwareGate?.evidence?.trusted_hardware_ready === true,
+      sdk_live_binding_required: trustedHardwareGate?.evidence?.sdk_live_binding_required !== false,
       all_simulator_ready_for_hardware: false,
       simulator_rehearsal_is_not_hardware_ready: true
     },
