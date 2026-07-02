@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 20:47 Asia/Shanghai
+Updated: 2026-07-02 21:06 Asia/Shanghai
 
 ## Objective
 
@@ -45,8 +45,8 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Latest implementation checkpoint: physical wall calibration and Rokid SDK adoption matrix.
 - `/api/calibration/wall` exposes the A1/A2/A3 wall coordinate system, expected poses, marker types, and acceptance thresholds.
 - `/api/calibration/observations` accepts sanitized Unity/Rokid calibration observations and persists them in SQLite.
-- Web/operator console now has an executable Wall Calibration panel: it refreshes the manifest, shows A1/A2/A3 marker/pose/latest observation status, surfaces `ready_for_hardware`, and can submit simulator observations through the same API used by future Rokid QR/image tracking/SLAM.
-- Unity fallback/controller now fetches the wall calibration manifest during startup after bootstrap and before device registration; HUD/log/heartbeat expose schema, anchor count, readiness, and calibrated anchor IDs.
+- Web/operator console now has an executable Wall Calibration panel: it refreshes the manifest, shows A1/A2/A3 marker/pose/latest observation status, surfaces `ready_for_hardware`, distinguishes `SQLite/API authoritative`, `simulator rehearsal`, and hardware evidence candidates, and can submit simulator observations through the same API used by future Rokid QR/image tracking/SLAM.
+- Unity fallback/controller now fetches the wall calibration manifest during startup after bootstrap and before device registration, then posts a simulator observation through `/api/calibration/observations`; the `C` key / `Calib` button posts a manual rehearsal observation through the same route. HUD/log/heartbeat expose schema, anchor count, readiness, calibrated anchor IDs, and the latest observation status/issues.
 - Kepler P0 calibration fixes are applied: calibration `session_id`, `device_id`, and notes are redacted, and `ready_for_hardware` is based on each anchor's latest observation so a later rejected/stale observation cannot be hidden by older accepted history.
 - The newly added Rokid SDK/design docs are now treated as actionable input to the mainline: RKCameraRig/RKInput/RKHand/PointableUI/image tracking/SLAM/visual layout rules enter through the adapter boundary, calibration API, and existing Space API instead of creating a parallel product direction.
 - Unity controller now enters hardware/fallback selection through `RokidAdapterResolver.Resolve(...)`.
@@ -55,7 +55,7 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Current follow-up implementation checkpoint: `RokidSdkBindingProbe` and backend `sdk_binding_status` distinguish `boundary_compiled`, `package_detected`, and `live_binding_ready` instead of treating the stub as hardware-ready.
 - Web/operator console now surfaces SDK binding readiness as local fallback, `ROKID_UXR` boundary, or real SDK live-bound; simulator sessions are evidence but do not claim hardware binding.
 - Checks now require the adapter boundary and SDK binding readiness distinction in `check:mainline`, `check:contract`, `check:unity`, `check:device`, and `check:web`.
-- Checks now also require Web and Unity to actively consume wall calibration runtime data rather than only defining the protocol.
+- Checks now also require Web and Unity to actively consume wall calibration runtime data, Web to display latest-observation evidence/rejected issues, Unity to POST observations, and `check:store` to prove latest rejected observations block hardware readiness.
 - Kepler reviewed the SDK binding readiness checkpoint and returned OK to commit/push after the `sdk_binding_status` redaction blocker was fixed.
 
 ## Confirmed Applied Hardware

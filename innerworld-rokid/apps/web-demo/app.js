@@ -377,8 +377,11 @@ function calibratedAnchorIds() {
 }
 
 function latestCalibrationObservation(anchor) {
-  const summaryLatest = wallCalibrationSummary()?.latest_by_anchor || {};
-  return anchor?.latest_observation || summaryLatest[anchor?.anchor_id] || null;
+  const summary = wallCalibrationSummary();
+  const latestList = listFrom(summary?.latest_anchor_observations);
+  const authoritative = latestList.find((observation) => observation.anchor_id === anchor?.anchor_id);
+  const summaryLatest = summary?.latest_by_anchor || {};
+  return authoritative || anchor?.latest_observation || summaryLatest[anchor?.anchor_id] || null;
 }
 
 function poseLabel(pose) {
@@ -407,6 +410,37 @@ function calibrationStateLabel(anchor) {
     return `${latest.status} / ${latest.tracking_mode || "unknown"} / ${error}`;
   }
   return calibratedAnchorIds().has(anchor?.anchor_id) ? "calibrated" : "waiting";
+}
+
+function calibrationAuthorityLabel() {
+  const summary = wallCalibrationSummary();
+  if (summary?.schema && model.store?.engine === "sqlite") return "SQLite/API authoritative";
+  if (summary?.schema) return "API authoritative";
+  return "waiting for manifest";
+}
+
+function calibrationEvidenceLabel(latest) {
+  const mode = latest?.tracking_mode || "none";
+  if (mode === "simulator") return "simulator rehearsal";
+  if (mode === "manual") return "manual field check";
+  if (mode === "qr" || mode === "image_tracking" || mode === "slam") return "hardware evidence candidate";
+  return "no observation";
+}
+
+function calibrationIssueLabel(latest) {
+  const issues = listFrom(latest?.issues).filter(Boolean);
+  if (issues.length) return issues.join(", ");
+  if (latest?.status === "rejected") return "rejected without issue detail";
+  return "no rejection issues";
+}
+
+function calibrationObservationMeta(latest) {
+  if (!latest) return "no confidence / no position error";
+  const confidence = Number.isFinite(Number(latest.confidence)) ? Number(latest.confidence).toFixed(2) : "n/a";
+  const error = latest.position_error_m === null || latest.position_error_m === undefined
+    ? "n/a"
+    : `${Number(latest.position_error_m).toFixed(3)}m`;
+  return `confidence ${confidence} / error ${error}`;
 }
 
 function simulatedCalibrationPayload(anchor) {
@@ -1396,10 +1430,13 @@ function renderWallCalibration() {
   const ready = Boolean(summary?.ready_for_hardware);
   const endpoint = endpointUrl(manifest?.observation_endpoint || model.bootstrap?.endpoints?.wall_calibration_observations || "/api/calibration/observations");
   const generatedAt = manifest?.generated_at ? new Date(manifest.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "not fetched";
+  const latest = listFrom(summary?.latest_anchor_observations);
+  const rejectedCount = latest.filter((observation) => observation.status === "rejected").length;
 
   els.calibrationGrid.innerHTML = "";
   els.calibrationGrid.append(
     renderInfoCard(ready ? "calibration-card good" : "calibration-card warn", "Hardware Gate", ready ? "ready_for_hardware" : `${summary?.calibrated_anchor_count || 0}/3 locked`, "A1/A2/A3 must be observed before claiming real-wall alignment."),
+    renderInfoCard("calibration-card", "Evidence Source", calibrationAuthorityLabel(), `${calibrationEvidenceLabel(model.wallCalibrationLastResult?.observation)} / latest rejected ${rejectedCount}`),
     renderInfoCard("calibration-card", "Schema", manifest?.schema || "waiting", `${manifest?.wall?.coordinate_system || "innerworld-wall-local/v1"} / ${generatedAt}`),
     renderInfoCard("calibration-card wide", "Observation Route", endpoint, "Rokid QR/image tracking, SLAM, manual field check, and Web simulator all write through this route.")
   );
@@ -1419,7 +1456,8 @@ function renderWallCalibration() {
       const title = document.createElement("strong");
       title.textContent = anchor.label || anchor.anchor_id;
       const body = document.createElement("p");
-      body.textContent = `${anchor.marker?.marker_type || "marker"} · ${calibrationStateLabel(anchor)} · ${poseLabel(anchor.expected_pose)}`;
+      const latest = latestCalibrationObservation(anchor);
+      body.textContent = `${anchor.marker?.marker_type || "marker"} · ${calibrationStateLabel(anchor)} · ${calibrationEvidenceLabel(latest)} · ${calibrationObservationMeta(latest)} · issues: ${calibrationIssueLabel(latest)} · expected ${poseLabel(anchor.expected_pose)}`;
       copy.append(title, body);
 
       const button = document.createElement("button");

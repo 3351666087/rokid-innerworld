@@ -923,7 +923,7 @@ export async function createSqliteStore({
         session_id, device_id, observed_pose_json, expected_pose_json, confidence,
         position_error_m, notes, client_time, acceptance_json, created_at
       FROM wall_calibration_observations
-      ORDER BY datetime(created_at) DESC, observation_id DESC
+      ORDER BY datetime(created_at) DESC, rowid DESC
       LIMIT ?
     `, [clampLimit(limit)]).map(wallCalibrationObservationFromRow);
     const latestByAnchor = {};
@@ -949,7 +949,7 @@ export async function createSqliteStore({
               datetime(newer.created_at) > datetime(current.created_at)
               OR (
                 datetime(newer.created_at) = datetime(current.created_at)
-                AND newer.observation_id > current.observation_id
+                AND newer.rowid > current.rowid
               )
             )
         )

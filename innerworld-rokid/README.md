@@ -30,7 +30,7 @@ SQLite (`data/innerworld.sqlite`) is the authoritative local/field store now. It
 
 Server deployment preserves the same Space API, mission state machine, write-back flow, device runtime, AI schema/prompt, and SQLite-backed store contract. Moving from localhost/LAN to a public host is a deployment change, not a database-contract rewrite. Raw private evidence, loan-image private fields, `.env`, `secrets/`, and `local-secrets/` stay outside the database, API, packages, and GitHub unless explicitly sanitized.
 
-Wall calibration is now part of the runtime contract, not a future note: Web can rehearse A1/A2/A3 marker lock through `/api/calibration/observations`, and Unity reads `/api/calibration/wall` during startup before device registration.
+Wall calibration is now part of the runtime contract, not a future note: Web can rehearse A1/A2/A3 marker lock through `/api/calibration/observations`, and Unity reads `/api/calibration/wall` during startup before device registration. Unity also posts simulator/manual rehearsal observations through the same route, while the UI and heartbeat label them as rehearsal/status evidence rather than real hardware readiness.
 
 ## SQLite Backup
 

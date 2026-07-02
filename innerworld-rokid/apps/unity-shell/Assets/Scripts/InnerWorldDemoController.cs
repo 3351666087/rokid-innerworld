@@ -55,8 +55,13 @@ namespace InnerWorld.Rokid
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
         private string wallCalibrationLine = "wall calibration pending";
+        private WallCalibrationObservationResult lastWallCalibrationObservationResult;
+        private WallCalibrationObservation lastWallCalibrationObservation;
+        private string wallCalibrationObservationLine = "calibration observation pending";
+        private string calibrationRehearsalSessionId = string.Empty;
         private float heartbeatClockSeconds;
         private bool heartbeatInFlight;
+        private bool wallCalibrationObservationInFlight;
         private string currentGazeAnchorId = string.Empty;
         private string currentGazeAnchorLabel = string.Empty;
         private bool currentGazeSelecting;
@@ -97,6 +102,7 @@ namespace InnerWorld.Rokid
             if (Input.GetKeyDown(KeyCode.S)) StartCoroutine(PostServiceAction());
             if (Input.GetKeyDown(KeyCode.W)) StartCoroutine(PostWriteBack());
             if (Input.GetKeyDown(KeyCode.B)) StartCoroutine(SwitchUserB());
+            if (Input.GetKeyDown(KeyCode.C)) StartCoroutine(SubmitWallCalibrationObservation("manual"));
         }
 
         private IEnumerator BootstrapAndLoadSpace()
@@ -105,6 +111,7 @@ namespace InnerWorld.Rokid
             yield return LoadBootstrap();
             yield return LoadWallCalibrationManifest();
             yield return RegisterDeviceSession();
+            yield return SubmitWallCalibrationObservation("simulator");
             yield return LoadSpace();
         }
 
@@ -351,6 +358,9 @@ namespace InnerWorld.Rokid
             EnsureApiClient();
             wallCalibrationManifest = null;
             wallCalibrationLine = "wall calibration loading";
+            lastWallCalibrationObservationResult = null;
+            lastWallCalibrationObservation = null;
+            wallCalibrationObservationLine = "calibration observation pending";
             string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.wall_calibration : null, apiClient.WallCalibrationUrl);
             SetRokidConnection(RokidConnectionStatus.Connecting, wallCalibrationLine);
 
@@ -393,6 +403,100 @@ namespace InnerWorld.Rokid
                 }
             }
 
+            if (space != null)
+            {
+                RefreshHud();
+            }
+        }
+
+        private IEnumerator SubmitWallCalibrationObservation(string trackingMode)
+        {
+            EnsureApiClient();
+            if (wallCalibrationObservationInFlight)
+            {
+                yield break;
+            }
+
+            WallCalibrationAnchor anchor = ResolveCurrentWallCalibrationAnchor();
+            string mode = NormalizeCalibrationTrackingMode(trackingMode);
+            if (anchor == null || anchor.expected_pose == null || anchor.expected_pose.position == null)
+            {
+                wallCalibrationObservationLine = "calibration observation skipped | anchor unavailable";
+                Debug.LogWarning(wallCalibrationObservationLine);
+                SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                if (space != null)
+                {
+                    RefreshHud();
+                }
+                yield break;
+            }
+
+            WallCalibrationObservationPayload payload = BuildWallCalibrationObservationPayload(anchor, mode);
+            string json = JsonUtility.ToJson(payload);
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.wall_calibration_observations : null, apiClient.WallCalibrationObservationsUrl);
+            wallCalibrationObservationInFlight = true;
+            wallCalibrationObservationLine = "calibration observation " + mode + " posting | anchor " + anchor.anchor_id;
+            SetRokidConnection(RokidConnectionStatus.Connecting, wallCalibrationObservationLine);
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                byte[] body = Encoding.UTF8.GetBytes(json);
+                request.uploadHandler = new UploadHandlerRaw(body);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json; charset=utf-8");
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        lastWallCalibrationObservationResult = JsonUtility.FromJson<WallCalibrationObservationResult>(request.downloadHandler.text);
+                        lastWallCalibrationObservation = lastWallCalibrationObservationResult != null
+                            ? lastWallCalibrationObservationResult.observation
+                            : null;
+                        if (lastWallCalibrationObservationResult != null && wallCalibrationManifest != null)
+                        {
+                            if (wallCalibrationManifest.runtime == null)
+                            {
+                                wallCalibrationManifest.runtime = new WallCalibrationRuntime();
+                            }
+                            if (lastWallCalibrationObservationResult.summary != null)
+                            {
+                                wallCalibrationManifest.runtime.summary = lastWallCalibrationObservationResult.summary;
+                            }
+                            if (lastWallCalibrationObservation != null)
+                            {
+                                anchor.latest_observation = lastWallCalibrationObservation;
+                            }
+                        }
+
+                        wallCalibrationObservationLine = BuildWallCalibrationObservationLine();
+                        wallCalibrationLine = BuildWallCalibrationStatusLine();
+                        Debug.Log("Wall calibration observation posted: " + wallCalibrationObservationLine + " | " + url);
+                        SetStatus("Calibration observation posted", wallCalibrationObservationLine);
+                        SetRokidConnection(RokidConnectionStatus.Connected, wallCalibrationObservationLine);
+                    }
+                    catch (Exception error)
+                    {
+                        lastWallCalibrationObservationResult = null;
+                        lastWallCalibrationObservation = null;
+                        wallCalibrationObservationLine = "calibration observation parse failed | anchor " + anchor.anchor_id;
+                        Debug.LogWarning(wallCalibrationObservationLine + ": " + error.Message + " | " + url);
+                        SetStatus("Calibration observation failed", error.Message);
+                        SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                    }
+                }
+                else
+                {
+                    wallCalibrationObservationLine = "calibration observation failed | anchor " + anchor.anchor_id + " | http " + request.responseCode;
+                    Debug.LogWarning(wallCalibrationObservationLine + ": " + request.error + " | " + url);
+                    SetStatus("Calibration observation failed", request.error + " " + url);
+                    SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                }
+            }
+
+            wallCalibrationObservationInFlight = false;
             if (space != null)
             {
                 RefreshHud();
@@ -553,7 +657,7 @@ namespace InnerWorld.Rokid
             SetDetail(GetMissionLine() + "\nAnchors: " + SafeAnchors().Length + " / Beacons: " + SafeBeacons().Length + "\n" + BuildRuntimeContractLine());
             RefreshInputStatusLine();
             RefreshTargetHud();
-            if (keyHintText != null) keyHintText.text = "Keys: R Reload | Space/Enter Confirm | Esc Back | Mouse Gaze | S/W/B";
+            if (keyHintText != null) keyHintText.text = "Keys: R Reload | Space/Enter Confirm | Esc Back | Mouse Gaze | C Calib | S/W/B";
         }
 
         private string GetMissionLine()
@@ -680,11 +784,11 @@ namespace InnerWorld.Rokid
 
             targetText = CreateText("Target", panel.transform, 13, FontStyle.Bold);
             targetText.color = new Color(0.98f, 0.9f, 0.42f);
-            SetRect(targetText.rectTransform, 18f, -232f, 460f, 38f);
+            SetRect(targetText.rectTransform, 18f, -232f, 460f, 54f);
 
             keyHintText = CreateText("Key Hints", panel.transform, 13, FontStyle.Bold);
             keyHintText.color = new Color(0.76f, 0.93f, 1f);
-            SetRect(keyHintText.rectTransform, 18f, -278f, 460f, 32f);
+            SetRect(keyHintText.rectTransform, 18f, -292f, 460f, 32f);
 
             float x = 18f;
             CreateButton("Reload", panel.transform, x, -330f, 74f, () => StartCoroutine(BootstrapAndLoadSpace()));
@@ -696,6 +800,8 @@ namespace InnerWorld.Rokid
             CreateButton("Write", panel.transform, x, -330f, 66f, () => StartCoroutine(PostWriteBack()));
             x += 74f;
             CreateButton("User B", panel.transform, x, -330f, 70f, () => StartCoroutine(SwitchUserB()));
+            x += 78f;
+            CreateButton("Calib", panel.transform, x, -330f, 68f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
 
             RefreshTargetHud();
         }
@@ -1014,7 +1120,7 @@ namespace InnerWorld.Rokid
                 ? "Selected: none"
                 : "Selected: " + selectedAnchorId + " " + CurrentAnchorLabel(selectedAnchorId, string.Empty);
 
-            targetText.text = gazeLine + "\n" + selectedLine;
+            targetText.text = gazeLine + "\n" + selectedLine + "\n" + BuildWallCalibrationObservationLine();
         }
 
         private string CurrentAnchorLabel(string anchorId, string fallback)
@@ -1192,8 +1298,9 @@ namespace InnerWorld.Rokid
 
             RokidConnectionInfo connection = CurrentConnectionInfo();
             string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
+            string observation = BuildWallCalibrationObservationLine();
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status + " | " + CurrentDeviceProfile()
-                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl);
+                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + observation;
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -1421,6 +1528,50 @@ namespace InnerWorld.Rokid
             return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
         }
 
+        private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
+        {
+            float confidence = CalibrationObservationConfidence(anchor, trackingMode);
+            return new WallCalibrationObservationPayload
+            {
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = anchor != null ? anchor.anchor_id : CurrentActiveAnchorId(),
+                tracking_mode = trackingMode,
+                observed_pose = BuildObservedPoseFromExpectedPose(anchor != null ? anchor.expected_pose : null, confidence),
+                confidence = confidence,
+                notes = "Unity " + trackingMode + " calibration rehearsal; observed_pose copied from manifest expected_pose for current anchor.",
+                client_time = DateTime.UtcNow.ToString("o")
+            };
+        }
+
+        private DevicePosePayload BuildObservedPoseFromExpectedPose(WallCalibrationPose expectedPose, float confidence)
+        {
+            DeviceVector3 position = expectedPose != null && expectedPose.position != null
+                ? expectedPose.position
+                : new DeviceVector3();
+            DeviceQuaternion rotation = expectedPose != null && expectedPose.rotation != null
+                ? expectedPose.rotation
+                : new DeviceQuaternion { w = 1f };
+
+            return new DevicePosePayload
+            {
+                confidence = confidence,
+                position = new DeviceVector3
+                {
+                    x = position.x,
+                    y = position.y,
+                    z = position.z
+                },
+                rotation = new DeviceQuaternion
+                {
+                    x = rotation.x,
+                    y = rotation.y,
+                    z = rotation.z,
+                    w = rotation.w == 0f ? 1f : rotation.w
+                }
+            };
+        }
+
         private DeviceRegisterRequest BuildDeviceRegisterRequest()
         {
             return new DeviceRegisterRequest
@@ -1557,7 +1708,7 @@ namespace InnerWorld.Rokid
             string schema = WallCalibrationSchemaLabel();
             int anchorCount = WallCalibrationAnchorCount();
             string ready = summary != null && summary.ready_for_hardware ? "true" : "false";
-            return "wall calibration: " + schema + ", anchors " + anchorCount + ", ready " + ready + ", calibrated " + CalibratedAnchorIdsLabel(summary);
+            return "wall calibration: " + schema + ", anchors " + anchorCount + ", ready_for_hardware " + ready + ", calibrated " + CalibratedAnchorIdsLabel(summary) + ", " + BuildWallCalibrationObservationLine();
         }
 
         private string BuildWallCalibrationStatusLine()
@@ -1569,14 +1720,28 @@ namespace InnerWorld.Rokid
 
             return "wall calibration schema " + WallCalibrationSchemaLabel()
                 + " | anchors " + WallCalibrationAnchorCount()
-                + " | ready " + WallCalibrationReadyFlag()
-                + " | calibrated " + CalibratedAnchorIdsLabel(CurrentWallCalibrationSummary());
+                + " | ready_for_hardware " + WallCalibrationReadyFlag()
+                + " | calibrated " + CalibratedAnchorIdsLabel(CurrentWallCalibrationSummary())
+                + " | " + BuildWallCalibrationObservationLine();
         }
 
         private string WallCalibrationHudBadge()
         {
             if (wallCalibrationManifest == null) return "calibration pending";
-            return WallCalibrationReadyFlag() ? "calibration ready" : "calibration not ready";
+            return WallCalibrationReadyFlag() ? "calibration summary ready" : "calibration summary pending";
+        }
+
+        private string BuildWallCalibrationObservationLine()
+        {
+            if (lastWallCalibrationObservation == null)
+            {
+                return string.IsNullOrWhiteSpace(wallCalibrationObservationLine) ? "calibration observation pending" : wallCalibrationObservationLine;
+            }
+
+            return "observation " + SafeLabel(lastWallCalibrationObservation.tracking_mode, "unknown")
+                + " " + SafeLabel(lastWallCalibrationObservation.status, "unknown")
+                + " | anchor " + SafeLabel(lastWallCalibrationObservation.anchor_id, "unknown")
+                + " | issues " + IssuesLabel(lastWallCalibrationObservation.issues);
         }
 
         private bool WallCalibrationReadyFlag()
@@ -1618,6 +1783,104 @@ namespace InnerWorld.Rokid
             }
 
             return anchorIds.Count == 0 ? "none" : string.Join(",", anchorIds.ToArray());
+        }
+
+        private WallCalibrationAnchor ResolveCurrentWallCalibrationAnchor()
+        {
+            WallCalibrationAnchor anchor = FindWallCalibrationAnchor(CurrentActiveAnchorId());
+            if (anchor != null) return anchor;
+
+            if (bootstrap != null && bootstrap.mission != null && bootstrap.mission.steps != null && bootstrap.mission.steps.Length > 0)
+            {
+                int stepIndex = Mathf.Clamp(bootstrap.mission.current_step_index, 0, bootstrap.mission.steps.Length - 1);
+                MissionStep step = bootstrap.mission.steps[stepIndex];
+                if (step != null)
+                {
+                    anchor = FindWallCalibrationAnchor(step.anchor_id);
+                    if (anchor != null) return anchor;
+                }
+            }
+
+            string[] preferredAnchors = { "A1", "A2", "A3" };
+            foreach (string anchorId in preferredAnchors)
+            {
+                anchor = FindWallCalibrationAnchor(anchorId);
+                if (anchor != null) return anchor;
+            }
+
+            return wallCalibrationManifest != null && wallCalibrationManifest.anchors != null && wallCalibrationManifest.anchors.Length > 0
+                ? wallCalibrationManifest.anchors[0]
+                : null;
+        }
+
+        private WallCalibrationAnchor FindWallCalibrationAnchor(string anchorId)
+        {
+            if (wallCalibrationManifest == null || wallCalibrationManifest.anchors == null || string.IsNullOrWhiteSpace(anchorId))
+            {
+                return null;
+            }
+
+            string cleanAnchorId = anchorId.Trim();
+            foreach (WallCalibrationAnchor anchor in wallCalibrationManifest.anchors)
+            {
+                if (anchor != null && string.Equals(anchor.anchor_id, cleanAnchorId, StringComparison.Ordinal))
+                {
+                    return anchor;
+                }
+            }
+
+            return null;
+        }
+
+        private float CalibrationObservationConfidence(WallCalibrationAnchor anchor, string trackingMode)
+        {
+            float baseConfidence = string.Equals(trackingMode, "manual", StringComparison.Ordinal) ? 0.82f : 0.92f;
+            if (anchor != null && anchor.acceptance != null && anchor.acceptance.confidence_min > 0f)
+            {
+                baseConfidence = Mathf.Max(baseConfidence, anchor.acceptance.confidence_min + 0.12f);
+            }
+
+            return Mathf.Clamp01(baseConfidence);
+        }
+
+        private string NormalizeCalibrationTrackingMode(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "manual";
+            string clean = value.Trim().ToLowerInvariant();
+            if (clean == "qr" || clean == "image_tracking" || clean == "slam" || clean == "manual" || clean == "simulator")
+            {
+                return clean;
+            }
+
+            return "unknown";
+        }
+
+        private string CurrentCalibrationSessionId()
+        {
+            if (!string.IsNullOrWhiteSpace(deviceSessionId)) return deviceSessionId.Trim();
+            if (string.IsNullOrWhiteSpace(calibrationRehearsalSessionId))
+            {
+                calibrationRehearsalSessionId = "unity-calibration-rehearsal-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            }
+
+            return calibrationRehearsalSessionId;
+        }
+
+        private string IssuesLabel(string[] issues)
+        {
+            if (issues == null || issues.Length == 0) return "none";
+            List<string> clean = new List<string>();
+            foreach (string issue in issues)
+            {
+                if (!string.IsNullOrWhiteSpace(issue)) clean.Add(issue.Trim());
+            }
+
+            return clean.Count == 0 ? "none" : string.Join(",", clean.ToArray());
+        }
+
+        private string SafeLabel(string value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
         }
 
         private string SdkBindingStageValue(RokidSdkBindingStage stage)

@@ -113,6 +113,43 @@ async function main() {
   assert(writeBack.ok === true, "write-back write ok failed");
   assert(writeBack.ledger?.type === "write_back", "write-back ledger missing");
 
+  const acceptedCalibration = await postJson("/api/calibration/observations", "calibration_accept", {
+    session_id: "store-check-token-real-token-secret-10.0.0.18",
+    device_id: "SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55",
+    anchor_id: "A1",
+    tracking_mode: "simulator",
+    observed_pose: {
+      position: { x: -1.6, y: 1.25, z: 3.1 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    confidence: 0.94,
+    notes: "accepted rehearsal token real-token-secret 10.0.0.18 SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55",
+    client_time: "2026-07-02T10:10:00.000Z"
+  });
+  assert(acceptedCalibration.ok === true, "accepted calibration ok failed");
+  assert(acceptedCalibration.observation?.status === "accepted", "accepted calibration status failed");
+  assert(acceptedCalibration.summary?.calibrated_anchor_ids?.includes("A1"), "accepted calibration summary anchor failed");
+
+  const rejectedCalibration = await postJson("/api/calibration/observations", "calibration_reject_latest", {
+    session_id: "store-check-reject",
+    device_id: "RA202 operator simulator",
+    anchor_id: "A1",
+    tracking_mode: "simulator",
+    observed_pose: {
+      position: { x: 8, y: 8, z: 8 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    confidence: 0.1,
+    notes: "latest rejected rehearsal",
+    client_time: "2026-07-02T10:10:05.000Z"
+  });
+  const latestA1 = rejectedCalibration.summary?.latest_anchor_observations?.find((observation) => observation.anchor_id === "A1");
+  assert(rejectedCalibration.ok === true, "rejected calibration ok failed");
+  assert(rejectedCalibration.observation?.status === "rejected", "rejected calibration status failed");
+  assert(latestA1?.status === "rejected", "latest calibration summary must use latest rejected observation");
+  assert(!rejectedCalibration.summary?.calibrated_anchor_ids?.includes("A1"), "latest rejected calibration must remove A1 from calibrated anchors");
+  assert(rejectedCalibration.summary?.ready_for_hardware === false, "latest rejected calibration must block hardware readiness");
+
   const [ledgerSummary, ledgerEvents, ledgerDataset] = await Promise.all([
     fetchJson("/api/ledger/summary", "ledger_summary"),
     fetchJson("/api/ledger/events?limit=20", "ledger_events"),
@@ -130,10 +167,10 @@ async function main() {
   assert(ledgerSummary.checks?.has_write_back === true, "ledger write-back check failed");
   assert(ledgerSummary.mission?.completed_steps?.includes("write_back"), "ledger mission completed steps failed");
   assert(ledgerSummary.service_actions?.total >= 1, "ledger service action summary failed");
-  assert(ledgerSummary.mission?.completed_step_count >= 4, "ledger mission completed step count failed");
   assert(ledgerSummary.audit?.event_count >= 4, "ledger audit event count failed");
   assert(ledgerEvents.ok === true, "ledger events ok failed");
   assert(Array.isArray(ledgerEvents.events) && ledgerEvents.events.length >= 4, "ledger events missing");
+  assert(ledgerEvents.events.some((event) => Array.isArray(event.state?.completed_steps) && event.state.completed_steps.length >= 4), "ledger events full mission state missing");
   assert(ledgerDataset.ok === true, "ledger dataset ok failed");
   assert(ledgerDataset.dataset.dataset_id === "runtime.mission_ledger", "ledger dataset id failed");
   assert(ledgerDataset.records.length >= 4, "ledger dataset records missing");
@@ -150,6 +187,8 @@ async function main() {
     findYear,
     service,
     writeBack,
+    acceptedCalibration,
+    rejectedCalibration,
     ledgerSummary,
     ledgerEvents,
     ledgerDataset,
@@ -166,6 +205,7 @@ async function main() {
     runtime_state: refreshedStore.runtime_state,
     mission_ledger_events: refreshedStore.mission_ledger_events,
     ledger_checks: ledgerSummary.checks,
+    wall_calibration_latest_status: rejectedCalibration.summary.latest_anchor_observations.find((observation) => observation.anchor_id === "A1")?.status,
     datasets: datasetIds,
     space_records: spaceSnapshot.records.length,
     hardware_devices: hardware.record.value.devices.map((device) => device.model)

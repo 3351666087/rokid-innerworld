@@ -393,6 +393,9 @@ function checkStaticSources(sources) {
     { name: "dynamic wall calibration rendering", ok: sources.js.includes("renderWallCalibration") && sources.js.includes("calibrationGrid") },
     { name: "wall calibration simulated lock", ok: sources.js.includes("submitSimulatedCalibration") && sources.js.includes("submitAllSimulatedCalibration") },
     { name: "wall calibration trace contract", ok: sources.js.includes("ready_for_hardware") && sources.js.includes("calibrated_anchor_ids") },
+    { name: "wall calibration authoritative latest source", ok: sources.js.includes("latest_anchor_observations") && sources.js.includes("calibrationAuthorityLabel") },
+    { name: "wall calibration rejected issue display", ok: sources.js.includes("calibrationIssueLabel") && sources.js.includes("position_error_m") && sources.js.includes("confidence") },
+    { name: "wall calibration rehearsal evidence label", ok: sources.js.includes("simulator rehearsal") && sources.js.includes("hardware evidence candidate") },
     { name: "dynamic SDK binding rendering", ok: sources.js.includes("renderSdkBindingReadiness") },
     { name: "SDK binding status contract", ok: sources.js.includes("sdk_binding_status") && sources.js.includes("ROKID_UXR boundary") },
     { name: "dynamic agent trace/log rendering", ok: sources.js.includes("renderLog") }
