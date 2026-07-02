@@ -60,8 +60,10 @@ function assertEndpointMap(endpoints) {
     wall_calibration: ["GET", "/api/calibration/wall"],
     wall_calibration_observations: ["POST", "/api/calibration/observations"],
     field_markers: ["GET", "/api/field/markers"],
+    field_acceptance: ["GET", "/api/field/acceptance"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
     device_manifest: ["GET", "/api/device/manifest"],
+    device_adapter_checklist: ["GET", "/api/device/adapter-checklist"],
     device_pairing: ["POST", "/api/device/pairing"],
     device_register: ["POST", "/api/device/register"],
     device_heartbeat: ["POST", "/api/device/heartbeat"],
@@ -87,7 +89,7 @@ function assertEndpointMap(endpoints) {
     assert(endpoint.path === route, `${key} path mismatch`);
     assert(endpoint.url === `http://localhost:5177${route}`, `${key} url mismatch`);
   }
-  assert(Object.keys(endpoints).length >= 29, "endpoint map count mismatch");
+  assert(Object.keys(endpoints).length >= 31, "endpoint map count mismatch");
 }
 
 function assertSpaceContract(space) {
@@ -268,12 +270,20 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(manifest.pairing_contract?.operator_gate?.lan_override_env === "INNERWORLD_OPERATOR_PIN", "device manifest pairing operator gate env mismatch");
   assert(manifest.pairing_contract?.operator_gate?.pin_persisted === false, "device manifest pairing operator PIN persistence mismatch");
   assert(manifest.pairing_contract?.operator_gate?.rejected_error === "device_pairing_operator_gate_failed", "device manifest pairing gate rejection mismatch");
+  assert(manifest.adapter_checklist_contract?.schema === "innerworld-rokid-live-adapter-checklist/v1", "device manifest adapter checklist schema mismatch");
+  assert(manifest.adapter_checklist_contract?.endpoint?.path === "/api/device/adapter-checklist", "device manifest adapter checklist endpoint mismatch");
+  assert(manifest.adapter_checklist_contract?.final_direction === "real Rokid campus wall A1/A2/A3", "device manifest adapter checklist final direction mismatch");
+  assert(manifest.adapter_checklist_contract?.generic_tour_or_ugc === false, "device manifest adapter checklist generic/UGC guard mismatch");
+  assert(manifest.adapter_checklist_contract?.item_ids?.includes("rk_camera_rig"), "device manifest adapter checklist RKCameraRig item missing");
+  assert(manifest.adapter_checklist_contract?.item_ids?.includes("a1_entry_lock"), "device manifest adapter checklist A1 item missing");
+  assert(manifest.adapter_checklist_contract?.item_ids?.includes("performance_gate"), "device manifest adapter checklist performance item missing");
   assert(manifest.adapter_slots.length >= 4, "device manifest adapter slots mismatch");
   assert(manifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema mismatch");
   assert(manifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define mismatch");
   assert(manifest.sdk_binding_status?.live_binding_ready === false, "device manifest SDK binding should not claim live by default");
   assert(manifest.sdk_binding_status?.client_report_contract?.field === "sdk_binding_status", "device manifest SDK binding report contract missing");
   assert(manifest.sdk_binding_status?.client_report_contract?.accepted_on?.includes("/api/device/heartbeat"), "device manifest SDK heartbeat report contract missing");
+  assert(manifest.sdk_binding_status?.client_report_contract?.adapter_checklist_rule?.includes("sdk_binding_status.adapter_checklist"), "device manifest SDK adapter checklist rule missing");
   assert(manifest.endpoints.device_register.method === "POST", "device manifest register endpoint mismatch");
   assert(manifest.endpoints.device_heartbeat.method === "POST", "device manifest heartbeat endpoint mismatch");
   assert(manifest.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device manifest mission snapshot mismatch");
@@ -847,12 +857,16 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("export function createApiRouter"), "api router factory missing");
   assert(apiRouter.includes("/api/device/bootstrap"), "api router bootstrap route missing");
   assert(apiRouter.includes("/api/device/manifest"), "api router device manifest route missing");
+  assert(apiRouter.includes("/api/device/adapter-checklist"), "api router device adapter checklist route missing");
   assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
   assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
   assert(apiRouter.includes("/api/ledger/summary"), "api router ledger summary route missing");
   assert(apiRouter.includes("/api/ledger/events"), "api router ledger events route missing");
   assert(apiRouter.includes("/api/device/register"), "api router device register route missing");
+  assert(deviceRuntime.includes("buildRokidLiveAdapterChecklist"), "device runtime adapter checklist builder missing");
+  assert(deviceRuntime.includes("innerworld-rokid-live-adapter-checklist/v1"), "device runtime adapter checklist schema missing");
+  assert(deviceRuntime.includes("a1_entry_lock") && deviceRuntime.includes("performance_gate"), "device runtime adapter checklist item coverage missing");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
   assert(apiRouter.includes("authorizeDevicePairingIssue"), "api router device pairing operator gate missing");
   assert(apiRouter.includes("isLoopbackAddress"), "api router device pairing loopback gate missing");

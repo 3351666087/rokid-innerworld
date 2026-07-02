@@ -210,8 +210,38 @@ namespace InnerWorld.Rokid.Protocol
         public bool input_binding_ready;
         public bool overlay_binding_ready;
         public bool live_binding_ready;
+        public RokidLiveAdapterChecklistReport adapter_checklist;
         public string[] candidate_assemblies;
         public string[] candidate_types;
         public string message;
+    }
+
+    [Serializable]
+    public sealed class RokidLiveAdapterChecklistReport
+    {
+        public bool boundary_compiled;
+        public bool package_detected;
+        public bool rk_camera_rig_ready;
+        public bool camera_rig_ready;
+        public bool rk_input_3dof_ray_ready;
+        public bool input_ray_ready;
+        public bool pointable_ui_ready;
+        public bool pointable_ui_curve_ready;
+        public bool a1_entry_lock_ready;
+        public bool entry_lock_ready;
+        public bool qr_entry_lock_ready;
+        public bool image_tracking_ready;
+        public bool image_target_library_ready;
+        public bool a2_a3_image_tracking_ready;
+        public bool slam_head_tracking_ready;
+        public bool slam_status_ready;
+        public bool head_tracking_heartbeat_ready;
+        public bool uxr_overlay_renderer_ready;
+        public bool overlay_binding_ready;
+        public bool trusted_hardware_proof_ready;
+        public bool hardware_proof_ready;
+        public bool performance_gate_ready;
+        public bool fps_target_ready;
+        public bool spatial_panels_readable;
     }
 }

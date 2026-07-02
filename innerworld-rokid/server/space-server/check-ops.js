@@ -52,9 +52,10 @@ async function fetchText(route, label) {
 }
 
 async function main() {
-  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration, fieldMarkers, fieldAcceptance] = await Promise.all([
+  const [health, ops, adapterChecklist, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration, fieldMarkers, fieldAcceptance] = await Promise.all([
     fetchJson("/api/health"),
     fetchJson("/api/ops/status"),
+    fetchJson("/api/device/adapter-checklist"),
     fetch(`${base}/`),
     fetchText("/app.js", "web demo app script"),
     fetchJson("/api/ledger/summary"),
@@ -76,6 +77,13 @@ async function main() {
   assert(ops.health?.mission_state === health.mission_state, "ops health mission_state mismatch");
   assert(ops.health?.beacon_count === health.beacon_count, "ops health beacon_count mismatch");
   assert(typeof ops.local_url === "string" && ops.local_url.includes(String(ops.port)), "ops local_url check failed");
+  assert(ops.adapter_checklist?.schema === "innerworld-rokid-live-adapter-checklist/v1", "ops adapter checklist schema check failed");
+  assert(ops.adapter_checklist?.endpoint?.path === "/api/device/adapter-checklist", "ops adapter checklist endpoint check failed");
+  assert(ops.adapter_checklist?.final_direction === "real Rokid campus wall A1/A2/A3", "ops adapter checklist final direction check failed");
+  assert(ops.adapter_checklist?.generic_tour_or_ugc === false, "ops adapter checklist generic/UGC guard failed");
+  assert(adapterChecklist.schema === ops.adapter_checklist.schema, "adapter checklist route/schema mismatch");
+  assert(adapterChecklist.summary?.required_item_count >= 10, "adapter checklist required count check failed");
+  assert(adapterChecklist.scope_guard?.required_anchor_ids?.join(",") === "A1,A2,A3", "adapter checklist anchor guard failed");
   assert(ops.hardware?.fit === "fit", "ops hardware fit check failed");
   assert(ops.hardware?.borrow_deadline === "2026-08-31", "ops hardware borrow deadline check failed");
   assert(Array.isArray(ops.hardware?.devices) && ops.hardware.devices.length === 2, "ops hardware devices check failed");
@@ -113,6 +121,8 @@ async function main() {
   assert(appJs.includes("/api/calibration/wall"), "web demo wall calibration route missing");
   assert(appJs.includes("/api/calibration/observations"), "web demo wall calibration observation route missing");
   assert(appJs.includes("/api/field/acceptance"), "web demo field acceptance route missing");
+  assert(appJs.includes("/api/device/adapter-checklist"), "web demo adapter checklist route missing");
+  assert(appJs.includes("adapterChecklistSummary"), "web demo adapter checklist renderer missing");
   assert(appJs.includes("renderLedgerAudit"), "web demo ledger renderer missing");
   assert(appJs.includes("renderWallCalibration"), "web demo wall calibration renderer missing");
   assert(appJs.includes("renderFieldAcceptance"), "web demo field acceptance renderer missing");
@@ -152,6 +162,7 @@ async function main() {
     deploy_dry_run_ok: ops.deploy_dry_run?.ok ?? null,
     ops_monitor_ok: ops.ops_monitor?.ok ?? null,
     hardware_devices: ops.hardware.devices.map((device) => device.model).join(","),
+    adapter_checklist_status: adapterChecklist.status,
     ledger_engine: ledgerSummary.engine,
     ledger_events: ledgerEvents.events.length,
     field_markers: fieldMarkers.markers.map((marker) => marker.marker.marker_id),

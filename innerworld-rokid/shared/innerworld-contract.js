@@ -84,6 +84,7 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
     field_acceptance: apiEndpoint(baseUrl, "/api/field/acceptance"),
     device_bootstrap: apiEndpoint(baseUrl, "/api/device/bootstrap"),
     device_manifest: apiEndpoint(baseUrl, "/api/device/manifest"),
+    device_adapter_checklist: apiEndpoint(baseUrl, "/api/device/adapter-checklist"),
     device_pairing: apiEndpoint(baseUrl, "/api/device/pairing", "POST"),
     device_register: apiEndpoint(baseUrl, "/api/device/register", "POST"),
     device_heartbeat: apiEndpoint(baseUrl, "/api/device/heartbeat", "POST"),
@@ -331,6 +332,9 @@ export function createInnerWorldClient({
     },
     getDeviceManifest() {
       return request("/api/device/manifest", {}, "device_manifest_failed");
+    },
+    getDeviceAdapterChecklist() {
+      return request("/api/device/adapter-checklist", {}, "device_adapter_checklist_failed");
     },
     issueDevicePairing(payload = {}) {
       return request("/api/device/pairing", jsonPost(payload), "device_pairing_failed");

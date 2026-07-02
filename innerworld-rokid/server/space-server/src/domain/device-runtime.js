@@ -24,6 +24,7 @@ const SESSION_EXPIRES_AFTER_MS = 60_000;
 const DEVICE_RUNTIME_SNAPSHOT_SCHEMA = "innerworld-device-runtime-snapshot/v1";
 const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "output", "runtime", "device-runtime-snapshot.json");
 const ROKID_SDK_BINDING_SCHEMA = "innerworld-rokid-sdk-binding/v1";
+const ROKID_LIVE_ADAPTER_CHECKLIST_SCHEMA = "innerworld-rokid-live-adapter-checklist/v1";
 const DEVICE_PAIRING_SCHEMA = "innerworld-device-pairing/v1";
 const ROKID_UXR_DEFINE_SYMBOL = "ROKID_UXR";
 const HARDWARE_OBSERVATION_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
@@ -112,6 +113,111 @@ const ADAPTER_SLOTS = Object.freeze([
     expected_owner: "Unity scene",
     accepts: ["ai_hud_output", "mission_snapshot", "pending_actions"],
     endpoint: "/api/ai/hud"
+  }
+]);
+
+const LIVE_ADAPTER_ITEM_SPECS = Object.freeze([
+  {
+    item_id: "rokid_uxr_boundary",
+    label: "ROKID_UXR compile boundary",
+    owner: "Unity runtime",
+    required: true,
+    derive_from: ["boundary_compiled"],
+    report_keys: ["boundary_compiled"],
+    maps_to: ["RokidAdapterResolver", "RokidSdkBindingProbe"],
+    endpoint: "/api/device/manifest"
+  },
+  {
+    item_id: "rokid_uxr_package",
+    label: "Official Rokid UXR package detected",
+    owner: "Unity Package Manager",
+    required: true,
+    derive_from: ["package_detected"],
+    report_keys: ["package_detected"],
+    maps_to: ["RokidSdkBindingProbe.candidate_assemblies", "RokidSdkBindingProbe.candidate_types"],
+    endpoint: "/api/device/register"
+  },
+  {
+    item_id: "rk_camera_rig",
+    label: "RKCameraRig replaces Main Camera",
+    owner: "Unity ROKID_UXR lane",
+    required: true,
+    report_keys: ["rk_camera_rig_ready", "camera_rig_ready"],
+    maps_to: ["IRokidPoseProvider", "head pose in /api/device/heartbeat"],
+    endpoint: "/api/device/heartbeat"
+  },
+  {
+    item_id: "rk_input_3dof_ray",
+    label: "RKInput 3DoF ray maps to A1/A2/A3 focus and confirm",
+    owner: "Unity ROKID_UXR lane",
+    required: true,
+    report_keys: ["rk_input_3dof_ray_ready", "input_ray_ready"],
+    maps_to: ["IRokidInputSource", "/api/interactions", "/api/service-actions", "/api/spaces/{id}/beacons"],
+    endpoint: "/api/device/heartbeat"
+  },
+  {
+    item_id: "pointable_ui",
+    label: "PointableUI controls A1 entry, A2 memory, and A3 write-back",
+    owner: "Unity ROKID_UXR lane",
+    required: true,
+    report_keys: ["pointable_ui_ready", "pointable_ui_curve_ready"],
+    maps_to: ["A1 entry confirmation", "A2 memory panel", "A3 write-back confirmation"],
+    endpoint: "/api/device/heartbeat"
+  },
+  {
+    item_id: "a1_entry_lock",
+    label: "A1 QR/logo entry lock requires deliberate confirmation",
+    owner: "RA202 glasses runtime",
+    required: true,
+    report_keys: ["a1_entry_lock_ready", "entry_lock_ready", "qr_entry_lock_ready"],
+    maps_to: ["A1:qr-entry", "0.4m-0.5m entry confirmation", "/api/interactions"],
+    endpoint: "/api/calibration/observations"
+  },
+  {
+    item_id: "a2_a3_image_tracking",
+    label: "A2/A3 image target library imported from field-target assets",
+    owner: "Unity / Rokid XR Extension",
+    required: true,
+    report_keys: ["image_tracking_ready", "image_target_library_ready", "a2_a3_image_tracking_ready"],
+    maps_to: ["/api/field/markers", "/api/field/assets/<file>", "/api/calibration/observations"],
+    endpoint: "/api/field/markers"
+  },
+  {
+    item_id: "slam_heartbeat",
+    label: "SLAM/head tracking status flows into heartbeat and proof",
+    owner: "RA202 glasses runtime",
+    required: true,
+    report_keys: ["slam_head_tracking_ready", "slam_status_ready", "head_tracking_heartbeat_ready"],
+    maps_to: ["/api/device/heartbeat", "/api/calibration/observations", "hardware_observation_proof"],
+    endpoint: "/api/device/heartbeat"
+  },
+  {
+    item_id: "uxr_overlay_renderer",
+    label: "UXR overlay renders mission, radar, anchor halo, and write-back state",
+    owner: "Unity ROKID_UXR lane",
+    required: true,
+    derive_from: ["overlay_binding_ready"],
+    report_keys: ["uxr_overlay_renderer_ready", "overlay_binding_ready"],
+    maps_to: ["IRokidOverlayRenderer", "InnerWorldArShellState"],
+    endpoint: "/api/ai/hud"
+  },
+  {
+    item_id: "trusted_hardware_proof",
+    label: "Trusted hardware observations require pairing and live adapter evidence",
+    owner: "Space Server",
+    required: true,
+    report_keys: ["trusted_hardware_proof_ready", "hardware_proof_ready"],
+    maps_to: ["operator_paired_session", "sdk_binding_status.live_binding_ready", "ready_for_hardware"],
+    endpoint: "/api/calibration/observations"
+  },
+  {
+    item_id: "performance_gate",
+    label: "60 FPS target behavior and readable spatial panels",
+    owner: "Unity / Rokid runtime",
+    required: true,
+    report_keys: ["performance_gate_ready", "fps_target_ready", "spatial_panels_readable"],
+    maps_to: ["diagnostics.fps", "user-initiated audio/voice", "near/far panel readability"],
+    endpoint: "/api/device/heartbeat"
   }
 ]);
 
@@ -268,6 +374,24 @@ function sanitizeStringList(value, maxItems = 12, maxLength = 96) {
   return rows;
 }
 
+function adapterChecklistReportKeys() {
+  return new Set(LIVE_ADAPTER_ITEM_SPECS.flatMap((item) => item.report_keys || []));
+}
+
+function sanitizeAdapterChecklistStatus(value) {
+  const source = value?.adapter_checklist || value?.adapter_checks || value?.live_adapter_checks || value?.checklist;
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+  const allowed = adapterChecklistReportKeys();
+  const clean = {};
+  for (const [key, raw] of Object.entries(source)) {
+    const cleanKey = sanitizeEnumText(key, 80);
+    if (!cleanKey || !allowed.has(cleanKey)) continue;
+    const bool = sanitizeBoolean(raw);
+    if (bool !== null) clean[cleanKey] = bool;
+  }
+  return clean;
+}
+
 function buildDefaultSdkBindingStatus(source = "server_manifest") {
   return {
     schema: ROKID_SDK_BINDING_SCHEMA,
@@ -279,6 +403,7 @@ function buildDefaultSdkBindingStatus(source = "server_manifest") {
     input_binding_ready: false,
     overlay_binding_ready: false,
     live_binding_ready: false,
+    adapter_checklist: {},
     candidate_assemblies: [],
     candidate_types: [],
     message: "Awaiting Unity-side SDK binding report; server keeps the Space API stable while fallback runs.",
@@ -301,6 +426,7 @@ function sanitizeSdkBindingStatus(value, source = "device_report") {
   const packageDetected = sanitizeBoolean(value.package_detected ?? value.sdk_package_detected) === true;
   const inputBindingReady = sanitizeBoolean(value.input_binding_ready ?? value.input_ready) === true;
   const overlayBindingReady = sanitizeBoolean(value.overlay_binding_ready ?? value.overlay_ready) === true;
+  const adapterChecklist = sanitizeAdapterChecklistStatus(value);
   const liveBindingReady = sanitizeBoolean(value.live_binding_ready ?? value.sdk_live_binding_ready) === true
     || (inputBindingReady && overlayBindingReady);
   const explicitStage = value.stage || value.binding_stage || value.sdk_binding_stage;
@@ -321,6 +447,7 @@ function sanitizeSdkBindingStatus(value, source = "device_report") {
     input_binding_ready: inputBindingReady,
     overlay_binding_ready: overlayBindingReady,
     live_binding_ready: liveBindingReady,
+    adapter_checklist: adapterChecklist,
     candidate_assemblies: sanitizeStringList(value.candidate_assemblies || value.candidateAssemblies),
     candidate_types: sanitizeStringList(value.candidate_types || value.candidateTypes),
     message: redactSensitiveText(value.message || value.status_message, 180) || buildDefaultSdkBindingStatus(source).message,
@@ -330,11 +457,15 @@ function sanitizeSdkBindingStatus(value, source = "device_report") {
 
 function summarizeSdkBindingStatus(status) {
   const binding = status && typeof status === "object" ? status : buildDefaultSdkBindingStatus("not_reported");
+  const adapterChecklist = binding.adapter_checklist && typeof binding.adapter_checklist === "object"
+    ? binding.adapter_checklist
+    : {};
   return {
     stage: binding.stage || "fallback_only",
     boundary_compiled: binding.boundary_compiled === true,
     package_detected: binding.package_detected === true,
     live_binding_ready: binding.live_binding_ready === true,
+    adapter_checklist_passed: Object.values(adapterChecklist).filter((value) => value === true).length,
     message: trimText(binding.message, 180)
   };
 }
@@ -349,6 +480,334 @@ function summarizeSdkBindingAcrossSessions(rows = []) {
     live_bound_sessions: statuses.filter((status) => status.live_binding_ready === true).length,
     latest_stage: statuses[0]?.stage || "fallback_only",
     latest_message: statuses[0]?.message || "No Unity SDK binding report has been received yet."
+  };
+}
+
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function latestSessionRows(deviceSessions) {
+  return list(deviceSessions?.sessions);
+}
+
+function latestSdkBinding(deviceSessions) {
+  return latestSessionRows(deviceSessions).find((session) => session?.sdk_binding_status)?.sdk_binding_status || null;
+}
+
+function sdkBindingHasReportKey(deviceSessions, keys = []) {
+  const keySet = new Set(keys);
+  for (const session of latestSessionRows(deviceSessions)) {
+    const adapterChecklist = session?.sdk_binding_status?.adapter_checklist || {};
+    for (const key of keySet) {
+      if (adapterChecklist[key] === true) return true;
+    }
+  }
+  return false;
+}
+
+function imageTargetAssetsReady(fieldMarkers) {
+  const markers = list(fieldMarkers?.markers);
+  return ["A2", "A3"].every((anchorId) => {
+    const marker = markers.find((item) => item?.anchor_id === anchorId);
+    const asset = marker?.image_target_asset;
+    return marker?.marker?.marker_id === `${anchorId}:image-target`
+      && asset?.asset_id
+      && asset?.sha256
+      && Number(asset.physical_width_mm) > 0
+      && Number(asset.physical_height_mm) > 0
+      && Number(asset.dpi) > 0
+      && asset.print_version
+      && /ready/i.test(`${asset.unity_target_library_status || ""} ${asset.rokid_import_status || ""}`);
+  });
+}
+
+function anchorObservationReady(wallCalibration, anchorId, mode = "hardware") {
+  const summary = wallCalibration?.runtime?.summary || wallCalibration || {};
+  const latest = list(summary.latest_anchor_observations).find((item) => item?.anchor_id === anchorId)
+    || summary.latest_by_anchor?.[anchorId];
+  if (!latest || !["accepted", "warning"].includes(latest.status)) return false;
+  if (mode === "trusted") {
+    return latest.acceptance?.hardware_observation_proof?.trusted === true
+      || list(summary.trusted_hardware_calibrated_anchor_ids).includes(anchorId);
+  }
+  return HARDWARE_OBSERVATION_TRACKING_MODES.has(latest.tracking_mode)
+    || list(summary.hardware_calibrated_anchor_ids).includes(anchorId);
+}
+
+function buildChecklistCheck({ id, label, passed, source, evidence = null }) {
+  return {
+    id,
+    label,
+    status: passed ? "pass" : "pending",
+    source,
+    evidence
+  };
+}
+
+function itemFromSpec(spec, checks) {
+  const pass = checks.every((check) => check.status === "pass");
+  return {
+    item_id: spec.item_id,
+    label: spec.label,
+    owner: spec.owner,
+    required: spec.required !== false,
+    status: pass ? "pass" : "pending",
+    endpoint: spec.endpoint,
+    report_keys: spec.report_keys || [],
+    maps_to: spec.maps_to || [],
+    checks
+  };
+}
+
+function summarizeChecklistItems(items) {
+  const required = items.filter((item) => item.required !== false);
+  const passed = items.filter((item) => item.status === "pass").length;
+  const pending = items.filter((item) => item.status === "pending").length;
+  return {
+    item_count: items.length,
+    required_item_count: required.length,
+    passed_item_count: passed,
+    pending_item_count: pending,
+    ready: required.length > 0 && required.every((item) => item.status === "pass")
+  };
+}
+
+function buildManifestAdapterReadiness(endpoints) {
+  return {
+    schema: ROKID_LIVE_ADAPTER_CHECKLIST_SCHEMA,
+    status: "pending",
+    hardware_ready: false,
+    summary: "Rokid live adapter checklist contract is published; hardware readiness remains gated until operator-paired live SDK proof and trusted A1/A2/A3 observations arrive.",
+    checklist: LIVE_ADAPTER_ITEM_SPECS.map((item) => ({
+      id: item.item_id,
+      label: item.label,
+      status: "pending",
+      source: "device_manifest_contract",
+      required_for: ["hardware_acceptance"],
+      signals: [
+        ...(item.derive_from || []),
+        ...(item.report_keys || [])
+      ],
+      summary: `Awaiting live adapter evidence for ${item.label}. See ${endpoints.device_adapter_checklist.path}.`
+    }))
+  };
+}
+
+export function buildRokidLiveAdapterChecklist({
+  baseUrl,
+  deviceSessions = null,
+  wallCalibration = null,
+  fieldMarkers = null,
+  opsStatus = null,
+  generatedAt = new Date().toISOString()
+} = {}) {
+  const publicBaseUrl = cleanPublicBaseUrl(baseUrl);
+  const endpoints = buildEndpointMap(publicBaseUrl);
+  const binding = latestSdkBinding(deviceSessions) || buildDefaultSdkBindingStatus("not_reported");
+  const sessions = latestSessionRows(deviceSessions);
+  const onlineSessions = sessions.filter((session) => session.session_status === "online");
+  const pairedSessions = sessions.filter((session) => session.pairing_status === "operator_paired" || session.hardware_acceptance_eligible === true);
+  const liveSessions = onlineSessions.filter((session) => session.sdk_binding_status?.live_binding_ready === true);
+  const wallSummary = wallCalibration?.runtime?.summary || wallCalibration || {};
+  const hardwareModels = list(opsStatus?.hardware?.devices).map((device) => device?.model).filter(Boolean);
+  const hasRokidKit = hardwareModels.includes("RA202") && hardwareModels.includes("RAS201");
+  const trustedAnchorIds = list(wallSummary.trusted_hardware_calibrated_anchor_ids);
+  const hardwareAnchorIds = list(wallSummary.hardware_calibrated_anchor_ids);
+  const items = LIVE_ADAPTER_ITEM_SPECS.map((spec) => {
+    const reported = sdkBindingHasReportKey(deviceSessions, spec.report_keys || []);
+    const deriveFields = list(spec.derive_from);
+    const derived = deriveFields.length > 0 && deriveFields.every((field) => binding?.[field] === true);
+    const reportOrDerived = reported || derived;
+
+    if (spec.item_id === "a2_a3_image_tracking") {
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "field_target_metadata",
+          label: "A2/A3 field target metadata is exposed by /api/field/markers",
+          passed: imageTargetAssetsReady(fieldMarkers),
+          source: endpoints.field_markers.path,
+          evidence: {
+            required_anchor_ids: ["A2", "A3"]
+          }
+        }),
+        buildChecklistCheck({
+          id: "image_tracking_report",
+          label: "Unity/Rokid reports image target library import",
+          passed: reported,
+          source: endpoints.device_heartbeat.path,
+          evidence: { report_keys: spec.report_keys || [] }
+        })
+      ]);
+    }
+
+    if (spec.item_id === "a1_entry_lock") {
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "a1_marker_contract",
+          label: "A1 QR entry marker remains the campus wall entry",
+          passed: list(fieldMarkers?.markers).some((marker) => marker?.marker?.marker_id === "A1:qr-entry"),
+          source: endpoints.field_markers.path
+        }),
+        buildChecklistCheck({
+          id: "a1_lock_observation",
+          label: "A1 latest hardware observation is accepted or warning",
+          passed: anchorObservationReady(wallCalibration, "A1", "hardware"),
+          source: endpoints.wall_calibration.path
+        }),
+        buildChecklistCheck({
+          id: "deliberate_entry_confirmation",
+          label: "Adapter reports deliberate A1 confirmation",
+          passed: reported,
+          source: endpoints.device_heartbeat.path,
+          evidence: { report_keys: spec.report_keys || [] }
+        })
+      ]);
+    }
+
+    if (spec.item_id === "trusted_hardware_proof") {
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "trusted_a1_a2_a3",
+          label: "A1/A2/A3 trusted hardware observations are bound to live SDK sessions",
+          passed: ["A1", "A2", "A3"].every((anchorId) => trustedAnchorIds.includes(anchorId)),
+          source: endpoints.wall_calibration.path,
+          evidence: {
+            trusted_hardware_calibrated_anchor_ids: trustedAnchorIds,
+            untrusted_hardware_anchor_ids: list(wallSummary.untrusted_hardware_anchor_ids)
+          }
+        }),
+        buildChecklistCheck({
+          id: "operator_pairing",
+          label: "At least one device session is operator-paired for hardware acceptance",
+          passed: pairedSessions.length > 0,
+          source: endpoints.device_sessions.path,
+          evidence: { paired_session_count: pairedSessions.length }
+        }),
+        buildChecklistCheck({
+          id: "sdk_live_session",
+          label: "At least one online session reports live SDK input and overlay binding",
+          passed: liveSessions.length > 0,
+          source: endpoints.device_sessions.path,
+          evidence: { live_session_count: liveSessions.length }
+        })
+      ]);
+    }
+
+    if (spec.item_id === "rk_camera_rig") {
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "camera_rig_report",
+          label: "Adapter reports RKCameraRig lane active",
+          passed: reported,
+          source: endpoints.device_heartbeat.path,
+          evidence: { report_keys: spec.report_keys || [] }
+        }),
+        buildChecklistCheck({
+          id: "pose_heartbeat",
+          label: "Online session reports pose and active anchor heartbeat",
+          passed: onlineSessions.some((session) => session.pose_present === true && session.active_anchor),
+          source: endpoints.device_sessions.path
+        })
+      ]);
+    }
+
+    if (spec.item_id === "slam_heartbeat") {
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "head_tracking_report",
+          label: "Adapter reports SLAM/head tracking heartbeat",
+          passed: reported,
+          source: endpoints.device_heartbeat.path,
+          evidence: { report_keys: spec.report_keys || [] }
+        }),
+        buildChecklistCheck({
+          id: "hardware_anchor_observations",
+          label: "A1/A2/A3 have latest hardware-mode observations",
+          passed: ["A1", "A2", "A3"].every((anchorId) => hardwareAnchorIds.includes(anchorId)),
+          source: endpoints.wall_calibration.path,
+          evidence: { hardware_calibrated_anchor_ids: hardwareAnchorIds }
+        })
+      ]);
+    }
+
+    if (spec.item_id === "performance_gate") {
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "performance_report",
+          label: "Adapter reports FPS/readability performance gate",
+          passed: reported,
+          source: endpoints.device_heartbeat.path,
+          evidence: { report_keys: spec.report_keys || [] }
+        })
+      ]);
+    }
+
+    return itemFromSpec(spec, [
+      buildChecklistCheck({
+        id: `${spec.item_id}_runtime_report`,
+        label: spec.derive_from?.length
+          ? `SDK binding report has ${spec.derive_from.join(", ")}`
+          : `Adapter reports ${spec.label}`,
+        passed: reportOrDerived,
+        source: spec.endpoint,
+        evidence: {
+          derive_from: spec.derive_from || [],
+          report_keys: spec.report_keys || []
+        }
+      })
+    ]);
+  });
+  const summary = summarizeChecklistItems(items);
+
+  return {
+    ok: true,
+    schema: ROKID_LIVE_ADAPTER_CHECKLIST_SCHEMA,
+    generated_at: generatedAt,
+    endpoint: endpoints.device_adapter_checklist,
+    base_url: publicBaseUrl,
+    status: summary.ready ? "ready" : "pending",
+    ready: summary.ready,
+    final_direction: "real Rokid campus wall A1/A2/A3",
+    scope_guard: {
+      campus_wall_only: true,
+      generic_tour_or_ugc: false,
+      required_anchor_ids: ["A1", "A2", "A3"],
+      required_hardware: ["RA202", "RAS201"]
+    },
+    summary: {
+      ...summary,
+      has_rokid_kit: hasRokidKit,
+      online_session_count: onlineSessions.length,
+      paired_session_count: pairedSessions.length,
+      live_sdk_session_count: liveSessions.length,
+      hardware_anchor_count: hardwareAnchorIds.length,
+      trusted_hardware_anchor_count: trustedAnchorIds.length,
+      latest_sdk_binding_stage: binding.stage || "fallback_only"
+    },
+    source_of_truth: {
+      device_manifest: endpoints.device_manifest,
+      device_sessions: endpoints.device_sessions,
+      wall_calibration: endpoints.wall_calibration,
+      field_markers: endpoints.field_markers,
+      field_acceptance: endpoints.field_acceptance,
+      ops_status: endpoints.ops_status
+    },
+    items,
+    blocking_items: items
+      .filter((item) => item.required !== false && item.status !== "pass")
+      .map((item) => ({
+        item_id: item.item_id,
+        label: item.label,
+        pending_checks: item.checks.filter((check) => check.status !== "pass").map((check) => check.id)
+      })),
+    report_contract: {
+      field: "sdk_binding_status.adapter_checklist",
+      accepted_on: [endpoints.device_register.path, endpoints.device_heartbeat.path],
+      allowed_boolean_keys: Array.from(adapterChecklistReportKeys()).sort(),
+      privacy: "Report only boolean adapter readiness flags. Do not send serials, tokens, IP addresses, SSID, MAC, phone, address, raw camera frames, or raw pose streams."
+    },
+    privacy: "Adapter checklist is public operational metadata. It excludes raw camera frames, device serials, SSIDs, MACs, IPs, tokens, phone numbers, addresses, private evidence, and database contents."
   };
 }
 
@@ -632,6 +1091,7 @@ function buildPendingActions({ capabilityStatus, network, battery, activeAnchorK
 function endpointSubset(endpoints) {
   return {
     manifest: endpoints.device_manifest,
+    adapter_checklist: endpoints.device_adapter_checklist,
     pairing: endpoints.device_pairing,
     register: endpoints.device_register,
     heartbeat: endpoints.device_heartbeat,
@@ -1562,6 +2022,18 @@ export function buildDeviceManifest({
         expected_loop: ["manifest", "register", "heartbeat", "state_poll", "service_action"]
       }
     },
+    adapter_checklist_contract: {
+      schema: ROKID_LIVE_ADAPTER_CHECKLIST_SCHEMA,
+      endpoint: endpoints.device_adapter_checklist,
+      source_doc: "docs/rokid-device-integration.md#live-rokid-adapter-checklist",
+      final_direction: "real Rokid campus wall A1/A2/A3",
+      generic_tour_or_ugc: false,
+      required_anchor_ids: ["A1", "A2", "A3"],
+      required_hardware: ["RA202", "RAS201"],
+      item_ids: LIVE_ADAPTER_ITEM_SPECS.map((item) => item.item_id),
+      report_field: "sdk_binding_status.adapter_checklist"
+    },
+    adapter_readiness: buildManifestAdapterReadiness(endpoints),
     adapter_slots: ADAPTER_SLOTS,
     sdk_binding_status: {
       ...buildDefaultSdkBindingStatus("server_manifest"),
@@ -1570,6 +2042,7 @@ export function buildDeviceManifest({
         accepted_on: [endpoints.device_register.path, endpoints.device_heartbeat.path],
         stages: SDK_BINDING_STAGES,
         live_binding_rule: "live_binding_ready is true only when Unity reports both input_binding_ready and overlay_binding_ready after the official Rokid UXR package is installed.",
+        adapter_checklist_rule: "Optional sdk_binding_status.adapter_checklist booleans satisfy individual Rokid live adapter checklist items without changing the Space API.",
         privacy: "Report only define/package/type readiness; do not send serials, tokens, IP addresses, SSID, MAC, phone, address, or raw camera/pose streams."
       }
     },

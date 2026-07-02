@@ -125,6 +125,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint session_plan;
         public SpaceApiEndpoint device_bootstrap;
         public SpaceApiEndpoint device_manifest;
+        public SpaceApiEndpoint device_adapter_checklist;
         public SpaceApiEndpoint device_pairing;
         public SpaceApiEndpoint device_register;
         public SpaceApiEndpoint device_heartbeat;
@@ -361,6 +362,135 @@ namespace InnerWorld.Rokid.Protocol
         public DeviceEndpointSubset endpoints;
         public DeviceWarning[] warnings;
         public DevicePrivacyPolicy privacy;
+    }
+
+    [Serializable]
+    public sealed class DeviceManifestResponse
+    {
+        public bool ok;
+        public string schema;
+        public string generated_at;
+        public string protocol_version;
+        public string base_url;
+        public string[] profiles;
+        public DeviceRequiredCapability[] required_capabilities;
+        public string[] optional_capabilities;
+        public DeviceManifestNetworkRequirements network_requirements;
+        public DeviceManifestUnityRuntimeHints unity_runtime_hints;
+        public DeviceManifestRokidRuntimeHints rokid_runtime_hints;
+        public DeviceAdapterSlot[] adapter_slots;
+        public DeviceAdapterReadiness adapter_readiness;
+        public RokidSdkBindingManifestStatus sdk_binding_status;
+        public SpaceEndpointMap endpoints;
+        public DeviceMissionSnapshot mission_snapshot;
+        public DevicePollingDefaults polling_defaults;
+    }
+
+    [Serializable]
+    public sealed class DeviceManifestNetworkRequirements
+    {
+        public string[] protocols;
+        public string cors;
+        public string cache_policy;
+        public string default_host;
+        public string lan_mode;
+        public string cleartext_http;
+        public string private_data_policy;
+    }
+
+    [Serializable]
+    public sealed class DeviceManifestUnityRuntimeHints
+    {
+        public string scene_contract;
+        public string bootstrap_first;
+        public string register_before_polling;
+        public string heartbeat_during_session;
+        public string hud_schema_endpoint;
+        public int display_text_max_length;
+        public string[] suggested_components;
+    }
+
+    [Serializable]
+    public sealed class DeviceManifestRokidRuntimeHints
+    {
+        public DeviceManifestRokidDeviceHint ra202;
+        public DeviceManifestRokidDeviceHint ras201;
+    }
+
+    [Serializable]
+    public sealed class DeviceManifestRokidDeviceHint
+    {
+        public string mount_role;
+        public string[] expected_loop;
+    }
+
+    [Serializable]
+    public sealed class DeviceAdapterSlot
+    {
+        public string slot_id;
+        public string role;
+        public string expected_owner;
+        public string[] accepts;
+        public string endpoint;
+    }
+
+    [Serializable]
+    public sealed class DeviceAdapterReadiness
+    {
+        public string schema;
+        public string status;
+        public bool hardware_ready;
+        public string summary;
+        public DeviceAdapterChecklistItem[] checklist;
+    }
+
+    [Serializable]
+    public sealed class DeviceAdapterChecklistItem
+    {
+        public string id;
+        public string label;
+        public string status;
+        public string source;
+        public string[] required_for;
+        public string[] signals;
+        public string summary;
+    }
+
+    [Serializable]
+    public sealed class RokidSdkBindingManifestStatus
+    {
+        public string schema;
+        public string source;
+        public string define_symbol;
+        public string stage;
+        public bool boundary_compiled;
+        public bool package_detected;
+        public bool input_binding_ready;
+        public bool overlay_binding_ready;
+        public bool live_binding_ready;
+        public string[] candidate_assemblies;
+        public string[] candidate_types;
+        public string message;
+        public RokidSdkClientReportContract client_report_contract;
+    }
+
+    [Serializable]
+    public sealed class RokidSdkClientReportContract
+    {
+        public string field;
+        public string[] accepted_on;
+        public string[] stages;
+        public string live_binding_rule;
+        public string privacy;
+    }
+
+    [Serializable]
+    public sealed class DevicePollingDefaults
+    {
+        public int heartbeat_ms;
+        public int state_ms;
+        public int action_ms;
+        public int request_timeout_ms;
     }
 
     [Serializable]

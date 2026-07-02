@@ -50,6 +50,11 @@ namespace InnerWorld.Rokid.Protocol
             get { return BuildDeviceManifestUrl(BaseUrl); }
         }
 
+        public string DeviceAdapterChecklistUrl
+        {
+            get { return BuildDeviceAdapterChecklistUrl(BaseUrl); }
+        }
+
         public string DeviceRegisterUrl
         {
             get { return BuildDeviceRegisterUrl(BaseUrl); }
@@ -210,6 +215,11 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/device/manifest");
         }
 
+        public static string BuildDeviceAdapterChecklistUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/device/adapter-checklist");
+        }
+
         public static string BuildDeviceRegisterUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/device/register");
@@ -338,6 +348,7 @@ namespace InnerWorld.Rokid.Protocol
                 session_plan = Endpoint(cleanBaseUrl, "GET", "/api/session/plan"),
                 device_bootstrap = Endpoint(cleanBaseUrl, "GET", "/api/device/bootstrap"),
                 device_manifest = Endpoint(cleanBaseUrl, "GET", "/api/device/manifest"),
+                device_adapter_checklist = Endpoint(cleanBaseUrl, "GET", "/api/device/adapter-checklist"),
                 device_pairing = Endpoint(cleanBaseUrl, "POST", "/api/device/pairing"),
                 device_register = Endpoint(cleanBaseUrl, "POST", "/api/device/register"),
                 device_heartbeat = Endpoint(cleanBaseUrl, "POST", "/api/device/heartbeat"),

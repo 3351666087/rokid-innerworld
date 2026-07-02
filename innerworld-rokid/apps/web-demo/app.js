@@ -17,6 +17,9 @@ const api = {
   async getDeviceManifest() {
     return requestJson("/api/device/manifest", { cache: "no-store" }, "读取设备 manifest 失败");
   },
+  async getDeviceAdapterChecklist() {
+    return requestJson("/api/device/adapter-checklist", { cache: "no-store" }, "Read device adapter checklist failed");
+  },
   async registerDevice(payload) {
     return requestJson("/api/device/register", jsonPost(payload), "注册模拟设备失败");
   },
@@ -87,6 +90,7 @@ const model = {
   },
   localLedgerEvents: [],
   deviceManifest: null,
+  deviceAdapterChecklist: null,
   deviceSessions: null,
   deviceSession: null,
   devicePairing: null,
@@ -976,6 +980,7 @@ function pairingSources() {
     ["last_heartbeat", model.deviceLastHeartbeat],
     ["latest_session", latestDeviceSession()],
     ["registered_device", model.deviceSession],
+    ["device_adapter_checklist", model.deviceAdapterChecklist],
     ["device_sessions", model.deviceSessions],
     ["device_manifest", model.deviceManifest],
     ["device_bootstrap", model.bootstrap],
@@ -1329,6 +1334,31 @@ function sdkBindingSummary() {
   };
 }
 
+function adapterChecklistSummary() {
+  const checklist = model.deviceAdapterChecklist || model.ops?.adapter_checklist || model.deviceManifest?.adapter_checklist_contract || {};
+  const summary = checklist.summary || {};
+  const items = listFrom(checklist.items);
+  const blocking = listFrom(checklist.blocking_items);
+  const ready = checklist.ready === true || summary.ready === true;
+  const passed = Number(summary.passed_item_count || 0);
+  const total = Number(summary.required_item_count || summary.item_count || items.length || 0);
+  return {
+    checklist,
+    items,
+    blocking,
+    ready,
+    status: checklist.status || (ready ? "ready" : "pending"),
+    tone: ready ? "good" : "warn",
+    title: ready ? "Live adapter checklist ready" : `Live adapter checklist ${passed}/${total || "?"}`,
+    body: checklist.schema
+      ? `${checklist.schema} / ${checklist.final_direction || "real Rokid campus wall A1/A2/A3"}`
+      : "Waiting for /api/device/adapter-checklist.",
+    endpoint: endpointUrl(checklist.endpoint || model.bootstrap?.endpoints?.device_adapter_checklist || "/api/device/adapter-checklist"),
+    passed,
+    total
+  };
+}
+
 function renderBindingStep(step) {
   const card = document.createElement("div");
   card.className = ["binding-step", step.state, step.tone].filter(Boolean).join(" ");
@@ -1361,6 +1391,7 @@ function renderBindingSlot(slot, index) {
 function renderSdkBindingReadiness() {
   const binding = sdkBindingSummary();
   const pairing = devicePairingSummary();
+  const checklist = adapterChecklistSummary();
 
   if (els.sdkBindingPill) {
     els.sdkBindingPill.textContent = {
@@ -1381,6 +1412,12 @@ function renderSdkBindingReadiness() {
     `${binding.body} Pairing: ${pairing.pairing_status}; hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible}. Source: ${binding.source}.`
   );
   els.sdkBindingGrid.append(current);
+  els.sdkBindingGrid.append(renderInfoCard(
+    `binding-current ${checklist.tone} wide`,
+    "Live Adapter Checklist",
+    checklist.title,
+    `${checklist.body} Source: ${checklist.endpoint}.`
+  ));
 
   const steps = [
     {
@@ -1418,6 +1455,13 @@ function renderSdkBindingReadiness() {
   ];
 
   steps.forEach((step) => els.sdkBindingGrid.append(renderBindingStep(step)));
+  checklist.items.slice(0, 6).forEach((item) => els.sdkBindingGrid.append(renderBindingStep({
+    label: item.status === "pass" ? "Pass" : "Pending",
+    title: compactLabel(item.label, item.item_id || "adapter checklist item"),
+    body: `${item.item_id || "item"} / ${item.endpoint || checklist.endpoint}`,
+    state: item.status === "pass" ? "ready" : "waiting",
+    tone: item.status === "pass" ? "good" : "neutral"
+  })));
 
   const session = renderInfoCard(
     "binding-current wide",
@@ -1809,6 +1853,7 @@ function renderHardwareRuntime() {
   const heartbeatCount = latestSession?.heartbeat_count ?? model.deviceLastHeartbeat?.heartbeat_count ?? 0;
   const binding = sdkBindingSummary();
   const pairing = devicePairingSummary();
+  const checklist = adapterChecklistSummary();
   const calibration = wallCalibrationSummary();
   const calibrationReady = Boolean(calibration?.ready_for_hardware);
   const hardwareCalibratedCount = Number.isFinite(Number(calibration?.hardware_calibrated_anchor_count))
@@ -1823,6 +1868,7 @@ function renderHardwareRuntime() {
     renderInfoCard("hardware-card", "Runtime API", `${endpointCount} endpoints`, "bootstrap / AI HUD / evidence / session plan / dataset call / device runtime 同一套契约。"),
     renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount} · pairing_status ${pairing.pairing_status}` : `No session yet · pairing_status ${pairing.pairing_status}`),
     renderInfoCard(`hardware-card ${binding.tone}`, "SDK Binding", binding.title, binding.body),
+    renderInfoCard(`hardware-card ${checklist.tone}`, "Live Adapter Checklist", checklist.title, checklist.endpoint),
     renderInfoCard(`hardware-card ${pairing.tone}`, "Pairing Status", pairing.status, `pairing_status: ${pairing.pairing_status} · source: ${pairing.source}`),
     renderInfoCard(`hardware-card ${pairing.tone}`, "Acceptance Pairing", `eligible ${pairing.hardware_acceptance_eligible}`, `hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible} · pairing.required_for_hardware_acceptance: ${pairing.required_for_hardware_acceptance} · pairing.expires_at: ${pairing.expires_at}`),
     renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Hardware Wall Lock", calibrationReady ? "hardware ready" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · ${endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")}`),
@@ -2111,11 +2157,13 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   const lanTone = isLoopback(baseUrl) ? "warn" : "good";
   const ai = bootstrap?.ai || {};
   const binding = sdkBindingSummary();
+  const checklist = adapterChecklistSummary();
 
   const cards = [
     renderOpsItem("API", health.demo_ready ? "online" : errors.ops ? errors.ops.message : "checking", health.demo_ready ? "good" : errors.ops ? "bad" : "warn"),
     renderOpsItem("Mission", `${health.mission_state || model.runtime?.mission_state || "n/a"} · ${health.beacon_count ?? model.space?.beacons?.length ?? 0} beacons`, health.demo_ready ? "good" : "warn"),
     renderOpsItem("SDK Binding", `${binding.title}\n${binding.source}`, binding.tone, { wide: true }),
+    renderOpsItem("Live Adapter Checklist", `${checklist.status}\n${checklist.endpoint}`, checklist.tone, { wide: true }),
     renderOpsItem("Hardware", `${hardware?.fit === "fit" ? "fit" : "pending"} · ${summarizeHardware(hardware)}`, hardware?.fit === "fit" ? "good" : "warn", { wide: true }),
     renderOpsItem("Borrow Deadline", hardware?.borrow_deadline || "n/a", hardware?.borrow_deadline ? "neutral" : "warn"),
     renderOpsItem("Base URL", baseUrl, lanTone),
@@ -2197,8 +2245,9 @@ async function refreshWallCalibration() {
 }
 
 async function refreshDeviceRuntime() {
-  const [manifestResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
     api.getDeviceManifest(),
+    api.getDeviceAdapterChecklist(),
     api.getDeviceSessions(),
     api.getStoreStatus(),
     api.getDatasetCatalog(),
@@ -2208,6 +2257,7 @@ async function refreshDeviceRuntime() {
   ]);
 
   if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
+  if (checklistResult.status === "fulfilled") model.deviceAdapterChecklist = checklistResult.value;
   if (sessionsResult.status === "fulfilled") model.deviceSessions = sessionsResult.value;
   if (storeResult.status === "fulfilled") model.store = storeResult.value;
   if (catalogResult.status === "fulfilled") model.datasetCatalog = catalogResult.value;
@@ -2296,10 +2346,11 @@ async function submitAllSimulatedCalibration() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
+    api.getDeviceAdapterChecklist(),
     api.getDeviceSessions(),
     api.getStoreStatus(),
     api.getDatasetCatalog(),
@@ -2313,6 +2364,7 @@ async function refreshOps() {
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
   model.bootstrap = bootstrapResult.status === "fulfilled" ? bootstrapResult.value : null;
   model.deviceManifest = manifestResult.status === "fulfilled" ? manifestResult.value : model.deviceManifest;
+  model.deviceAdapterChecklist = checklistResult.status === "fulfilled" ? checklistResult.value : model.deviceAdapterChecklist;
   model.deviceSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : model.deviceSessions;
   model.store = storeResult.status === "fulfilled" ? storeResult.value : model.store;
   model.datasetCatalog = catalogResult.status === "fulfilled" ? catalogResult.value : model.datasetCatalog;
@@ -2435,6 +2487,16 @@ function renderLog() {
       adapter_slots: binding.slotIds,
       field_value: binding.fieldValue,
       session_evidence: binding.simSession
+    },
+    adapter_checklist: model.deviceAdapterChecklist ? {
+      schema: model.deviceAdapterChecklist.schema,
+      status: model.deviceAdapterChecklist.status,
+      ready: model.deviceAdapterChecklist.ready,
+      summary: model.deviceAdapterChecklist.summary,
+      blocking_items: model.deviceAdapterChecklist.blocking_items,
+      final_direction: model.deviceAdapterChecklist.final_direction
+    } : {
+      endpoint: adapterChecklistSummary().endpoint
     },
     device_pairing: {
       endpoint: pairing.endpoint,

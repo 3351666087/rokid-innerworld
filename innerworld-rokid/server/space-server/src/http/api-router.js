@@ -8,7 +8,7 @@ import {
   buildDeviceBootstrap as buildDeviceBootstrapPayload,
   normalizeMissionState
 } from "../../../../shared/innerworld-contract.js";
-import { buildDeviceManifest, createDeviceRuntimeStore } from "../domain/device-runtime.js";
+import { buildDeviceManifest, buildRokidLiveAdapterChecklist, createDeviceRuntimeStore } from "../domain/device-runtime.js";
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
 import { buildFieldAcceptance } from "../domain/field-acceptance.js";
 import { buildFieldMarkerManifest } from "../domain/field-markers.js";
@@ -177,6 +177,21 @@ export function createApiRouter({
     });
   }
 
+  async function loadDeviceAdapterChecklist(req, url, opsStatus = null) {
+    const [wallCalibration, fieldMarkers, resolvedOpsStatus] = await Promise.all([
+      loadWallCalibration(req, url),
+      loadFieldMarkers(req, url),
+      opsStatus ? Promise.resolve(opsStatus) : buildOpsStatus()
+    ]);
+    return buildRokidLiveAdapterChecklist({
+      baseUrl: getRequestBaseUrl(req, url, port),
+      deviceSessions: deviceRuntime.sessionsSummary(),
+      wallCalibration,
+      fieldMarkers,
+      opsStatus: resolvedOpsStatus
+    });
+  }
+
   async function loadEvidenceChain(req, url) {
     const [space, state, aiSchema, opsStatus] = await Promise.all([
       loadSpace(),
@@ -334,7 +349,21 @@ export function createApiRouter({
     }
 
     if (req.method === "GET" && url.pathname === "/api/ops/status") {
-      sendJson(res, 200, await buildOpsStatus());
+      const opsStatus = await buildOpsStatus();
+      const adapterChecklist = await loadDeviceAdapterChecklist(req, url, opsStatus);
+      sendJson(res, 200, {
+        ...opsStatus,
+        adapter_checklist: {
+          schema: adapterChecklist.schema,
+          endpoint: adapterChecklist.endpoint,
+          status: adapterChecklist.status,
+          ready: adapterChecklist.ready,
+          summary: adapterChecklist.summary,
+          blocking_items: adapterChecklist.blocking_items.slice(0, 5),
+          final_direction: adapterChecklist.final_direction,
+          generic_tour_or_ugc: adapterChecklist.scope_guard.generic_tour_or_ugc
+        }
+      });
       return;
     }
 
@@ -462,6 +491,11 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/device/manifest") {
       sendJson(res, 200, await loadDeviceManifest(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/device/adapter-checklist") {
+      sendJson(res, 200, await loadDeviceAdapterChecklist(req, url));
       return;
     }
 

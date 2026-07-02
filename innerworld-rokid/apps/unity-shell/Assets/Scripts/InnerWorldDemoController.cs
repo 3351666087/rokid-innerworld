@@ -43,6 +43,7 @@ namespace InnerWorld.Rokid
         private Font uiFont;
         private SpaceApiClient apiClient;
         private DeviceBootstrapResponse bootstrap;
+        private DeviceManifestResponse deviceManifest;
         private InnerWorldRuntimeConfig runtimeConfig;
         private InnerWorldMissionState missionState = new InnerWorldMissionState();
         private InnerWorldEvidenceChainResponse evidenceChain;
@@ -61,6 +62,7 @@ namespace InnerWorld.Rokid
         private string deviceSessionId = string.Empty;
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
+        private string deviceManifestLine = "device manifest pending";
         private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
@@ -124,6 +126,7 @@ namespace InnerWorld.Rokid
         {
             EnsureApiClient();
             yield return LoadBootstrap();
+            yield return LoadDeviceManifest();
             yield return LoadWallCalibrationManifest();
             yield return LoadFieldMarkerManifest();
             yield return LoadFieldAcceptanceManifest();
@@ -136,6 +139,8 @@ namespace InnerWorld.Rokid
         {
             EnsureApiClient();
             bootstrap = null;
+            deviceManifest = null;
+            deviceManifestLine = "device manifest pending";
             SetRokidConnection(RokidConnectionStatus.Connecting, "Loading device bootstrap");
             SetStatus("Bootstrapping Rokid simulator", apiClient.BootstrapUrl);
 
@@ -155,6 +160,59 @@ namespace InnerWorld.Rokid
                     Debug.LogWarning("Device bootstrap unavailable: " + request.error);
                     SetRokidConnection(RokidConnectionStatus.Error, request.error);
                 }
+            }
+        }
+
+        private IEnumerator LoadDeviceManifest()
+        {
+            EnsureApiClient();
+            deviceManifest = null;
+            deviceManifestLine = "device manifest loading";
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.device_manifest : null, apiClient.DeviceManifestUrl);
+            SetRokidConnection(RokidConnectionStatus.Connecting, deviceManifestLine);
+
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        deviceManifest = JsonUtility.FromJson<DeviceManifestResponse>(request.downloadHandler.text);
+                        if (deviceManifest == null || !deviceManifest.ok)
+                        {
+                            deviceManifestLine = "device manifest invalid";
+                            Debug.LogWarning(deviceManifestLine + " | " + url);
+                            SetRokidConnection(RokidConnectionStatus.Error, deviceManifestLine);
+                        }
+                        else
+                        {
+                            deviceManifestLine = BuildAdapterReadinessStatusLine();
+                            Debug.Log("Device manifest loaded: " + deviceManifestLine + " | " + url);
+                            SetRokidConnection(RokidConnectionStatus.Connected, deviceManifestLine);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        deviceManifest = null;
+                        deviceManifestLine = "device manifest parse failed";
+                        Debug.LogWarning(deviceManifestLine + ": " + error.Message + " | " + url);
+                        SetRokidConnection(RokidConnectionStatus.Error, deviceManifestLine);
+                    }
+                }
+                else
+                {
+                    deviceManifestLine = "device manifest unavailable: " + request.error;
+                    Debug.LogWarning(deviceManifestLine + " | " + url);
+                    SetRokidConnection(RokidConnectionStatus.Error, request.error);
+                }
+            }
+
+            if (space != null)
+            {
+                RefreshHud();
             }
         }
 
@@ -817,6 +875,7 @@ namespace InnerWorld.Rokid
             return missionLine
                 + "\n" + MissionProgressLabel() + " | anchors " + SafeAnchors().Length + " | beacons " + SafeBeacons().Length
                 + "\nDevice " + ShortId(deviceSessionId) + " | " + PairingHudBadge() + " | " + AdapterBoundaryLabel()
+                + "\nAdapter " + BuildAdapterReadinessStatusLine()
                 + "\nWall " + WallCalibrationHudBadge() + " | " + BuildFieldMarkerReadinessLine()
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
                 + "\nShell " + ArShellStatusCompactLabel()
@@ -1792,11 +1851,13 @@ namespace InnerWorld.Rokid
             string observation = BuildWallCalibrationObservationLine();
             string fieldReadiness = BuildFieldMarkerReadinessLine();
             string acceptanceStatus = FieldAcceptanceHudBadge();
+            string adapterReadiness = BuildAdapterReadinessCompactLine();
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status
-                + "\nSERVER " + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + CurrentDeviceProfile() + " | " + acceptanceStatus;
+                + "\nSERVER " + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + CurrentDeviceProfile() + " | " + acceptanceStatus
+                + "\nADAPTER " + adapterReadiness;
             if (systemText != null)
             {
-                systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation;
+                systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation + " | " + adapterReadiness;
             }
         }
 
@@ -2079,7 +2140,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -2299,9 +2360,45 @@ namespace InnerWorld.Rokid
                 input_binding_ready = report.InputBindingReady,
                 overlay_binding_ready = report.OverlayBindingReady,
                 live_binding_ready = report.LiveBindingReady,
+                adapter_checklist = BuildAdapterChecklistReportPayload(report),
                 candidate_assemblies = report.CandidateAssemblies,
                 candidate_types = report.CandidateTypes,
                 message = BuildFieldAcceptanceHeartbeatMessage(report.Message)
+            };
+        }
+
+        private RokidLiveAdapterChecklistReport BuildAdapterChecklistReportPayload(RokidSdkBindingReport report)
+        {
+            RokidSdkBindingReport binding = report ?? RokidSdkBindingProbe.Detect();
+            bool compiledAndPackaged = binding.BoundaryCompiled && binding.PackageDetected;
+            bool liveBinding = compiledAndPackaged && binding.LiveBindingReady;
+
+            return new RokidLiveAdapterChecklistReport
+            {
+                boundary_compiled = binding.BoundaryCompiled,
+                package_detected = binding.PackageDetected,
+                rk_camera_rig_ready = false,
+                camera_rig_ready = false,
+                rk_input_3dof_ray_ready = false,
+                input_ray_ready = false,
+                pointable_ui_ready = false,
+                pointable_ui_curve_ready = false,
+                a1_entry_lock_ready = false,
+                entry_lock_ready = false,
+                qr_entry_lock_ready = false,
+                image_tracking_ready = false,
+                image_target_library_ready = false,
+                a2_a3_image_tracking_ready = false,
+                slam_head_tracking_ready = false,
+                slam_status_ready = false,
+                head_tracking_heartbeat_ready = liveBinding && binding.InputBindingReady,
+                uxr_overlay_renderer_ready = liveBinding && binding.OverlayBindingReady,
+                overlay_binding_ready = binding.OverlayBindingReady,
+                trusted_hardware_proof_ready = false,
+                hardware_proof_ready = false,
+                performance_gate_ready = false,
+                fps_target_ready = false,
+                spatial_panels_readable = false
             };
         }
 
@@ -2315,8 +2412,129 @@ namespace InnerWorld.Rokid
         private string BuildFieldAcceptanceHeartbeatMessage(string sdkMessage)
         {
             return BuildWallCalibrationHeartbeatMessage(sdkMessage)
+                + " | " + BuildAdapterReadinessHeartbeatLine()
                 + " | " + BuildFieldAcceptanceHeartbeatLine()
                 + " | " + BuildFieldAcceptanceBlockingLine();
+        }
+
+        private string BuildAdapterReadinessHeartbeatLine()
+        {
+            return "adapter readiness: " + BuildAdapterReadinessCompactLine()
+                + ", checklist " + AdapterChecklistSummaryLabel()
+                + ", live_binding_ready " + BoolLabel(CurrentSdkBindingReport().LiveBindingReady);
+        }
+
+        private string BuildAdapterReadinessStatusLine()
+        {
+            if (deviceManifest == null)
+            {
+                return string.IsNullOrWhiteSpace(deviceManifestLine) ? "device manifest pending" : deviceManifestLine;
+            }
+
+            return "device manifest adapters " + AdapterSlotCount()
+                + " | " + BuildAdapterReadinessCompactLine()
+                + " | " + AdapterChecklistSummaryLabel();
+        }
+
+        private string BuildAdapterReadinessCompactLine()
+        {
+            DeviceAdapterReadiness readiness = deviceManifest != null ? deviceManifest.adapter_readiness : null;
+            string status = readiness != null ? SafeLabel(readiness.status, "manifest checklist pending") : "manifest checklist pending";
+            return status
+                + " | RKCameraRig " + AdapterChecklistItemStatus("rk_camera_rig", "rokid_pose_provider")
+                + " | RKInput 3DoF ray " + AdapterChecklistItemStatus("rk_input_3dof_ray", "rokid_arstudio_input")
+                + " | PointableUI " + AdapterChecklistItemStatus("pointable_ui", "unity_overlay_renderer")
+                + " | A2/A3 ImageTracking " + AdapterChecklistItemStatus("a2_a3_image_tracking", "image_tracking")
+                + " | SLAM heartbeat " + AdapterChecklistItemStatus("slam_heartbeat", "rokid_pose_provider");
+        }
+
+        private string AdapterChecklistSummaryLabel()
+        {
+            int total = 5;
+            int ready = 0;
+            if (IsAdapterChecklistItemReady("rk_camera_rig", "rokid_pose_provider")) ready++;
+            if (IsAdapterChecklistItemReady("rk_input_3dof_ray", "rokid_arstudio_input")) ready++;
+            if (IsAdapterChecklistItemReady("pointable_ui", "unity_overlay_renderer")) ready++;
+            if (IsAdapterChecklistItemReady("a2_a3_image_tracking", "image_tracking")) ready++;
+            if (IsAdapterChecklistItemReady("slam_heartbeat", "rokid_pose_provider")) ready++;
+
+            return ready + "/" + total + " ready signals; hardware acceptance remains gated";
+        }
+
+        private string AdapterChecklistItemStatus(string checklistId, string fallbackSlotId)
+        {
+            DeviceAdapterChecklistItem item = FindAdapterChecklistItem(checklistId);
+            if (item != null)
+            {
+                return SafeLabel(item.status, "pending");
+            }
+
+            if (HasAdapterSlot(fallbackSlotId))
+            {
+                return CurrentSdkBindingReport().LiveBindingReady ? "reported" : "contracted";
+            }
+
+            return "pending";
+        }
+
+        private bool IsAdapterChecklistItemReady(string checklistId, string fallbackSlotId)
+        {
+            DeviceAdapterChecklistItem item = FindAdapterChecklistItem(checklistId);
+            if (item != null)
+            {
+                string status = SafeLabel(item.status, "pending").ToLowerInvariant();
+                return status == "pass" || status == "ready" || status == "verified" || status == "reported";
+            }
+
+            return HasAdapterSlot(fallbackSlotId) && CurrentSdkBindingReport().LiveBindingReady;
+        }
+
+        private DeviceAdapterChecklistItem FindAdapterChecklistItem(string checklistId)
+        {
+            if (deviceManifest == null || deviceManifest.adapter_readiness == null || deviceManifest.adapter_readiness.checklist == null || string.IsNullOrWhiteSpace(checklistId))
+            {
+                return null;
+            }
+
+            string cleanId = checklistId.Trim();
+            foreach (DeviceAdapterChecklistItem item in deviceManifest.adapter_readiness.checklist)
+            {
+                if (item != null && string.Equals(item.id, cleanId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return item;
+                }
+            }
+
+            return null;
+        }
+
+        private int AdapterSlotCount()
+        {
+            return deviceManifest != null && deviceManifest.adapter_slots != null ? deviceManifest.adapter_slots.Length : 0;
+        }
+
+        private bool HasAdapterSlot(string slotId)
+        {
+            if (deviceManifest == null || deviceManifest.adapter_slots == null || string.IsNullOrWhiteSpace(slotId))
+            {
+                return false;
+            }
+
+            string cleanSlotId = slotId.Trim();
+            foreach (DeviceAdapterSlot slot in deviceManifest.adapter_slots)
+            {
+                if (slot != null && string.Equals(slot.slot_id, cleanSlotId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private RokidSdkBindingReport CurrentSdkBindingReport()
+        {
+            return rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
         }
 
         private string BuildWallCalibrationHeartbeatLine()

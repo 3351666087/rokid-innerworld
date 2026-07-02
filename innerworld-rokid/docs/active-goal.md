@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-03 00:19 Asia/Shanghai
+Updated: 2026-07-03 00:34 Asia/Shanghai
 
 ## Objective
 
@@ -13,6 +13,8 @@ Build the real project framework and delivery chain, not just an environment dem
 Rokid InnerWorld / 镜见的长期目标是：Rokid 眼镜在真实校园展墙上打开一层可读、可写、可复访的空间记忆层。P0 只服务一面可控校园展墙上的 A1/A2/A3 三锚点闭环：A1 入口打开空间层，A2 读取校园记忆/任务线索，A3 写回 TimeMark，并让后来者 User B 在同一空间看到新增记忆。
 
 This is not a normal guide app, PPT, phone-only page, broad campus map, open UGC social product, or institution dashboard. Web is the operator console and rehearsal surface; Unity/Rokid is the audience-facing spatial runtime.
+
+Current next P0 checkpoint: `real_rokid_live_adapter_execution`. RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head-tracking heartbeat, overlay rendering, and operator-paired live SDK proof must be wired into the existing Space API / SQLite / calibration / mission contracts before Web expansion, institution backend, open UGC, broad route systems, or design-document P2 ideas can compete for priority.
 
 Before hardware arrives, Windows localhost/LAN Space Server, Web operator console, Unity fallback, SQLite, field kit, release package, AI HUD contract, write-back loop, and field acceptance must already run in their final local/server shape. After hardware arrives, Rokid / AR Studio replaces only input and display: RKCameraRig, RKInput 3DoF ray, PointableUI, image target tracking, SLAM/head tracking, and overlay rendering bind into the existing Space API, SQLite, mission state, service actions, write-back, AI HUD schema/prompt, evidence chain, and field acceptance gates.
 

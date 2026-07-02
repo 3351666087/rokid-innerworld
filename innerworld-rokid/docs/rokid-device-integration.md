@@ -104,6 +104,8 @@ The Unity runtime now has a compile-safe SDK boundary:
 
 This checklist is the P0 implementation contract for the first real hardware pass. Do not claim Rokid hardware readiness until every item below has a passing local proof or a clearly marked hardware-blocked note.
 
+Current checkpoint status: the Space API contract, `/api/device/adapter-checklist`, Web operator rendering, Unity manifest consumption, Unity heartbeat report field, and regression checks are implemented. The real SDK binding items remain `pending` / hardware-blocked until the official Rokid package, account-visible SDK docs, and physical RA202/RAS201 kit are available; do not substitute Web expansion, open UGC, institution backend, or route-system work for this P0.
+
 - `RKCameraRig`: replace the scene `Main Camera` only inside the `ROKID_UXR` lane. The adapter must keep the fallback scene runnable without vendor packages and must report the rig status through `RokidSdkBindingProbe`.
 - `RKInput` / 3DoF ray: bind the default controller ray to `IRokidInputSource`. Ray hover maps to A1/A2/A3 focus, confirm maps to `CompleteNextStep`, and long-confirm or explicit command maps to write-back/service actions. The fallback mouse/keyboard path stays unchanged.
 - `PointableUI` / `PointableUICurve`: A1 entry confirmation, A2 memory panel, and A3 write-back confirmation must be selectable through Rokid pointable UI. These controls reuse the existing mission/write-back endpoints and must not introduce a second UI state model.

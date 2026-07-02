@@ -48,6 +48,8 @@ Unity fallback now uses a premium spatial shell instead of one crowded debug pan
 
 The Rokid hardware lane now has a live-adapter checklist in `docs/rokid-device-integration.md`: RKCameraRig, RKInput 3DoF ray, PointableUI/PointableUICurve, A2/A3 image target library import, SLAM/head-tracking heartbeat, overlay rendering, and hardware evidence gates all attach to the current Space API, SQLite, calibration, and mission contracts.
 
+Mainline guard: `docs/design.md` remains useful background, but its open TimeMark UGC, institution backend/dashboard, city/campus route expansion, and broad cultural-tour ideas are P2 references. P0 is still only one controllable campus wall with A1 entry, A2 memory beacon, A3 write-back, and User B readback on Rokid glasses.
+
 ## SQLite Backup
 
 The runtime database is private and git-ignored, but it is not disposable. Create a verified field backup before release packaging, restore tests, or server handoff:

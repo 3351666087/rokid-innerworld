@@ -234,6 +234,7 @@ async function main() {
   assertEndpoint(endpoints.field_acceptance, "field_acceptance");
   assertEndpoint(endpoints.device_bootstrap, "device_bootstrap");
   assertEndpoint(endpoints.device_manifest, "device_manifest");
+  assertEndpoint(endpoints.device_adapter_checklist, "device_adapter_checklist");
   assertEndpoint(endpoints.device_pairing, "device_pairing", "POST");
   assertEndpoint(endpoints.device_register, "device_register", "POST");
   assertEndpoint(endpoints.device_heartbeat, "device_heartbeat", "POST");
@@ -252,7 +253,7 @@ async function main() {
   assertEndpoint(endpoints.reset, "reset", "POST");
   assert(Object.keys(endpoints).length >= 30, "endpoint count check failed");
 
-  const [health, space, aiSchema, aiPrompt, evidenceChain, sessionPlan, wallCalibration, fieldMarkers, fieldAcceptance, deviceManifest, storeStatus, datasetCatalog, initialLedgerSummary, initialLedgerEvents] = await Promise.all([
+  const [health, space, aiSchema, aiPrompt, evidenceChain, sessionPlan, wallCalibration, fieldMarkers, fieldAcceptance, deviceManifest, adapterChecklist, storeStatus, datasetCatalog, initialLedgerSummary, initialLedgerEvents] = await Promise.all([
     fetchJson(endpoints.health.url, "health"),
     fetchJson(endpoints.space.url, "space"),
     fetchJson(endpoints.ai_schema.url, "ai_schema"),
@@ -263,6 +264,7 @@ async function main() {
     fetchJson(endpoints.field_markers.url, "field_markers"),
     fetchJson(endpoints.field_acceptance.url, "field_acceptance"),
     fetchJson(endpoints.device_manifest.url, "device_manifest"),
+    fetchJson(endpoints.device_adapter_checklist.url, "device_adapter_checklist"),
     fetchJson(endpoints.store_status.url, "store_status"),
     fetchJson(endpoints.dataset_catalog.url, "dataset_catalog"),
     fetchJson(endpoints.ledger_summary.url, "ledger_summary"),
@@ -368,6 +370,24 @@ async function main() {
   assert(deviceManifest.sdk_binding_status?.client_report_contract?.accepted_on?.includes("/api/device/heartbeat"), "device manifest SDK binding heartbeat contract failed");
   assert(deviceManifest.endpoints?.device_register?.method === "POST", "device manifest register endpoint failed");
   assert(deviceManifest.endpoints?.device_heartbeat?.method === "POST", "device manifest heartbeat endpoint failed");
+  assert(deviceManifest.adapter_checklist_contract?.schema === "innerworld-rokid-live-adapter-checklist/v1", "device manifest adapter checklist schema failed");
+  assert(deviceManifest.adapter_checklist_contract?.endpoint?.path === "/api/device/adapter-checklist", "device manifest adapter checklist endpoint failed");
+  assert(deviceManifest.adapter_checklist_contract?.item_ids?.includes("a1_entry_lock"), "device manifest adapter checklist A1 item failed");
+  assert(adapterChecklist.ok === true, "device adapter checklist ok failed");
+  assert(adapterChecklist.schema === "innerworld-rokid-live-adapter-checklist/v1", "device adapter checklist schema failed");
+  assert(adapterChecklist.endpoint?.path === "/api/device/adapter-checklist", "device adapter checklist endpoint failed");
+  assert(adapterChecklist.final_direction === "real Rokid campus wall A1/A2/A3", "device adapter checklist final direction failed");
+  assert(adapterChecklist.scope_guard?.generic_tour_or_ugc === false, "device adapter checklist generic/UGC guard failed");
+  assert(Array.isArray(adapterChecklist.scope_guard?.required_anchor_ids) && adapterChecklist.scope_guard.required_anchor_ids.join(",") === "A1,A2,A3", "device adapter checklist anchor scope failed");
+  assert(adapterChecklist.scope_guard?.required_hardware?.includes("RA202"), "device adapter checklist RA202 scope failed");
+  assert(adapterChecklist.scope_guard?.required_hardware?.includes("RAS201"), "device adapter checklist RAS201 scope failed");
+  assert(Array.isArray(adapterChecklist.items) && adapterChecklist.items.length >= 10, "device adapter checklist items failed");
+  for (const itemId of ["rk_camera_rig", "rk_input_3dof_ray", "pointable_ui", "a1_entry_lock", "a2_a3_image_tracking", "slam_heartbeat", "uxr_overlay_renderer", "trusted_hardware_proof", "performance_gate"]) {
+    assert(adapterChecklist.items.some((item) => item.item_id === itemId), `device adapter checklist missing ${itemId}`);
+  }
+  assert(adapterChecklist.report_contract?.field === "sdk_binding_status.adapter_checklist", "device adapter checklist report field failed");
+  assert(adapterChecklist.report_contract?.allowed_boolean_keys?.includes("rk_camera_rig_ready"), "device adapter checklist report keys failed");
+  assert(adapterChecklist.ready === false, "device adapter checklist must not claim ready without real live adapter evidence");
   assert(storeStatus.ok === true, "store status ok failed");
   assert(storeStatus.engine === "sqlite", "store status engine failed");
   assert(storeStatus.safe_storage?.raw_sql_api === false, "store raw SQL guard failed");
@@ -659,6 +679,8 @@ async function main() {
     ledger_events: ledgerEvents.events.length,
     ledger_checks: ledgerSummary.checks,
     device_manifest_schema: deviceManifest.schema,
+    adapter_checklist_schema: adapterChecklist.schema,
+    adapter_checklist_status: adapterChecklist.status,
     device_session_id: register.session_id,
     device_health: heartbeat.health.severity,
     device_pairing: register.pairing.status,
