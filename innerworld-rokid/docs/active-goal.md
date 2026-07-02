@@ -1,12 +1,22 @@
 # Active Goal
 
-Updated: 2026-07-03 00:08 Asia/Shanghai
+Updated: 2026-07-03 00:19 Asia/Shanghai
 
 ## Objective
 
 Long-term execution goal for Rokid "Mirror-See InnerWorld / Campus Memory Wall":
 
 Build the real project framework and delivery chain, not just an environment demo. The final product is a Rokid glasses spatial memory layer opened on top of a real campus exhibition wall. It is not a normal guide app, not a PPT, and not a phone-only page.
+
+## Kepler Mainline Lock
+
+Rokid InnerWorld / 镜见的长期目标是：Rokid 眼镜在真实校园展墙上打开一层可读、可写、可复访的空间记忆层。P0 只服务一面可控校园展墙上的 A1/A2/A3 三锚点闭环：A1 入口打开空间层，A2 读取校园记忆/任务线索，A3 写回 TimeMark，并让后来者 User B 在同一空间看到新增记忆。
+
+This is not a normal guide app, PPT, phone-only page, broad campus map, open UGC social product, or institution dashboard. Web is the operator console and rehearsal surface; Unity/Rokid is the audience-facing spatial runtime.
+
+Before hardware arrives, Windows localhost/LAN Space Server, Web operator console, Unity fallback, SQLite, field kit, release package, AI HUD contract, write-back loop, and field acceptance must already run in their final local/server shape. After hardware arrives, Rokid / AR Studio replaces only input and display: RKCameraRig, RKInput 3DoF ray, PointableUI, image target tracking, SLAM/head tracking, and overlay rendering bind into the existing Space API, SQLite, mission state, service actions, write-back, AI HUD schema/prompt, evidence chain, and field acceptance gates.
+
+Never claim hardware readiness from simulator/manual observations, print-kit readiness, or `ROKID_UXR` boundary compilation alone. Hardware acceptance requires operator-paired live SDK session proof plus trusted A1/A2/A3 observations through QR/image_tracking/SLAM.
 
 ## Final Agreed Direction
 
@@ -124,6 +134,9 @@ Active worker lanes:
 
 ## Guardrails
 
+- P0 is the real campus wall memory layer: A1 entry, A2 memory, A3 write-back, User B readback.
+- AI must compress and interpret spatial actions; it must not become a generic chatbot or content platform.
+- Open UGC, institution dashboards, broad routes, personal homepages, NPC rewards, and commercial task systems are P2 until the wall hardware loop is proven.
 - Do not pivot into a generic campus tour.
 - Do not collapse the project into a static web page.
 - Do not make the phone the main artifact.
