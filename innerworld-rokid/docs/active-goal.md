@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 19:10 Asia/Shanghai
+Updated: 2026-07-02 19:34 Asia/Shanghai
 
 ## Objective
 
@@ -45,8 +45,10 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Unity controller now enters hardware/fallback selection through `RokidAdapterResolver.Resolve(...)`.
 - `IRokidInputStateSink` keeps base URL, connection status, and anchor-hit state flowing through both fallback and future hardware adapters.
 - `RokidUxrInputSource.cs` and `RokidUxrOverlayRenderer.cs` are fully wrapped in `#if ROKID_UXR`; no vendor SDK payload is committed.
-- Checks now require the adapter boundary in `check:mainline`, `check:contract`, and `check:unity`.
-- Kepler reviewed this checkpoint and returned OK to commit/push. Non-blocking caveat to carry forward: next hardware checkpoint should distinguish "ROKID_UXR boundary/stub compiled" from "real Rokid SDK package installed and live-bound."
+- Current follow-up implementation checkpoint: `RokidSdkBindingProbe` and backend `sdk_binding_status` distinguish `boundary_compiled`, `package_detected`, and `live_binding_ready` instead of treating the stub as hardware-ready.
+- Web/operator console now surfaces SDK binding readiness as local fallback, `ROKID_UXR` boundary, or real SDK live-bound; simulator sessions are evidence but do not claim hardware binding.
+- Checks now require the adapter boundary and SDK binding readiness distinction in `check:mainline`, `check:contract`, `check:unity`, `check:device`, and `check:web`.
+- Kepler reviewed the SDK binding readiness checkpoint and returned OK to commit/push after the `sdk_binding_status` redaction blocker was fixed.
 
 ## Confirmed Applied Hardware
 

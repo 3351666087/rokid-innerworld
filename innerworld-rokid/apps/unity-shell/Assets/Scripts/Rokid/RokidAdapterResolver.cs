@@ -15,6 +15,7 @@ namespace InnerWorld.Rokid
         {
             RokidInputAdapterKind inputAdapter = InputAdapterFrom(strategy);
             RokidDisplayAdapterKind displayAdapter = DisplayAdapterFrom(strategy);
+            RokidSdkBindingReport sdkBinding = RokidSdkBindingProbe.Detect();
 
             RokidAdapterBoundaryKind inputBoundary;
             string inputName;
@@ -22,6 +23,7 @@ namespace InnerWorld.Rokid
             IRokidInputSource inputSource = CreateInputSourceInternal(
                 inputAdapter,
                 fallbackState,
+                sdkBinding,
                 out inputBoundary,
                 out inputName,
                 out inputMessage);
@@ -43,6 +45,7 @@ namespace InnerWorld.Rokid
                 displayBoundary,
                 inputName,
                 displayName,
+                sdkBinding,
                 message);
 
             return new RokidAdapterResolution(inputSource, overlayRenderer, status);
@@ -70,6 +73,7 @@ namespace InnerWorld.Rokid
             IRokidInputSource inputSource = CreateInputSourceInternal(
                 adapterKind,
                 fallbackState,
+                RokidSdkBindingProbe.Detect(),
                 out inputBoundary,
                 out inputName,
                 out message);
@@ -81,6 +85,7 @@ namespace InnerWorld.Rokid
                 RokidAdapterBoundaryKind.None,
                 inputName,
                 string.Empty,
+                RokidSdkBindingProbe.Detect(),
                 message);
             return inputSource;
         }
@@ -101,6 +106,7 @@ namespace InnerWorld.Rokid
         private static IRokidInputSource CreateInputSourceInternal(
             RokidInputAdapterKind adapterKind,
             RokidDeviceSimulatorState fallbackState,
+            RokidSdkBindingReport sdkBinding,
             out RokidAdapterBoundaryKind boundary,
             out string adapterName,
             out string message)
@@ -110,8 +116,8 @@ namespace InnerWorld.Rokid
 #if ROKID_UXR
                 boundary = RokidAdapterBoundaryKind.RokidUxrSdkStub;
                 adapterName = RokidUxrInputSource.AdapterName;
-                message = "ROKID_UXR compiled; using SDK input boundary stub.";
-                return new RokidUxrInputSource(fallbackState);
+                message = sdkBinding != null ? sdkBinding.Message : "ROKID_UXR compiled; using SDK input boundary stub.";
+                return new RokidUxrInputSource(fallbackState, sdkBinding);
 #else
                 boundary = RokidAdapterBoundaryKind.EditorFallback;
                 adapterName = EditorRokidInputSource.AdapterName;

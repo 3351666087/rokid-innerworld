@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>镜见 InnerWorld</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2361e6d2'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Arial' font-size='24' font-weight='800' fill='%23061014'%3EIW%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -20,6 +21,7 @@
         </div>
         <div class="status-cluster" aria-label="运行状态">
           <span id="connectionPill" class="status-pill">Localhost</span>
+          <span id="sdkBindingPill" class="status-pill warn">SDK fallback</span>
           <span id="missionState" class="status-pill">entered</span>
           <span id="userBadge" class="status-pill">User A</span>
           <button id="panelToggleBtn" class="panel-toggle" type="button" aria-label="收起控制台" aria-pressed="false" title="收起控制台">
@@ -129,6 +131,16 @@
           </div>
         </div>
         <div class="lens-grid" id="lensGrid"></div>
+      </section>
+
+      <section class="panel-section binding-section" aria-label="Rokid SDK binding readiness">
+        <div class="section-head compact">
+          <div>
+            <p>Rokid SDK Binding</p>
+            <h2>SDK Readiness</h2>
+          </div>
+        </div>
+        <div class="binding-grid" id="sdkBindingGrid"></div>
       </section>
 
       <section class="panel-section workflow-section" aria-label="低噪音任务流">

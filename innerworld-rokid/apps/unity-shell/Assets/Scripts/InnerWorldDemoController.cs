@@ -1039,7 +1039,17 @@ namespace InnerWorld.Rokid
                 return "adapter pending";
             }
 
-            return rokidAdapterStatus.UsesRokidUxr ? rokidAdapterStatus.DefineSymbol : "fallback";
+            if (rokidAdapterStatus.IsSdkLiveBindingReady)
+            {
+                return "sdk live";
+            }
+
+            if (rokidAdapterStatus.IsSdkPackageDetected)
+            {
+                return "sdk package";
+            }
+
+            return rokidAdapterStatus.UsesRokidUxr ? "sdk stub" : "fallback";
         }
 
         private string CurrentDeviceProfile()
@@ -1234,7 +1244,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device;
+            return evidence + " | " + session + " | " + device + " | " + AdapterBoundaryLabel();
         }
 
         private int RequestTimeoutSeconds()
@@ -1257,7 +1267,7 @@ namespace InnerWorld.Rokid
         {
             bool isAndroid = Application.platform == RuntimePlatform.Android;
             bool isEditor = Application.isEditor;
-            bool hasRokidSdk = RokidUxrBoundary.IsCompiled;
+            bool hasRokidSdk = RokidSdkBindingProbe.Detect().BoundaryCompiled;
             return RokidPresentationEnvironment.Create(isAndroid, isEditor, hasRokidSdk, false, false, false);
         }
 

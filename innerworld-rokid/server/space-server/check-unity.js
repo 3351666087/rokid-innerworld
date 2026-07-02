@@ -39,9 +39,10 @@ async function readText(relativePath) {
 }
 
 async function assertUnityAdapterBoundary() {
-  const [controller, poseProvider, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
+  const [controller, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/InnerWorldDemoController.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/RokidSdkBindingProbe.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterBoundaryStatus.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterResolver.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/EditorRokidInputSource.cs"),
@@ -54,11 +55,19 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("RokidAdapterResolver.Resolve(presentationStrategy)"), "Unity controller resolver boundary missing");
   assert(controller.includes("private RokidAdapterBoundaryStatus rokidAdapterStatus;"), "Unity controller boundary status missing");
   assert(controller.includes("private IRokidInputStateSink rokidInputStateSink;"), "Unity controller input state sink missing");
-  assert(controller.includes("RokidUxrBoundary.IsCompiled"), "Unity controller ROKID_UXR environment missing");
+  assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
   assert(poseProvider.includes("interface IRokidInputStateSink"), "Unity input state sink interface missing");
+  assert(bindingProbe.includes("innerworld-rokid-sdk-binding/v1"), "Rokid SDK binding schema missing");
+  assert(bindingProbe.includes("public enum RokidSdkBindingStage"), "Rokid SDK binding stage enum missing");
+  assert(bindingProbe.includes("RokidSdkBindingProbe"), "Rokid SDK binding probe missing");
+  assert(bindingProbe.includes("AppDomain.CurrentDomain.GetAssemblies"), "Rokid SDK binding assembly probe missing");
+  assert(bindingProbe.includes("LiveBindingReady"), "Rokid SDK live binding state missing");
   assert(boundaryStatus.includes("DefineSymbol = \"ROKID_UXR\""), "ROKID_UXR define marker missing");
   assert(boundaryStatus.includes("#if ROKID_UXR"), "ROKID_UXR compile guard missing");
+  assert(boundaryStatus.includes("RokidSdkBindingReport"), "Rokid adapter status SDK binding report missing");
+  assert(boundaryStatus.includes("IsSdkLiveBindingReady"), "Rokid adapter status live binding flag missing");
   assert(resolver.includes("#if ROKID_UXR"), "Rokid resolver compile guard missing");
+  assert(resolver.includes("RokidSdkBindingProbe.Detect()"), "Rokid resolver SDK binding probe missing");
   assert(resolver.includes("new RokidUxrInputSource"), "Rokid UXR input resolver path missing");
   assert(resolver.includes("new RokidUxrOverlayRenderer"), "Rokid UXR overlay resolver path missing");
   assert(resolver.includes("new EditorRokidInputSource"), "Rokid fallback input resolver path missing");

@@ -839,6 +839,12 @@ textarea:focus {
   gap: 8px;
 }
 
+.binding-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 8px;
+}
+
 .route-grid,
 .evidence-rail,
 .delivery-timeline {
@@ -931,6 +937,8 @@ textarea:focus {
 .ledger-card,
 .hardware-card,
 .risk-card,
+.binding-current,
+.binding-step,
 .agent-row {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -943,7 +951,8 @@ textarea:focus {
 .lens-card.wide,
 .ledger-card.wide,
 .hardware-card.wide,
-.risk-card.wide {
+.risk-card.wide,
+.binding-current.wide {
   grid-column: 1 / -1;
 }
 
@@ -953,6 +962,8 @@ textarea:focus {
 .ledger-card span,
 .hardware-card span,
 .risk-card span,
+.binding-current span,
+.binding-step span,
 .agent-row span {
   display: block;
   margin-bottom: 6px;
@@ -969,6 +980,8 @@ textarea:focus {
 .ledger-card strong,
 .hardware-card strong,
 .risk-card strong,
+.binding-current strong,
+.binding-step strong,
 .agent-row strong {
   display: block;
   color: var(--text);
@@ -983,6 +996,8 @@ textarea:focus {
 .ledger-card p,
 .hardware-card p,
 .risk-card p,
+.binding-current p,
+.binding-step p,
 .agent-row p {
   margin: 6px 0 0;
   color: var(--muted);
@@ -999,12 +1014,94 @@ textarea:focus {
   border-left: 3px solid var(--green);
 }
 
+.lens-card.good,
+.binding-current.good,
+.binding-step.good {
+  border-left: 3px solid var(--green);
+}
+
 .hardware-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.lens-card.warn,
+.binding-current.warn,
+.binding-step.warn {
   border-left: 3px solid var(--amber);
 }
 
 .hardware-card.bad {
   border-left: 3px solid var(--rose);
+}
+
+.lens-card.bad,
+.binding-current.bad,
+.binding-step.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.binding-step {
+  min-height: 118px;
+}
+
+.binding-step.active {
+  border-color: rgba(84, 214, 255, 0.54);
+  background: rgba(84, 214, 255, 0.085);
+}
+
+.binding-step.ready {
+  background: rgba(110, 231, 183, 0.055);
+}
+
+.binding-step.waiting {
+  opacity: 0.78;
+}
+
+.binding-slot-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+}
+
+.binding-slot {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.binding-slot > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #061014;
+  background: var(--cyan);
+  font-size: 10px;
+  font-weight: 900;
+  overflow: hidden;
+}
+
+.binding-slot strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.binding-slot p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .ledger-card.good {
@@ -1433,6 +1530,7 @@ pre {
   .product-grid,
   .showcase-grid,
   .lens-grid,
+  .binding-grid,
   .ledger-grid,
   .hardware-grid,
   .risk-grid,

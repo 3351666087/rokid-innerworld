@@ -39,8 +39,10 @@ namespace InnerWorld.Rokid
             RokidAdapterBoundaryKind displayBoundary,
             string inputAdapterName,
             string displayAdapterName,
+            RokidSdkBindingReport sdkBinding,
             string message)
         {
+            RokidSdkBindingReport binding = sdkBinding ?? RokidSdkBindingProbe.Detect();
             DefineSymbol = RokidUxrBoundary.DefineSymbol;
             IsRokidUxrCompiled = RokidUxrBoundary.IsCompiled;
             RequestedInputAdapter = requestedInputAdapter;
@@ -49,6 +51,10 @@ namespace InnerWorld.Rokid
             DisplayBoundary = displayBoundary;
             InputAdapterName = Clean(inputAdapterName);
             DisplayAdapterName = Clean(displayAdapterName);
+            SdkBinding = binding;
+            SdkBindingStage = binding.Stage;
+            IsSdkPackageDetected = binding.PackageDetected;
+            IsSdkLiveBindingReady = binding.LiveBindingReady;
             Message = Clean(message);
         }
 
@@ -67,6 +73,14 @@ namespace InnerWorld.Rokid
         public string InputAdapterName { get; private set; }
 
         public string DisplayAdapterName { get; private set; }
+
+        public RokidSdkBindingReport SdkBinding { get; private set; }
+
+        public RokidSdkBindingStage SdkBindingStage { get; private set; }
+
+        public bool IsSdkPackageDetected { get; private set; }
+
+        public bool IsSdkLiveBindingReady { get; private set; }
 
         public string Message { get; private set; }
 

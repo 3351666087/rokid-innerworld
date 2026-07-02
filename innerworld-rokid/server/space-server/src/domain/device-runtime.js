@@ -22,6 +22,15 @@ const SESSION_STALE_AFTER_MS = 15_000;
 const SESSION_EXPIRES_AFTER_MS = 60_000;
 const DEVICE_RUNTIME_SNAPSHOT_SCHEMA = "innerworld-device-runtime-snapshot/v1";
 const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "output", "runtime", "device-runtime-snapshot.json");
+const ROKID_SDK_BINDING_SCHEMA = "innerworld-rokid-sdk-binding/v1";
+const ROKID_UXR_DEFINE_SYMBOL = "ROKID_UXR";
+
+const SDK_BINDING_STAGES = Object.freeze([
+  "fallback_only",
+  "boundary_compiled",
+  "package_detected",
+  "live_binding_ready"
+]);
 
 const REQUIRED_CAPABILITIES = Object.freeze([
   {
@@ -176,6 +185,124 @@ function sanitizeEnumText(value, maxLength = 32) {
   return cleaned || null;
 }
 
+function redactSensitiveText(value, maxLength = 180) {
+  let text = trimText(value, maxLength);
+  if (!text) return "";
+
+  text = text
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[redacted-ip]")
+    .replace(/\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b/gi, "[redacted-mac]")
+    .replace(/\bSN[-_:]?[A-Za-z0-9._:-]+\b/gi, "[redacted-serial]")
+    .replace(/\bserial[-_:]?[A-Za-z0-9._:-]+\b/gi, "[redacted-serial]")
+    .replace(/\b[A-Za-z0-9._:-]*(?:token|secret|password|api[-_]?key|access[-_]?key)[A-Za-z0-9._:-]*\b/gi, "[redacted-secret]")
+    .replace(/\b[A-Za-z0-9._:-]*(?:ssid|wifi|wi-fi|phone|address)[A-Za-z0-9._:-]*\b/gi, "[redacted-private]");
+
+  return trimText(text, maxLength);
+}
+
+function normalizeSdkBindingStage(value, fallback = "fallback_only") {
+  const clean = sanitizeEnumText(value, 32);
+  const normalized = clean
+    ? clean.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/-/g, "_").toLowerCase()
+    : null;
+  return SDK_BINDING_STAGES.includes(normalized) ? normalized : fallback;
+}
+
+function sanitizeStringList(value, maxItems = 12, maxLength = 96) {
+  if (!Array.isArray(value)) return [];
+  const rows = [];
+  for (const item of value) {
+    const clean = redactSensitiveText(item, maxLength).replace(/[^\w.+:\[\]-]+/g, "-");
+    if (clean && !rows.includes(clean)) rows.push(clean);
+    if (rows.length >= maxItems) break;
+  }
+  return rows;
+}
+
+function buildDefaultSdkBindingStatus(source = "server_manifest") {
+  return {
+    schema: ROKID_SDK_BINDING_SCHEMA,
+    source,
+    define_symbol: ROKID_UXR_DEFINE_SYMBOL,
+    stage: "fallback_only",
+    boundary_compiled: false,
+    package_detected: false,
+    input_binding_ready: false,
+    overlay_binding_ready: false,
+    live_binding_ready: false,
+    candidate_assemblies: [],
+    candidate_types: [],
+    message: "Awaiting Unity-side SDK binding report; server keeps the Space API stable while fallback runs.",
+    proof_required: [
+      "Unity reports ROKID_UXR boundary compiled",
+      "official Rokid UXR package assembly/type detected",
+      "input adapter maps gaze/ray/gesture/voice into IRokidInputSource",
+      "overlay adapter renders HUD through IRokidOverlayRenderer",
+      "device heartbeat remains healthy over LAN"
+    ]
+  };
+}
+
+function sanitizeSdkBindingStatus(value, source = "device_report") {
+  if (!value || typeof value !== "object") {
+    return buildDefaultSdkBindingStatus("not_reported");
+  }
+
+  const boundaryCompiled = sanitizeBoolean(value.boundary_compiled ?? value.is_rokid_uxr_compiled ?? value.compiled) === true;
+  const packageDetected = sanitizeBoolean(value.package_detected ?? value.sdk_package_detected) === true;
+  const inputBindingReady = sanitizeBoolean(value.input_binding_ready ?? value.input_ready) === true;
+  const overlayBindingReady = sanitizeBoolean(value.overlay_binding_ready ?? value.overlay_ready) === true;
+  const liveBindingReady = sanitizeBoolean(value.live_binding_ready ?? value.sdk_live_binding_ready) === true
+    || (inputBindingReady && overlayBindingReady);
+  const explicitStage = value.stage || value.binding_stage || value.sdk_binding_stage;
+  let stage = normalizeSdkBindingStage(explicitStage, "fallback_only");
+  if (!explicitStage) {
+    if (liveBindingReady) stage = "live_binding_ready";
+    else if (packageDetected) stage = "package_detected";
+    else if (boundaryCompiled) stage = "boundary_compiled";
+  }
+
+  return {
+    schema: ROKID_SDK_BINDING_SCHEMA,
+    source,
+    define_symbol: trimText(value.define_symbol || value.defineSymbol || ROKID_UXR_DEFINE_SYMBOL, 32) || ROKID_UXR_DEFINE_SYMBOL,
+    stage,
+    boundary_compiled: boundaryCompiled,
+    package_detected: packageDetected,
+    input_binding_ready: inputBindingReady,
+    overlay_binding_ready: overlayBindingReady,
+    live_binding_ready: liveBindingReady,
+    candidate_assemblies: sanitizeStringList(value.candidate_assemblies || value.candidateAssemblies),
+    candidate_types: sanitizeStringList(value.candidate_types || value.candidateTypes),
+    message: redactSensitiveText(value.message || value.status_message, 180) || buildDefaultSdkBindingStatus(source).message,
+    proof_required: buildDefaultSdkBindingStatus(source).proof_required
+  };
+}
+
+function summarizeSdkBindingStatus(status) {
+  const binding = status && typeof status === "object" ? status : buildDefaultSdkBindingStatus("not_reported");
+  return {
+    stage: binding.stage || "fallback_only",
+    boundary_compiled: binding.boundary_compiled === true,
+    package_detected: binding.package_detected === true,
+    live_binding_ready: binding.live_binding_ready === true,
+    message: trimText(binding.message, 180)
+  };
+}
+
+function summarizeSdkBindingAcrossSessions(rows = []) {
+  const statuses = rows.map((row) => row?.sdk_binding_status).filter(Boolean);
+  return {
+    schema: ROKID_SDK_BINDING_SCHEMA,
+    reported_sessions: statuses.length,
+    boundary_compiled_sessions: statuses.filter((status) => status.boundary_compiled === true).length,
+    package_detected_sessions: statuses.filter((status) => status.package_detected === true).length,
+    live_bound_sessions: statuses.filter((status) => status.live_binding_ready === true).length,
+    latest_stage: statuses[0]?.stage || "fallback_only",
+    latest_message: statuses[0]?.message || "No Unity SDK binding report has been received yet."
+  };
+}
+
 function sanitizeNetwork(value) {
   if (!value || typeof value !== "object") {
     return {
@@ -292,7 +419,7 @@ function buildRequiredCapabilityStatus(capabilities) {
   };
 }
 
-function buildWarnings({ capabilities, network, profile }) {
+function buildWarnings({ capabilities, network, profile, sdkBindingStatus }) {
   const warnings = [];
   const status = buildRequiredCapabilityStatus(capabilities);
   if (!status.ok) {
@@ -321,6 +448,13 @@ function buildWarnings({ capabilities, network, profile }) {
       code: "unknown_profile",
       severity: "info",
       message: "Profile accepted, but field defaults are tuned for RA202 glasses plus RAS201 station."
+    });
+  }
+  if (sdkBindingStatus?.boundary_compiled && !sdkBindingStatus.live_binding_ready) {
+    warnings.push({
+      code: "sdk_binding_not_live",
+      severity: sdkBindingStatus.package_detected ? "warn" : "info",
+      message: "ROKID_UXR boundary is present, but the live SDK input/overlay binding is not proven yet."
     });
   }
   return warnings;
@@ -395,7 +529,7 @@ function deriveHealthSeverity({ capabilityStatus, network, battery, activeAnchor
   return "ok";
 }
 
-function buildPendingActions({ capabilityStatus, network, battery, activeAnchorKnown, missionSnapshot }) {
+function buildPendingActions({ capabilityStatus, network, battery, activeAnchorKnown, missionSnapshot, sdkBindingStatus }) {
   const actions = [];
   if (!capabilityStatus.ok) {
     actions.push({
@@ -424,6 +558,14 @@ function buildPendingActions({ capabilityStatus, network, battery, activeAnchorK
       action_id: "realign_anchor",
       priority: "high",
       label: "Re-align to A1/A2/A3 before showing HUD content"
+    });
+  }
+  if (sdkBindingStatus?.boundary_compiled && !sdkBindingStatus.live_binding_ready) {
+    actions.push({
+      action_id: "bind_rokid_sdk_live_adapter",
+      priority: sdkBindingStatus.package_detected ? "high" : "medium",
+      label: "Finish live Rokid SDK input and overlay binding",
+      binding_stage: sdkBindingStatus.stage
     });
   }
   if (missionSnapshot?.next_step?.anchor_id) {
@@ -628,7 +770,8 @@ export function buildDeviceRuntimeSmokeSummary({
       has_live_session: (statusCounts.online || 0) > 0,
       has_healthy_session: readySession,
       snapshot_available: snapshot ? snapshot.ok !== false : false
-    }
+    },
+    sdk_binding: summarizeSdkBindingAcrossSessions(sessionRows)
   };
 }
 
@@ -674,7 +817,7 @@ export function createDeviceRuntimeStore({
     }
   }
 
-  function upsertDevice({ deviceId, profile, clientVersion, capabilities, capabilityStatus, network, timestamp }) {
+  function upsertDevice({ deviceId, profile, clientVersion, capabilities, capabilityStatus, network, sdkBindingStatus, timestamp }) {
     const previous = devices.get(deviceId);
     const device = {
       device_id: deviceId,
@@ -689,6 +832,7 @@ export function createDeviceRuntimeStore({
       last_health_severity: previous?.last_health_severity || (capabilityStatus.ok ? "ok" : "warn"),
       last_active_anchor: previous?.last_active_anchor || null,
       last_battery: previous?.last_battery || null,
+      sdk_binding_status: sdkBindingStatus || previous?.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
       network
     };
     devices.set(deviceId, device);
@@ -697,6 +841,8 @@ export function createDeviceRuntimeStore({
 
   function rememberPersistentSession(session) {
     if (!session?.session_id || !session?.device_id) return null;
+    session.sdk_binding_status = sanitizeSdkBindingStatus(session.sdk_binding_status, "restored_session");
+    session.network = sanitizeNetwork(session.network);
     sessions.set(session.session_id, session);
     if (!devices.has(session.device_id)) {
       devices.set(session.device_id, {
@@ -712,6 +858,7 @@ export function createDeviceRuntimeStore({
         last_health_severity: session.last_health_severity || "unknown",
         last_active_anchor: session.last_active_anchor || null,
         last_battery: session.last_battery || null,
+        sdk_binding_status: session.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
         network: session.network || null
       });
     }
@@ -734,8 +881,9 @@ export function createDeviceRuntimeStore({
     const capabilityStatus = buildRequiredCapabilityStatus(capabilities);
     const network = sanitizeNetwork(body.network);
     const clientVersion = sanitizeClientVersion(body.client_version);
+    const sdkBindingStatus = sanitizeSdkBindingStatus(body.sdk_binding_status || body.adapter_binding || body.binding_status);
     const sessionId = generateSessionId(createdAt);
-    const warnings = buildWarnings({ capabilities, network, profile });
+    const warnings = buildWarnings({ capabilities, network, profile, sdkBindingStatus });
     const missionSnapshot = buildMissionSnapshot(space, state);
     const session = {
       session_id: sessionId,
@@ -752,6 +900,7 @@ export function createDeviceRuntimeStore({
       last_active_anchor: null,
       last_battery: null,
       last_pose_present: false,
+      sdk_binding_status: sdkBindingStatus,
       current_user: null
     };
 
@@ -763,6 +912,7 @@ export function createDeviceRuntimeStore({
       capabilities,
       capabilityStatus,
       network,
+      sdkBindingStatus,
       timestamp: createdAt
     });
     const event = addRuntimeEvent(events, {
@@ -775,7 +925,8 @@ export function createDeviceRuntimeStore({
       details: {
         missing_required_capabilities: capabilityStatus.missing_required,
         network_online: network?.online ?? null,
-        lan_reachable: network?.lan_reachable ?? null
+        lan_reachable: network?.lan_reachable ?? null,
+        sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus)
       }
     });
     pruneSessions();
@@ -798,6 +949,7 @@ export function createDeviceRuntimeStore({
       poll_intervals: buildPollIntervals(capabilityStatus),
       endpoints: endpointSubset(endpoints),
       capabilities: capabilityStatus,
+      sdk_binding_status: sdkBindingStatus,
       mission_snapshot: missionSnapshot,
       warnings,
       runtime: {
@@ -838,6 +990,9 @@ export function createDeviceRuntimeStore({
     const network = sanitizeNetwork(body.network);
     const pose = sanitizePose(body.pose);
     const activeAnchor = sanitizeEnumText(body.active_anchor, 32);
+    const sdkBindingStatus = body.sdk_binding_status || body.adapter_binding || body.binding_status
+      ? sanitizeSdkBindingStatus(body.sdk_binding_status || body.adapter_binding || body.binding_status)
+      : session.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported");
     const activeAnchorKnown = !activeAnchor || anchors(space).some((anchor) => anchor.anchor_id === activeAnchor);
     const missionSnapshot = buildMissionSnapshot(space, state, activeAnchor);
     const capabilityStatus = session.capability_status;
@@ -847,7 +1002,8 @@ export function createDeviceRuntimeStore({
       network,
       battery,
       activeAnchorKnown,
-      missionSnapshot
+      missionSnapshot,
+      sdkBindingStatus
     });
 
     session.last_seen_at = receivedAt.toISOString();
@@ -857,6 +1013,7 @@ export function createDeviceRuntimeStore({
     session.last_active_anchor = activeAnchor;
     session.last_pose_present = Boolean(pose);
     session.last_health_severity = healthSeverity;
+    session.sdk_binding_status = sdkBindingStatus;
     session.current_user = sanitizeEnumText(body.current_user, 32);
     const device = devices.get(session.device_id);
     if (device) {
@@ -865,6 +1022,7 @@ export function createDeviceRuntimeStore({
       device.last_health_severity = healthSeverity;
       device.last_active_anchor = activeAnchor;
       device.last_battery = battery;
+      device.sdk_binding_status = sdkBindingStatus;
       device.network = network;
     }
     const event = addRuntimeEvent(events, {
@@ -879,7 +1037,8 @@ export function createDeviceRuntimeStore({
         active_anchor_known: activeAnchorKnown,
         battery_level_percent: battery?.level_percent ?? null,
         network_online: network?.online ?? null,
-        pose_present: Boolean(pose)
+        pose_present: Boolean(pose),
+        sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus)
       }
     });
     sessionStore?.saveDeviceSession?.(session);
@@ -905,8 +1064,10 @@ export function createDeviceRuntimeStore({
         network,
         pose_status: pose ? "received" : "not_reported",
         active_anchor_known: activeAnchorKnown,
-        missing_required_capabilities: capabilityStatus.missing_required
+        missing_required_capabilities: capabilityStatus.missing_required,
+        sdk_binding_status: sdkBindingStatus
       },
+      sdk_binding_status: sdkBindingStatus,
       runtime: {
         session_status: getDeviceSessionStatus(session, receivedAt),
         expires_at: sessionExpiresAt(session),
@@ -943,6 +1104,7 @@ export function createDeviceRuntimeStore({
           rtt_ms: session.network?.rtt_ms ?? null,
           lan_reachable: session.network?.lan_reachable ?? null
         },
+        sdk_binding_status: session.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
         pose_present: Boolean(session.last_pose_present)
       }));
     const deviceRows = Array.from(devices.values())
@@ -958,7 +1120,8 @@ export function createDeviceRuntimeStore({
         health_severity: device.last_health_severity,
         missing_required_capabilities: device.capability_status?.missing_required || [],
         active_anchor: device.last_active_anchor,
-        battery_level_percent: device.last_battery?.level_percent ?? null
+        battery_level_percent: device.last_battery?.level_percent ?? null,
+        sdk_binding_status: device.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported")
       }));
     const summary = buildDeviceRuntimeSmokeSummary({
       devices,
@@ -980,6 +1143,7 @@ export function createDeviceRuntimeStore({
       devices: deviceRows,
       sessions: rows,
       events: events.slice(-20),
+      sdk_binding: summarizeSdkBindingAcrossSessions(rows),
       smoke_test_summary: summary,
       retention: {
         stale_after_ms: SESSION_STALE_AFTER_MS,
@@ -1102,6 +1266,16 @@ export function buildDeviceManifest({
       }
     },
     adapter_slots: ADAPTER_SLOTS,
+    sdk_binding_status: {
+      ...buildDefaultSdkBindingStatus("server_manifest"),
+      client_report_contract: {
+        field: "sdk_binding_status",
+        accepted_on: [endpoints.device_register.path, endpoints.device_heartbeat.path],
+        stages: SDK_BINDING_STAGES,
+        live_binding_rule: "live_binding_ready is true only when Unity reports both input_binding_ready and overlay_binding_ready after the official Rokid UXR package is installed.",
+        privacy: "Report only define/package/type readiness; do not send serials, tokens, IP addresses, SSID, MAC, phone, address, or raw camera/pose streams."
+      }
+    },
     endpoints,
     mission_snapshot: buildMissionSnapshot(space, state),
     polling_defaults: {

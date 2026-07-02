@@ -13,11 +13,16 @@ namespace InnerWorld.Rokid
         }
 
         public RokidUxrInputSource(RokidDeviceSimulatorState state)
+            : this(state, null)
+        {
+        }
+
+        public RokidUxrInputSource(RokidDeviceSimulatorState state, RokidSdkBindingReport bindingReport)
         {
             fallbackInput = new EditorRokidInputSource(state);
             fallbackInput.SetConnection(
                 RokidConnectionStatus.Connecting,
-                "ROKID_UXR boundary compiled; SDK input binding pending.");
+                bindingReport != null ? bindingReport.Message : "ROKID_UXR boundary compiled; SDK input binding pending.");
         }
 
         public string SourceName

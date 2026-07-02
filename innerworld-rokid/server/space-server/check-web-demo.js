@@ -135,6 +135,18 @@ const requiredModules = [
     ]
   },
   {
+    name: "Rokid SDK Binding",
+    needles: [
+      "Rokid SDK Binding",
+      "SDK Readiness",
+      "sdkBindingGrid",
+      "sdk-binding",
+      "binding-grid",
+      "ROKID_UXR boundary",
+      "sdk_binding_status"
+    ]
+  },
+  {
     name: "Mission Ledger",
     needles: [
       "Mission Ledger",
@@ -171,6 +183,7 @@ const requiredContainers = [
   ".showcase-grid",
   ".route-grid",
   ".lens-grid",
+  ".binding-grid",
   ".ledger-grid",
   ".hardware-grid",
   ".evidence-rail",
@@ -213,6 +226,7 @@ const requiredContainerGroups = [
   { name: ".showcase-grid", selectors: [".showcase-grid"] },
   { name: ".route-grid", selectors: [".route-grid"] },
   { name: ".lens-grid", selectors: [".lens-grid"] },
+  { name: ".binding-grid", selectors: [".binding-grid"] },
   { name: ".ledger-grid", selectors: [".ledger-grid"] },
   { name: ".evidence-rail", selectors: [".evidence-rail"] },
   { name: ".delivery-timeline", selectors: [".delivery-timeline"] },
@@ -358,6 +372,8 @@ function checkStaticSources(sources) {
     { name: "dynamic delivery script rendering", ok: sources.js.includes("renderDeliveryScript") },
     { name: "dynamic risk guardrail rendering", ok: sources.js.includes("renderRiskGuardrails") },
     { name: "dynamic hardware runtime rendering", ok: sources.js.includes("renderHardwareRuntime") },
+    { name: "dynamic SDK binding rendering", ok: sources.js.includes("renderSdkBindingReadiness") },
+    { name: "SDK binding status contract", ok: sources.js.includes("sdk_binding_status") && sources.js.includes("ROKID_UXR boundary") },
     { name: "dynamic agent trace/log rendering", ok: sources.js.includes("renderLog") }
   ];
 

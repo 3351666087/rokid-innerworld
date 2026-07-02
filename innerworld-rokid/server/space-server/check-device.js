@@ -72,6 +72,19 @@ function assertLocalRuntimeSnapshot({ space, aiSchema, requiredCapabilities }) {
       serial_number: "SN-LOCAL-SNAPSHOT-SECRET",
       access_token: "local-snapshot-token",
       capabilities: requiredCapabilities,
+      sdk_binding_status: {
+        schema: "innerworld-rokid-sdk-binding/v1",
+        define_symbol: "ROKID_UXR",
+        stage: "boundary_compiled",
+        boundary_compiled: true,
+        package_detected: false,
+        input_binding_ready: false,
+        overlay_binding_ready: false,
+        live_binding_ready: false,
+        candidate_assemblies: ["Assembly-CSharp", "local-snapshot-token", "10.0.0.31"],
+        candidate_types: ["InnerWorld.Rokid.RokidSdkBindingProbe", "SN-LOCAL-SNAPSHOT-SECRET", "private-local-wifi", "00:00:00:00:00:31"],
+        message: "local snapshot binding report local-snapshot-token 10.0.0.31 SN-LOCAL-SNAPSHOT-SECRET private-local-wifi 00:00:00:00:00:31"
+      },
       network: {
         online: true,
         transport: "wifi",
@@ -95,6 +108,19 @@ function assertLocalRuntimeSnapshot({ space, aiSchema, requiredCapabilities }) {
       device_id: register.device_id,
       battery: { level_percent: 44, charging: false },
       network: { online: true, transport: "wifi", rtt_ms: 21, lan_reachable: true, http_cleartext_allowed: true },
+      sdk_binding_status: {
+        schema: "innerworld-rokid-sdk-binding/v1",
+        define_symbol: "ROKID_UXR",
+        stage: "package_detected",
+        boundary_compiled: true,
+        package_detected: true,
+        input_binding_ready: false,
+        overlay_binding_ready: false,
+        live_binding_ready: false,
+        candidate_assemblies: ["Rokid.UXR", "local-snapshot-token", "10.0.0.31"],
+        candidate_types: ["Rokid.UXR.InputBridge", "SN-LOCAL-SNAPSHOT-SECRET", "private-local-wifi", "00:00:00:00:00:31"],
+        message: "local snapshot heartbeat local-snapshot-token 10.0.0.31 SN-LOCAL-SNAPSHOT-SECRET private-local-wifi 00:00:00:00:00:31"
+      },
       active_anchor: "A1"
     },
     baseUrl: base,
@@ -110,6 +136,7 @@ function assertLocalRuntimeSnapshot({ space, aiSchema, requiredCapabilities }) {
   assert(!snapshotText.includes("local-snapshot-token"), "local runtime snapshot leaked token");
   assert(!snapshotText.includes("10.0.0.31"), "local runtime snapshot leaked IP");
   assert(!snapshotText.includes("private-local-wifi"), "local runtime snapshot leaked SSID");
+  assert(!snapshotText.includes("00:00:00:00:00:31"), "local runtime snapshot leaked MAC");
 
   const restored = createDeviceRuntimeStore({
     snapshotPath,
@@ -216,6 +243,11 @@ async function main() {
   assert(deviceManifest.runtime_persistence?.snapshot_schema === "innerworld-device-runtime-snapshot/v1", "device manifest runtime snapshot schema failed");
   assert(deviceManifest.runtime_persistence?.expires_after_ms > deviceManifest.runtime_persistence?.stale_after_ms, "device manifest runtime expiry policy failed");
   assert(Array.isArray(deviceManifest.adapter_slots) && deviceManifest.adapter_slots.length >= 4, "device manifest adapter slots failed");
+  assert(deviceManifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema failed");
+  assert(deviceManifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define failed");
+  assert(deviceManifest.sdk_binding_status?.live_binding_ready === false, "device manifest SDK binding default live failed");
+  assert(deviceManifest.sdk_binding_status?.client_report_contract?.accepted_on?.includes("/api/device/register"), "device manifest SDK binding register contract failed");
+  assert(deviceManifest.sdk_binding_status?.client_report_contract?.accepted_on?.includes("/api/device/heartbeat"), "device manifest SDK binding heartbeat contract failed");
   assert(deviceManifest.endpoints?.device_register?.method === "POST", "device manifest register endpoint failed");
   assert(deviceManifest.endpoints?.device_heartbeat?.method === "POST", "device manifest heartbeat endpoint failed");
   assert(storeStatus.ok === true, "store status ok failed");
@@ -248,6 +280,19 @@ async function main() {
     serial_number: "SN-ABC-SECRET",
     access_token: "real-token-secret",
     capabilities: requiredCapabilities,
+      sdk_binding_status: {
+        schema: "innerworld-rokid-sdk-binding/v1",
+        define_symbol: "ROKID_UXR",
+        stage: "boundary_compiled",
+        boundary_compiled: true,
+        package_detected: false,
+        input_binding_ready: false,
+        overlay_binding_ready: false,
+        live_binding_ready: false,
+        candidate_assemblies: ["Assembly-CSharp", "real-token-secret", "10.0.0.18"],
+        candidate_types: ["InnerWorld.Rokid.RokidSdkBindingProbe", "SN-ABC-SECRET", "private-demo-wifi", "00:11:22:33:44:55"],
+        message: "device check boundary compiled real-token-secret 10.0.0.18 SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55"
+      },
     network: {
       online: true,
       transport: "wifi",
@@ -268,11 +313,14 @@ async function main() {
   assert(register.mission_snapshot?.space_id === expectedSpaceId, "device register mission snapshot failed");
   assert(register.runtime?.session_status === "online", "device register runtime session status failed");
   assert(register.runtime?.snapshot?.ok === true, "device register runtime snapshot failed");
+  assert(register.sdk_binding_status?.stage === "boundary_compiled", "device register SDK binding stage failed");
+  assert(register.sdk_binding_status?.live_binding_ready === false, "device register SDK binding live flag failed");
   const registerText = JSON.stringify(register);
   assert(!registerText.includes("SN-ABC-SECRET"), "device register leaked serial");
   assert(!registerText.includes("real-token-secret"), "device register leaked token");
   assert(!registerText.includes("10.0.0.18"), "device register leaked IP");
   assert(!registerText.includes("private-demo-wifi"), "device register leaked SSID");
+  assert(!registerText.includes("00:11:22:33:44:55"), "device register leaked MAC");
 
   const heartbeat = await postJson(endpoints.device_heartbeat.url, "device_heartbeat", {
     session_id: register.session_id,
@@ -290,6 +338,19 @@ async function main() {
       http_cleartext_allowed: true,
       ip_address: "10.0.0.18"
     },
+      sdk_binding_status: {
+        schema: "innerworld-rokid-sdk-binding/v1",
+        define_symbol: "ROKID_UXR",
+        stage: "package_detected",
+        boundary_compiled: true,
+        package_detected: true,
+        input_binding_ready: false,
+        overlay_binding_ready: false,
+        live_binding_ready: false,
+        candidate_assemblies: ["Rokid.UXR", "real-token-secret", "10.0.0.18"],
+        candidate_types: ["Rokid.UXR.InputBridge", "SN-ABC-SECRET", "private-demo-wifi", "00:11:22:33:44:55"],
+        message: "device check package detected real-token-secret 10.0.0.18 SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55"
+      },
     pose: {
       confidence: 0.91,
       position: { x: 0, y: 1.5, z: 3 },
@@ -304,11 +365,18 @@ async function main() {
   assert(heartbeat.mission_snapshot?.active_anchor?.anchor_id === "A2", "device heartbeat active anchor failed");
   assert(Array.isArray(heartbeat.pending_actions), "device heartbeat pending actions failed");
   assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action failed");
+  assert(heartbeat.pending_actions.some((action) => action.action_id === "bind_rokid_sdk_live_adapter"), "device heartbeat SDK binding action failed");
   assert(heartbeat.health?.severity === "ok", "device heartbeat health severity failed");
+  assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage failed");
+  assert(heartbeat.sdk_binding_status?.live_binding_ready === false, "device heartbeat SDK binding live flag failed");
   assert(heartbeat.runtime?.session_status === "online", "device heartbeat runtime session status failed");
   assert(heartbeat.runtime?.snapshot?.ok === true, "device heartbeat runtime snapshot failed");
   assert(heartbeat.next_poll_ms > 0, "device heartbeat next poll failed");
   assert(!JSON.stringify(heartbeat).includes("10.0.0.18"), "device heartbeat leaked IP");
+  assert(!JSON.stringify(heartbeat).includes("real-token-secret"), "device heartbeat leaked token");
+  assert(!JSON.stringify(heartbeat).includes("SN-ABC-SECRET"), "device heartbeat leaked serial");
+  assert(!JSON.stringify(heartbeat).includes("private-demo-wifi"), "device heartbeat leaked SSID");
+  assert(!JSON.stringify(heartbeat).includes("00:11:22:33:44:55"), "device heartbeat leaked MAC");
 
   const sessions = await fetchJson(endpoints.device_sessions.url, "device_sessions");
   assert(sessions.ok === true, "device sessions ok check failed");
@@ -319,7 +387,14 @@ async function main() {
   assert(sessions.events?.some((event) => event.type === "device_heartbeat"), "device sessions event log failed");
   assert(sessions.smoke_test_summary?.checks?.has_live_session === true, "device sessions smoke summary failed");
   assert(sessions.smoke_test_summary?.snapshot?.ok === true, "device sessions smoke snapshot failed");
+  assert(sessions.sdk_binding?.package_detected_sessions >= 1, "device sessions SDK package summary failed");
+  assert(sessions.sdk_binding?.live_bound_sessions === 0, "device sessions SDK live summary failed");
+  assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.sdk_binding_status?.stage === "package_detected"), "device sessions SDK binding stage failed");
   assert(!JSON.stringify(sessions).includes("10.0.0.18"), "device sessions leaked IP");
+  assert(!JSON.stringify(sessions).includes("real-token-secret"), "device sessions leaked token");
+  assert(!JSON.stringify(sessions).includes("SN-ABC-SECRET"), "device sessions leaked serial");
+  assert(!JSON.stringify(sessions).includes("private-demo-wifi"), "device sessions leaked SSID");
+  assert(!JSON.stringify(sessions).includes("00:11:22:33:44:55"), "device sessions leaked MAC");
 
   assertLocalRuntimeSnapshot({ space, aiSchema, requiredCapabilities });
 
@@ -406,6 +481,8 @@ async function main() {
     device_sessions: sessions.total,
     device_runtime_events: sessions.events.length,
     device_smoke_live_sessions: sessions.smoke_test_summary.sessions_online,
+    sdk_binding_stage: heartbeat.sdk_binding_status.stage,
+    sdk_live_bound_sessions: sessions.sdk_binding.live_bound_sessions,
     ai_schema_title: aiSchema.title,
     evidence_items: evidenceChain.evidence_items.length,
     session_stages: sessionPlan.stages.length,

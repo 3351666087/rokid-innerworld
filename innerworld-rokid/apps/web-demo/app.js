@@ -113,6 +113,8 @@ const els = {
   progress: document.querySelector("#progress"),
   riskGrid: document.querySelector("#riskGrid"),
   routeGrid: document.querySelector("#routeGrid"),
+  sdkBindingGrid: document.querySelector("#sdkBindingGrid"),
+  sdkBindingPill: document.querySelector("#sdkBindingPill"),
   showcaseGrid: document.querySelector("#showcaseGrid"),
   spaceName: document.querySelector("#spaceName"),
   stageMetrics: document.querySelector("#stageMetrics"),
@@ -614,6 +616,303 @@ function firstFiniteNumber(...values) {
   return 0;
 }
 
+function listFrom(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function latestDeviceSession() {
+  const sessions = Array.isArray(model.deviceSessions?.sessions) ? model.deviceSessions.sessions : [];
+  return sessions[0] || model.deviceSession || null;
+}
+
+function textFrom(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(textFrom).filter(Boolean).join(" ");
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .filter(([key]) => !/token|secret|serial|ssid|mac|phone|address|ip/i.test(key))
+      .map(([key, nested]) => `${key} ${textFrom(nested)}`)
+      .filter(Boolean)
+      .join(" ");
+  }
+  return "";
+}
+
+function compactLabel(value, fallback = "n/a") {
+  const text = compact(value);
+  return text || fallback;
+}
+
+function collectNamedFields(source, names, sourceName, maxDepth = 4) {
+  const matches = [];
+  const seen = new WeakSet();
+  const wanted = new Set(names);
+
+  function walk(value, path, depth) {
+    if (!value || typeof value !== "object" || depth > maxDepth || seen.has(value)) return;
+    seen.add(value);
+
+    for (const [key, nested] of Object.entries(value)) {
+      const nextPath = `${path}.${key}`;
+      if (wanted.has(key)) {
+        matches.push({ value: nested, path: nextPath, sourceName });
+      }
+      if (nested && typeof nested === "object") {
+        if (Array.isArray(nested)) {
+          nested.slice(0, 8).forEach((item, index) => walk(item, `${nextPath}[${index}]`, depth + 1));
+        } else {
+          walk(nested, nextPath, depth + 1);
+        }
+      }
+    }
+  }
+
+  walk(source, sourceName, 0);
+  return matches;
+}
+
+function fieldString(field) {
+  if (!field) return "";
+  if (typeof field.value === "string") return field.value;
+  if (typeof field.value === "boolean") return field.value ? "true" : "false";
+  if (field.value && typeof field.value === "object") {
+    const candidate = field.value.status
+      || field.value.state
+      || field.value.mode
+      || field.value.phase
+      || field.value.readiness
+      || field.value.binding_status
+      || field.value.adapter_status
+      || field.value.connection_state;
+    return compactLabel(candidate, textFrom(field.value).slice(0, 160));
+  }
+  return compactLabel(field.value);
+}
+
+function hasTruthyBindingFlag(value) {
+  if (!value || typeof value !== "object") return false;
+  return [
+    value.live_bound,
+    value.liveBound,
+    value.sdk_bound,
+    value.sdkBound,
+    value.bound,
+    value.connected,
+    value.is_live,
+    value.isLive
+  ].some(Boolean);
+}
+
+function hasFalseBindingFlag(value) {
+  if (!value || typeof value !== "object") return false;
+  return [
+    value.live_bound,
+    value.liveBound,
+    value.sdk_bound,
+    value.sdkBound,
+    value.bound,
+    value.connected,
+    value.is_live,
+    value.isLive
+  ].some((item) => item === false);
+}
+
+function classifyBindingField(field) {
+  if (!field) return null;
+  const lower = textFrom(field.value).toLowerCase();
+  const direct = fieldString(field).toLowerCase();
+  const negative = /fallback|mock|simulator|simulated|emulator|pending|waiting|offline|disconnected|not[_ -]?bound|unbound|disabled|none/.test(lower);
+  const live = hasTruthyBindingFlag(field.value)
+    || (!negative && /live[_ -]?bound|sdk[_ -]?bound|real[_ -]?sdk|native[_ -]?sdk|connected|attached|bound/.test(direct || lower));
+  if (live) return "live";
+  if (/boundary|compiled|uxr|adapter[_ -]?slots?|rokid_uxr|arstudio|unity/.test(lower)) return "boundary";
+  if (hasFalseBindingFlag(field.value) || negative) return "fallback";
+  return null;
+}
+
+function sdkBindingField() {
+  const sources = [
+    ["last_heartbeat", model.deviceLastHeartbeat],
+    ["latest_session", latestDeviceSession()],
+    ["registered_device", model.deviceSession],
+    ["device_sessions", model.deviceSessions],
+    ["device_manifest", model.deviceManifest],
+    ["device_bootstrap", model.bootstrap],
+    ["ops_status", model.ops]
+  ];
+  const names = ["sdk_binding_status", "adapter_binding", "binding_status"];
+  const matches = [];
+
+  for (const [sourceName, source] of sources) {
+    matches.push(...collectNamedFields(source, names, sourceName)
+      .filter((item) => item.value !== undefined && item.value !== null && item.value !== ""));
+  }
+  return matches.find((item) => classifyBindingField(item) === "live")
+    || matches.find((item) => classifyBindingField(item) === "boundary")
+    || matches.find((item) => classifyBindingField(item) === "fallback")
+    || matches[0]
+    || null;
+}
+
+function adapterSlots() {
+  const manifestSlots = listFrom(model.deviceManifest?.adapter_slots);
+  if (manifestSlots.length) return manifestSlots;
+  const binding = sdkBindingField()?.value;
+  return listFrom(binding?.adapter_slots || binding?.slots || binding?.adapters);
+}
+
+function expectedRokidKit() {
+  const devices = listFrom(model.deviceManifest?.expected_kit?.devices);
+  if (devices.length) return devices;
+  return listFrom(model.ops?.hardware?.devices);
+}
+
+function sdkBindingSummary() {
+  const field = sdkBindingField();
+  const slots = adapterSlots();
+  const slotIds = slots.map((slot) => compactLabel(slot.slot_id || slot.id || slot.name, "")).filter(Boolean);
+  const kit = expectedRokidKit();
+  const hasRokidKit = kit.some((device) => /RA202|RAS201|Rokid/i.test(`${device.model || ""} ${device.product_name || ""} ${device.role || ""}`));
+  const hasUnityBoundary = Boolean(model.deviceManifest?.unity_runtime_hints || model.deviceManifest?.rokid_runtime_hints);
+  const hasRequiredCapabilities = listFrom(model.deviceManifest?.required_capabilities).length >= 5;
+  const hasBoundary = slots.length >= 4 || hasUnityBoundary || hasRequiredCapabilities || hasRokidKit;
+  const fieldMode = classifyBindingField(field);
+  const live = fieldMode === "live";
+  const boundary = live || fieldMode === "boundary" || hasBoundary;
+  const mode = live ? "live" : boundary ? "boundary" : "fallback";
+  const latestSession = latestDeviceSession();
+  const simSession = latestSession
+    ? `${latestSession.session_status || "session"} / ${latestSession.profile || latestSession.device_id || "device"}`
+    : "no device session";
+  const source = field
+    ? `${field.sourceName}:${field.path.split(".").slice(-1)[0]}`
+    : hasBoundary
+      ? "device_manifest:adapter_slots"
+      : "web_demo:local_fallback";
+
+  const title = {
+    live: "Real SDK live-bound",
+    boundary: "ROKID_UXR boundary compiled",
+    fallback: "Local fallback active"
+  }[mode];
+  const body = {
+    live: `Backend binding field is live: ${compactLabel(fieldString(field), "bound")}.`,
+    boundary: `${slots.length || "No"} adapter slots compiled for Rokid input, pose, network, and HUD overlay.`,
+    fallback: "Browser console is keeping the campus wall mission running until manifest or SDK binding data arrives."
+  }[mode];
+
+  return {
+    mode,
+    tone: live ? "good" : boundary ? "warn" : "bad",
+    title,
+    body,
+    source,
+    slots,
+    slotIds,
+    hasBoundary,
+    live,
+    field,
+    fieldValue: field ? fieldString(field) : null,
+    simSession
+  };
+}
+
+function renderBindingStep(step) {
+  const card = document.createElement("div");
+  card.className = ["binding-step", step.state, step.tone].filter(Boolean).join(" ");
+  const badge = document.createElement("span");
+  badge.textContent = step.label;
+  const title = document.createElement("strong");
+  title.textContent = step.title;
+  const body = document.createElement("p");
+  body.textContent = step.body;
+  card.append(badge, title, body);
+  return card;
+}
+
+function renderBindingSlot(slot, index) {
+  const row = document.createElement("div");
+  row.className = "binding-slot";
+  const marker = document.createElement("span");
+  marker.textContent = slot.slot_id ? String(slot.slot_id).replace(/^rokid_|^unity_/, "").slice(0, 3).toUpperCase() : String(index + 1).padStart(2, "0");
+  const copy = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = compactLabel(slot.role || slot.slot_id || slot.id || slot.name, `Adapter ${index + 1}`);
+  const body = document.createElement("p");
+  const accepts = listFrom(slot.accepts).join(" / ");
+  body.textContent = [slot.expected_owner, accepts, endpointUrl(slot.endpoint)].filter(Boolean).join(" - ");
+  copy.append(title, body);
+  row.append(marker, copy);
+  return row;
+}
+
+function renderSdkBindingReadiness() {
+  const binding = sdkBindingSummary();
+
+  if (els.sdkBindingPill) {
+    els.sdkBindingPill.textContent = {
+      live: "SDK live-bound",
+      boundary: "ROKID_UXR boundary",
+      fallback: "SDK fallback"
+    }[binding.mode];
+    els.sdkBindingPill.className = `status-pill ${binding.tone === "good" ? "good" : "warn"}`;
+  }
+
+  if (!els.sdkBindingGrid) return;
+  els.sdkBindingGrid.innerHTML = "";
+
+  const current = renderInfoCard(`binding-current ${binding.tone} wide`, "Current", binding.title, `${binding.body} Source: ${binding.source}.`);
+  els.sdkBindingGrid.append(current);
+
+  const steps = [
+    {
+      label: "Fallback",
+      title: binding.mode === "fallback" ? "Active local fallback" : "Available as safety net",
+      body: "Web operator console drives the spatial memory wall through Space API rules when SDK data is absent.",
+      state: binding.mode === "fallback" ? "active" : "ready",
+      tone: binding.mode === "fallback" ? "bad" : "neutral"
+    },
+    {
+      label: "ROKID_UXR",
+      title: binding.hasBoundary ? "Boundary compiled" : "Boundary waiting",
+      body: binding.slotIds.length
+        ? `${binding.slotIds.slice(0, 4).join(", ")} are declared for glasses input, pose, network, and overlay.`
+        : "Waiting for adapter_slots in /api/device/manifest.",
+      state: binding.mode === "boundary" ? "active" : binding.hasBoundary ? "ready" : "waiting",
+      tone: binding.hasBoundary ? "warn" : "neutral"
+    },
+    {
+      label: "Live SDK",
+      title: binding.live ? "Real SDK bound" : "Waiting for backend signal",
+      body: binding.live
+        ? compactLabel(binding.fieldValue, "sdk binding live")
+        : "Will turn green from sdk_binding_status, adapter_binding, or binding_status when Rokid SDK is live-bound.",
+      state: binding.mode === "live" ? "active" : "waiting",
+      tone: binding.live ? "good" : "neutral"
+    }
+  ];
+
+  steps.forEach((step) => els.sdkBindingGrid.append(renderBindingStep(step)));
+
+  const session = renderInfoCard(
+    "binding-current wide",
+    "Session Evidence",
+    binding.simSession,
+    "Simulator sessions do not claim real SDK binding; live status requires an explicit backend binding field."
+  );
+  els.sdkBindingGrid.append(session);
+
+  const slotList = document.createElement("div");
+  slotList.className = "binding-slot-list";
+  if (binding.slots.length) {
+    binding.slots.slice(0, 6).forEach((slot, index) => slotList.append(renderBindingSlot(slot, index)));
+  } else {
+    slotList.append(renderInfoCard("binding-current warn wide", "Adapter Slots", "Waiting", "/api/device/manifest adapter_slots not present yet."));
+  }
+  els.sdkBindingGrid.append(slotList);
+}
+
 function arrayFromLedgerEvents(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.events)) return payload.events;
@@ -829,10 +1128,12 @@ function renderStageMetrics() {
   const hardwareFit = model.ops?.hardware?.fit === "fit";
   const aiOnline = model.hudByAnchor.has(model.currentAnchor);
   const baseUrl = model.bootstrap?.base_url || window.location.origin;
+  const binding = sdkBindingSummary();
   const metrics = [
     ["Anchor", model.currentAnchor || "A1", anchor?.kind || "entry"],
     ["Mission", `${progress.value}%`, `${progress.done}/${progress.total}`],
     ["AI HUD", aiOnline ? "online" : "fallback", aiOnline ? "schema" : "rules"],
+    ["SDK", binding.mode === "live" ? "live" : binding.mode === "boundary" ? "boundary" : "fallback", binding.source],
     ["Device", hardwareFit ? "fit" : "sim", isLoopback(baseUrl) ? "localhost" : "lan"]
   ];
 
@@ -851,7 +1152,13 @@ function renderStageMetrics() {
   });
 
   if (els.lensState) {
-    els.lensState.textContent = hardwareFit ? "AR Studio Ready" : "Localhost Lens";
+    els.lensState.textContent = binding.mode === "live"
+      ? "SDK Live Bound"
+      : binding.mode === "boundary"
+        ? "ROKID_UXR Boundary"
+        : hardwareFit
+          ? "AR Studio Ready"
+          : "Localhost Lens";
   }
 }
 
@@ -861,6 +1168,7 @@ function renderLensPanel() {
   const anchor = anchorById(model.currentAnchor);
   const endpoints = model.bootstrap?.endpoints || {};
   const hardware = summarizeHardware(model.ops?.hardware);
+  const binding = sdkBindingSummary();
   const pose = anchor?.pose
     ? `x ${anchor.pose.x}, y ${anchor.pose.y}, z ${anchor.pose.z}`
     : "pose pending";
@@ -870,6 +1178,7 @@ function renderLensPanel() {
     renderInfoCard("lens-card", "View", anchor?.label || "入口海报", pose),
     renderInfoCard("lens-card", "Runtime", isLoopback(baseUrl) ? "Localhost" : "LAN", baseUrl),
     renderInfoCard("lens-card", "Hardware", model.ops?.hardware?.fit === "fit" ? "AR Studio Kit" : "Fallback", hardware, { wide: true }),
+    renderInfoCard(`lens-card ${binding.tone}`, "SDK Binding", binding.title, binding.source, { wide: true }),
     renderInfoCard("lens-card", "HUD Endpoint", endpointUrl(endpoints.ai_hud || "/api/ai/hud"), "AI 输出只换文案与动作建议，不改空间契约。", { wide: true })
   );
 }
@@ -970,11 +1279,11 @@ function renderHardwareRuntime() {
   const deviceManifestReady = Boolean(endpoints.device_manifest);
   const storeReady = model.store?.engine === "sqlite";
   const datasetCount = model.datasetCatalog?.datasets?.length ?? 0;
-  const sessions = Array.isArray(model.deviceSessions?.sessions) ? model.deviceSessions.sessions : [];
-  const latestSession = sessions[0] || model.deviceSession;
+  const latestSession = latestDeviceSession();
   const smoke = model.deviceSessions?.smoke_test_summary;
   const sessionStatus = latestSession?.session_status || model.deviceLastHeartbeat?.runtime?.session_status || "no session";
   const heartbeatCount = latestSession?.heartbeat_count ?? model.deviceLastHeartbeat?.heartbeat_count ?? 0;
+  const binding = sdkBindingSummary();
 
   els.hardwareGrid.innerHTML = "";
   els.hardwareGrid.append(
@@ -983,7 +1292,8 @@ function renderHardwareRuntime() {
     renderInfoCard(storeReady ? "hardware-card good" : "hardware-card warn", "SQLite Store", storeReady ? "authoritative" : "checking", `${datasetCount} safe datasets · ${model.store?.device_sessions ?? 0} device sessions`),
     renderInfoCard("hardware-card", "Runtime API", `${endpointCount} endpoints`, "bootstrap / AI HUD / evidence / session plan / dataset call / device runtime 同一套契约。"),
     renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount}` : "点击注册模拟设备，硬件到场后替换为 RA202/RAS201。"),
-    renderInfoCard("hardware-card", "Adapter Slots", "Input + Display", "UXR2.0 到场后只替换 gaze/gesture/overlay adapter，不改任务与证据链。"),
+    renderInfoCard(`hardware-card ${binding.tone}`, "SDK Binding", binding.title, binding.body),
+    renderInfoCard("hardware-card", "Adapter Slots", `${binding.slots.length || 0} declared`, "ROKID_UXR boundary keeps gaze, pose, network, and overlay swappable without changing the campus wall layer."),
     renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
     renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
   );
@@ -1013,12 +1323,13 @@ function renderProductModules() {
   const beaconCount = model.space?.beacons?.length || 0;
   const writeBacks = (model.space?.beacons || []).filter((beacon) => beacon.layer === "time_capsule").length;
   const hardwareFit = model.ops?.hardware?.fit === "fit";
+  const binding = sdkBindingSummary();
 
   els.productGrid.innerHTML = "";
   els.productGrid.append(
     renderInfoCard("product-card", "Spatial OS", `${anchorCount} Anchors`, "实体展墙被抽象成可寻址空间层，Rokid 端只替换输入和显示。"),
     renderInfoCard("product-card", "Memory Graph", `${beaconCount} Beacons`, `官方、公域和时间胶囊分层展示；当前写回 ${writeBacks} 条。`),
-    renderInfoCard("product-card", "Hardware Lane", hardwareFit ? "AR Studio Ready" : "Localhost First", "Max Pro + Station Pro 到场后接入同一套 Space API。", { wide: true })
+    renderInfoCard("product-card", "Hardware Lane", binding.mode === "live" ? "SDK Live Bound" : binding.mode === "boundary" ? "ROKID_UXR Boundary" : hardwareFit ? "AR Studio Ready" : "Localhost First", "Rokid glasses render the spatial memory layer over the real campus wall; phone-only fallback is rehearsal only.", { wide: true })
   );
 }
 
@@ -1026,10 +1337,12 @@ function renderAgentQueue() {
   if (!els.agentQueue) return;
   const hud = model.hudByAnchor.get(model.currentAnchor);
   const review = hud?.write_back_review;
+  const binding = sdkBindingSummary();
   const rows = [
     ["01", "Space Router", model.bootstrap?.endpoints?.ai_hud ? "ready" : "fallback", "把 A1/A2/A3 锚点映射到统一设备端点。"],
     ["02", "HUD Compiler", hud ? "online" : "local", compact(hud?.display_text) || "本地规则兜底，保证演示不中断。"],
-    ["03", "Review Gate", review?.status || "waiting", reviewLabel(review) || "写回内容只进入演示级审核。"]
+    ["03", "SDK Binding", binding.mode, binding.body],
+    ["04", "Review Gate", review?.status || "waiting", reviewLabel(review) || "写回内容只进入演示级审核。"]
   ];
 
   els.agentQueue.innerHTML = "";
@@ -1095,10 +1408,12 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   const baseUrl = bootstrap?.base_url || window.location.origin;
   const lanTone = isLoopback(baseUrl) ? "warn" : "good";
   const ai = bootstrap?.ai || {};
+  const binding = sdkBindingSummary();
 
   const cards = [
     renderOpsItem("API", health.demo_ready ? "online" : errors.ops ? errors.ops.message : "checking", health.demo_ready ? "good" : errors.ops ? "bad" : "warn"),
     renderOpsItem("Mission", `${health.mission_state || model.runtime?.mission_state || "n/a"} · ${health.beacon_count ?? model.space?.beacons?.length ?? 0} beacons`, health.demo_ready ? "good" : "warn"),
+    renderOpsItem("SDK Binding", `${binding.title}\n${binding.source}`, binding.tone, { wide: true }),
     renderOpsItem("Hardware", `${hardware?.fit === "fit" ? "fit" : "pending"} · ${summarizeHardware(hardware)}`, hardware?.fit === "fit" ? "good" : "warn", { wide: true }),
     renderOpsItem("Borrow Deadline", hardware?.borrow_deadline || "n/a", hardware?.borrow_deadline ? "neutral" : "warn"),
     renderOpsItem("Base URL", baseUrl, lanTone),
@@ -1121,6 +1436,7 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   els.connectionPill.className = `status-pill ${health.demo_ready ? "good" : "warn"}`;
   renderStageMetrics();
   renderLensPanel();
+  renderSdkBindingReadiness();
   renderProductModules();
   renderEvidenceChain();
   renderShowcase();
@@ -1157,6 +1473,7 @@ async function refreshDeviceRuntime() {
   if (sessionsResult.status === "fulfilled") model.deviceSessions = sessionsResult.value;
   if (storeResult.status === "fulfilled") model.store = storeResult.value;
   if (catalogResult.status === "fulfilled") model.datasetCatalog = catalogResult.value;
+  renderSdkBindingReadiness();
   renderHardwareRuntime();
   renderLedgerAudit();
   renderLog();
@@ -1210,6 +1527,7 @@ async function refreshOps() {
 
 function renderLog() {
   if (!els.log) return;
+  const binding = sdkBindingSummary();
   const payload = {
     active_user: model.activeUser,
     selected_anchor: model.currentAnchor,
@@ -1231,6 +1549,14 @@ function renderLog() {
       total: model.deviceSessions.total,
       smoke: model.deviceSessions.smoke_test_summary
     } : null,
+    sdk_binding: {
+      mode: binding.mode,
+      title: binding.title,
+      source: binding.source,
+      adapter_slots: binding.slotIds,
+      field_value: binding.fieldValue,
+      session_evidence: binding.simSession
+    },
     ledger: {
       online: Boolean(model.ledgerSummary || model.ledgerEvents),
       summary: model.ledgerSummary || null,
@@ -1271,6 +1597,7 @@ async function refresh(options = {}) {
   renderRouteMap();
   renderStageMetrics();
   renderLensPanel();
+  renderSdkBindingReadiness();
   renderProductModules();
   renderAgentQueue();
   renderEvidenceChain();
@@ -1295,6 +1622,7 @@ function renderOffline(error) {
   renderMetaPill("run npm run dev");
   els.log.textContent = JSON.stringify({ ok: false, error: message }, null, 2);
   renderOps(null, null, { ops: error, bootstrap: error });
+  renderSdkBindingReadiness();
 }
 
 async function completeCurrentStep() {

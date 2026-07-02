@@ -113,7 +113,8 @@ const requiredUnityTokens = [
   "RokidAdapterResolver.Resolve",
   "RokidAdapterBoundaryStatus",
   "IRokidInputStateSink",
-  "RokidUxrBoundary.IsCompiled"
+  "RokidSdkBindingProbe.Detect",
+  "sdk live"
 ];
 
 function assert(condition, message) {

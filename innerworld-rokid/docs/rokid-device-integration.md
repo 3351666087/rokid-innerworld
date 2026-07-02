@@ -47,6 +47,8 @@ The Unity runtime now has a compile-safe SDK boundary:
 - `ROKID_UXR` is the only define symbol that may expose future Rokid UXR SDK references.
 - `RokidUxrInputSource.cs` and `RokidUxrOverlayRenderer.cs` are wrapped by `#if ROKID_UXR`; until the official SDK package is installed, they compile out and the resolver returns editor/fallback adapters.
 - `IRokidInputStateSink` keeps connection status, LAN base URL, and anchor-hit state flowing through the same interface for fallback and future hardware adapters.
+- `RokidSdkBindingProbe` reports `fallback_only`, `boundary_compiled`, `package_detected`, or `live_binding_ready`. The first three are not proof that real hardware input/display is bound.
+- `/api/device/manifest`, `/api/device/register`, `/api/device/heartbeat`, and `/api/device/sessions` carry a sanitized `sdk_binding_status` report so the operator console can distinguish SDK stub readiness from live Rokid SDK binding.
 - Vendor SDK packages downloaded through Unity Package Manager stay out of Git. Commit only the small adapter code that maps SDK gaze/ray/gesture/voice events into `IRokidInputSource`, `IRokidInputStateSink`, and `IRokidOverlayRenderer`.
 
 ## Hardware Arrival Checklist

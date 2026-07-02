@@ -249,6 +249,11 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(manifest.runtime_persistence.dataset_api.catalog === "/api/datasets/catalog", "device manifest dataset catalog mismatch");
   assert(manifest.runtime_persistence.dataset_api.call === "/api/datasets/call", "device manifest dataset call mismatch");
   assert(manifest.adapter_slots.length >= 4, "device manifest adapter slots mismatch");
+  assert(manifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema mismatch");
+  assert(manifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define mismatch");
+  assert(manifest.sdk_binding_status?.live_binding_ready === false, "device manifest SDK binding should not claim live by default");
+  assert(manifest.sdk_binding_status?.client_report_contract?.field === "sdk_binding_status", "device manifest SDK binding report contract missing");
+  assert(manifest.sdk_binding_status?.client_report_contract?.accepted_on?.includes("/api/device/heartbeat"), "device manifest SDK heartbeat report contract missing");
   assert(manifest.endpoints.device_register.method === "POST", "device manifest register endpoint mismatch");
   assert(manifest.endpoints.device_heartbeat.method === "POST", "device manifest heartbeat endpoint mismatch");
   assert(manifest.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device manifest mission snapshot mismatch");
@@ -263,6 +268,19 @@ function assertDeviceRuntimeContract(space, aiSchema) {
       serial_number: "SN-CONTRACT-SECRET",
       access_token: "real-contract-token",
       capabilities,
+      sdk_binding_status: {
+        schema: "innerworld-rokid-sdk-binding/v1",
+        define_symbol: "ROKID_UXR",
+        stage: "boundary_compiled",
+        boundary_compiled: true,
+        package_detected: false,
+        input_binding_ready: false,
+        overlay_binding_ready: false,
+        live_binding_ready: false,
+        candidate_assemblies: ["Assembly-CSharp", "real-contract-token", "10.0.0.18"],
+        candidate_types: ["InnerWorld.Rokid.RokidUxrInputSource", "SN-CONTRACT-SECRET", "private-contract-wifi", "00:11:22:33:44:55"],
+        message: "contract test boundary compiled with real-contract-token 10.0.0.18 SN-CONTRACT-SECRET private-contract-wifi 00:11:22:33:44:55"
+      },
       network: {
         online: true,
         transport: "wifi",
@@ -289,11 +307,14 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(register.capabilities.missing_required.length === 0, "device register missing capabilities mismatch");
   assert(register.endpoints.heartbeat.path === "/api/device/heartbeat", "device register heartbeat endpoint mismatch");
   assert(register.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device register mission snapshot mismatch");
+  assert(register.sdk_binding_status?.stage === "boundary_compiled", "device register SDK binding stage mismatch");
+  assert(register.sdk_binding_status?.live_binding_ready === false, "device register SDK binding live flag mismatch");
   const registerJson = JSON.stringify(register);
   assert(registerJson.includes("SN-CONTRACT-SECRET") === false, "device register leaked serial");
   assert(registerJson.includes("real-contract-token") === false, "device register leaked token");
   assert(registerJson.includes("10.0.0.18") === false, "device register leaked IP");
   assert(registerJson.includes("private-contract-wifi") === false, "device register leaked SSID");
+  assert(registerJson.includes("00:11:22:33:44:55") === false, "device register leaked MAC");
 
   const heartbeat = runtime.heartbeat({
     body: {
@@ -311,6 +332,19 @@ function assertDeviceRuntimeContract(space, aiSchema) {
         lan_reachable: true,
         http_cleartext_allowed: true,
         ip_address: "10.0.0.18"
+      },
+      sdk_binding_status: {
+        schema: "innerworld-rokid-sdk-binding/v1",
+        define_symbol: "ROKID_UXR",
+        stage: "package_detected",
+        boundary_compiled: true,
+        package_detected: true,
+        input_binding_ready: false,
+        overlay_binding_ready: false,
+        live_binding_ready: false,
+        candidate_assemblies: ["Rokid.UXR", "real-contract-token", "10.0.0.18"],
+        candidate_types: ["Rokid.UXR.InputBridge", "SN-CONTRACT-SECRET", "private-contract-wifi", "00:11:22:33:44:55"],
+        message: "contract test package detected with real-contract-token 10.0.0.18 SN-CONTRACT-SECRET private-contract-wifi 00:11:22:33:44:55"
       },
       pose: {
         confidence: 0.93,
@@ -334,15 +368,29 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(Array.isArray(heartbeat.pending_actions), "device heartbeat pending actions missing");
   assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action missing");
   assert(heartbeat.health.severity === "ok", "device heartbeat health severity mismatch");
+  assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage mismatch");
+  assert(heartbeat.sdk_binding_status?.live_binding_ready === false, "device heartbeat SDK binding live flag mismatch");
+  assert(heartbeat.pending_actions.some((action) => action.action_id === "bind_rokid_sdk_live_adapter"), "device heartbeat SDK binding pending action missing");
   assert(heartbeat.next_poll_ms > 0, "device heartbeat next poll mismatch");
   assert(JSON.stringify(heartbeat).includes("10.0.0.18") === false, "device heartbeat leaked IP");
+  assert(JSON.stringify(heartbeat).includes("real-contract-token") === false, "device heartbeat leaked token");
+  assert(JSON.stringify(heartbeat).includes("SN-CONTRACT-SECRET") === false, "device heartbeat leaked serial");
+  assert(JSON.stringify(heartbeat).includes("private-contract-wifi") === false, "device heartbeat leaked SSID");
+  assert(JSON.stringify(heartbeat).includes("00:11:22:33:44:55") === false, "device heartbeat leaked MAC");
 
   const sessions = runtime.sessionsSummary();
   assert(sessions.ok === true, "device sessions ok mismatch");
   assert(sessions.total === 1, "device sessions total mismatch");
   assert(sessions.sessions[0].session_id === register.session_id, "device sessions session mismatch");
   assert(sessions.sessions[0].heartbeat_count === 1, "device sessions heartbeat count mismatch");
+  assert(sessions.sdk_binding?.package_detected_sessions === 1, "device sessions SDK package summary mismatch");
+  assert(sessions.sdk_binding?.live_bound_sessions === 0, "device sessions SDK live summary mismatch");
+  assert(sessions.sessions[0].sdk_binding_status?.stage === "package_detected", "device sessions SDK binding status mismatch");
   assert(JSON.stringify(sessions).includes("10.0.0.18") === false, "device sessions leaked IP");
+  assert(JSON.stringify(sessions).includes("real-contract-token") === false, "device sessions leaked token");
+  assert(JSON.stringify(sessions).includes("SN-CONTRACT-SECRET") === false, "device sessions leaked serial");
+  assert(JSON.stringify(sessions).includes("private-contract-wifi") === false, "device sessions leaked SSID");
+  assert(JSON.stringify(sessions).includes("00:11:22:33:44:55") === false, "device sessions leaked MAC");
 
   const unknownHeartbeat = runtime.heartbeat({
     body: {
@@ -481,7 +529,7 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("private RokidAdapterBoundaryStatus rokidAdapterStatus;"), "Unity controller adapter boundary status missing");
   assert(controller.includes("private IRokidInputStateSink rokidInputStateSink;"), "Unity controller input state sink missing");
   assert(controller.includes("RokidAdapterResolver.Resolve(presentationStrategy)"), "Unity controller adapter resolver missing");
-  assert(controller.includes("RokidUxrBoundary.IsCompiled"), "Unity controller ROKID_UXR environment check missing");
+  assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment check missing");
   assert(controller.includes("apiClient.BootstrapUrl"), "Unity controller bootstrap URL not using client");
   assert(controller.includes("apiClient.SpaceUrl"), "Unity controller space URL not using client");
   assert(controller.includes("apiClient.InteractionsUrl"), "Unity controller interactions URL not using client");
@@ -531,12 +579,13 @@ async function assertRokidSimulatorSkeleton() {
     return "not_required";
   }
 
-  const [models, poseProvider, overlayRenderer, simulatorState, editorInput, boundaryStatus, resolver, fallbackOverlay, uxrInput, uxrOverlay] = await Promise.all([
+  const [models, poseProvider, overlayRenderer, simulatorState, editorInput, bindingProbe, boundaryStatus, resolver, fallbackOverlay, uxrInput, uxrOverlay] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidInputModels.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidOverlayRenderer.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidDeviceSimulatorState.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/EditorRokidInputSource.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/RokidSdkBindingProbe.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterBoundaryStatus.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterResolver.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/FallbackRokidOverlayRenderer.cs"),
@@ -556,12 +605,20 @@ async function assertRokidSimulatorSkeleton() {
   assert(editorInput.includes("EnqueueVoiceText"), "Editor voice text injection missing");
   assert(editorInput.includes("SetAnchorTarget"), "Editor anchor target setter missing");
   assert(editorInput.includes("SetGazeAnchorHit"), "Editor gaze anchor hit sink missing");
+  assert(bindingProbe.includes("innerworld-rokid-sdk-binding/v1"), "Rokid SDK binding schema missing");
+  assert(bindingProbe.includes("public enum RokidSdkBindingStage"), "Rokid SDK binding stage enum missing");
+  assert(bindingProbe.includes("RokidSdkBindingProbe"), "Rokid SDK binding probe missing");
+  assert(bindingProbe.includes("AppDomain.CurrentDomain.GetAssemblies"), "Rokid SDK assembly scan missing");
+  assert(bindingProbe.includes("LiveBindingReady"), "Rokid SDK live binding readiness missing");
   assert(boundaryStatus.includes("public const string DefineSymbol = \"ROKID_UXR\""), "ROKID_UXR define marker missing");
   assert(boundaryStatus.includes("#if ROKID_UXR"), "ROKID_UXR compile guard missing");
+  assert(boundaryStatus.includes("RokidSdkBindingReport"), "Rokid adapter SDK binding report missing");
+  assert(boundaryStatus.includes("IsSdkLiveBindingReady"), "Rokid adapter SDK live flag missing");
   assert(boundaryStatus.includes("public struct RokidAdapterBoundaryStatus"), "Rokid adapter boundary status missing");
   assert(boundaryStatus.includes("public sealed class RokidAdapterResolution"), "Rokid adapter resolution missing");
   assert(resolver.includes("public static class RokidAdapterResolver"), "Rokid adapter resolver missing");
   assert(resolver.includes("#if ROKID_UXR"), "Rokid adapter resolver compile guard missing");
+  assert(resolver.includes("RokidSdkBindingProbe.Detect()"), "Rokid adapter resolver SDK binding probe missing");
   assert(resolver.includes("new RokidUxrInputSource"), "Rokid UXR input adapter factory missing");
   assert(resolver.includes("new RokidUxrOverlayRenderer"), "Rokid UXR overlay adapter factory missing");
   assert(resolver.includes("new EditorRokidInputSource"), "Rokid editor fallback factory missing");
