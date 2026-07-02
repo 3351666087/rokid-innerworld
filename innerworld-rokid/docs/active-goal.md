@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 22:38 Asia/Shanghai
+Updated: 2026-07-02 23:24 Asia/Shanghai
 
 ## Objective
 
@@ -73,6 +73,10 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - `resolveHardwareObservationProof` checks session online state, heartbeat, health, pose, active anchor, SDK boundary/package/input/overlay/live binding readiness, and stores trusted/untrusted evidence in the calibration record. Raw QR/image tracking/SLAM mode alone is only hardware-mode alignment evidence.
 - SQLite summary now computes trusted hardware anchor/session counts separately from raw hardware-mode observations; old stored calibration acceptance payloads are sanitized on read so previous test records cannot leak token/IP/SN/SSID/MAC strings through summaries.
 - Kepler reviewed the SDK binding readiness checkpoint and returned OK to commit/push after the `sdk_binding_status` redaction blocker was fixed.
+- Current implementation checkpoint in progress/completed for this phase: `operator_issued_device_pairing`. The Space Server now exposes `/api/device/pairing` so an operator can issue a short-lived one-time code before a real device registers.
+- Device registration consumes a valid pairing code and marks the session as `operator_paired`; bad codes return 403, used codes cannot be reused, unconsumed codes expire on TTL or service restart, and the plain code is never persisted to SQLite, snapshots, manifests, public summaries, or browser storage.
+- Web/Unity fallback sessions may remain unpaired for rehearsal and protocol testing, but trusted hardware proof and `trusted_hardware_session` acceptance now require `operator_paired_session`; otherwise `device_not_operator_paired` blocks hardware readiness.
+- The Unity protocol contract, shared endpoint map, Web operator console, field acceptance gate, SQLite trusted-evidence fallback, and regression checks now all understand device pairing status and hardware acceptance eligibility.
 
 ## Confirmed Applied Hardware
 

@@ -139,11 +139,12 @@ function trustedHardwareSessionGate(summary) {
       ? "A1/A2/A3 hardware observations are tied to an online Rokid SDK live session."
       : `${trustedIds.length}/3 trusted hardware observations; script-posted tracking modes are not accepted.`,
     source: "/api/device/sessions + /api/calibration/wall runtime.summary.trusted_hardware_*",
-    required: ["online_device_session", "sdk_binding_status.live_binding_ready", "input_binding_ready", "overlay_binding_ready"],
+    required: ["operator_paired_session", "online_device_session", "sdk_binding_status.live_binding_ready", "input_binding_ready", "overlay_binding_ready"],
     evidence: {
       trusted_hardware_ready: trustedReady,
       ready_for_hardware: trustedReady,
       sdk_live_binding_required: summary?.sdk_live_binding_required !== false,
+      operator_pairing_required: true,
       trusted_hardware_calibrated_anchor_count: Number(summary?.trusted_hardware_calibrated_anchor_count) || 0,
       trusted_hardware_calibrated_anchor_ids: trustedIds,
       trusted_hardware_session_count: Number(summary?.trusted_hardware_session_count) || trustedSessions.length,
@@ -335,6 +336,7 @@ export function buildFieldAcceptance({
       trusted_hardware_session_count: Number(trustedHardwareGate?.evidence?.trusted_hardware_session_count) || 0,
       trusted_hardware_ready: trustedHardwareGate?.evidence?.trusted_hardware_ready === true,
       sdk_live_binding_required: trustedHardwareGate?.evidence?.sdk_live_binding_required !== false,
+      operator_pairing_required: trustedHardwareGate?.evidence?.operator_pairing_required === true,
       all_simulator_ready_for_hardware: false,
       simulator_rehearsal_is_not_hardware_ready: true
     },

@@ -225,6 +225,11 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/device/sessions");
         }
 
+        public static string BuildDevicePairingUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/device/pairing");
+        }
+
         public static string BuildWallCalibrationUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/calibration/wall");
@@ -333,6 +338,7 @@ namespace InnerWorld.Rokid.Protocol
                 session_plan = Endpoint(cleanBaseUrl, "GET", "/api/session/plan"),
                 device_bootstrap = Endpoint(cleanBaseUrl, "GET", "/api/device/bootstrap"),
                 device_manifest = Endpoint(cleanBaseUrl, "GET", "/api/device/manifest"),
+                device_pairing = Endpoint(cleanBaseUrl, "POST", "/api/device/pairing"),
                 device_register = Endpoint(cleanBaseUrl, "POST", "/api/device/register"),
                 device_heartbeat = Endpoint(cleanBaseUrl, "POST", "/api/device/heartbeat"),
                 device_sessions = Endpoint(cleanBaseUrl, "GET", "/api/device/sessions"),

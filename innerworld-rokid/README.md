@@ -38,6 +38,8 @@ Field markers are also a runtime contract now: `data/field_markers.json` and `/a
 
 Field acceptance is the current site-readiness bus: `/api/field/acceptance` aggregates print kit, simulator rehearsal, hardware alignment, mission/write-back loop, SQLite ledger, release/deploy chain, and applied Rokid hardware kit into gates that Web, Unity protocol DTOs, checks, and handoff docs can all consume. Simulator/manual observations may clear rehearsal gates, but they never satisfy hardware alignment.
 
+Operator-issued device pairing is now part of the hardware acceptance boundary. `/api/device/pairing` issues a short-lived one-time code for the operator, `/api/device/register` consumes it, and only `operator_paired` live SDK sessions may satisfy trusted hardware evidence. Unconsumed codes expire on TTL or service restart and are never persisted. Unpaired Web/Unity sessions still work for rehearsal, but they cannot make `trusted_hardware_session`, `ready_for_hardware`, or `hardware_acceptance_ready` pass.
+
 ## SQLite Backup
 
 The runtime database is private and git-ignored, but it is not disposable. Create a verified field backup before release packaging, restore tests, or server handoff:

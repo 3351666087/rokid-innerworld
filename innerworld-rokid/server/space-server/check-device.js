@@ -42,6 +42,18 @@ async function postJson(url, label, payload) {
   return body;
 }
 
+async function postJsonStatus(url, label, payload, expectedStatus) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload || {})
+  });
+  assertJsonHeaders(res, label);
+  const body = await res.json();
+  assert(res.status === expectedStatus, `${label} expected status ${expectedStatus} got ${res.status}`);
+  return body;
+}
+
 function assertEndpoint(endpoint, label, method = "GET") {
   assert(endpoint, `${label} endpoint missing`);
   assert(endpoint.method === method, `${label} method check failed`);
@@ -182,6 +194,7 @@ async function main() {
   assertEndpoint(endpoints.field_acceptance, "field_acceptance");
   assertEndpoint(endpoints.device_bootstrap, "device_bootstrap");
   assertEndpoint(endpoints.device_manifest, "device_manifest");
+  assertEndpoint(endpoints.device_pairing, "device_pairing", "POST");
   assertEndpoint(endpoints.device_register, "device_register", "POST");
   assertEndpoint(endpoints.device_heartbeat, "device_heartbeat", "POST");
   assertEndpoint(endpoints.device_sessions, "device_sessions");
@@ -297,6 +310,12 @@ async function main() {
   assert(deviceManifest.runtime_persistence?.dataset_api?.catalog === "/api/datasets/catalog", "device manifest dataset catalog failed");
   assert(deviceManifest.runtime_persistence?.snapshot_schema === "innerworld-device-runtime-snapshot/v1", "device manifest runtime snapshot schema failed");
   assert(deviceManifest.runtime_persistence?.expires_after_ms > deviceManifest.runtime_persistence?.stale_after_ms, "device manifest runtime expiry policy failed");
+  assert(deviceManifest.pairing_contract?.schema === "innerworld-device-pairing/v1", "device manifest pairing schema failed");
+  assert(deviceManifest.pairing_contract?.issue_endpoint === "/api/device/pairing", "device manifest pairing endpoint failed");
+  assert(deviceManifest.pairing_contract?.consume_on === "/api/device/register", "device manifest pairing consume route failed");
+  assert(deviceManifest.pairing_contract?.required_for_hardware_acceptance === true, "device manifest pairing hardware requirement failed");
+  assert(deviceManifest.pairing_contract?.rehearsal_allowed_without_pairing === true, "device manifest pairing rehearsal rule failed");
+  assert(deviceManifest.pairing_contract?.code_persisted === false, "device manifest pairing persistence rule failed");
   assert(Array.isArray(deviceManifest.adapter_slots) && deviceManifest.adapter_slots.length >= 4, "device manifest adapter slots failed");
   assert(deviceManifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema failed");
   assert(deviceManifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define failed");
@@ -328,10 +347,32 @@ async function main() {
   assert(datasetCall.record?.value?.space_id === expectedSpaceId, "dataset call space record failed");
 
   const requiredCapabilities = deviceManifest.required_capabilities.map((capability) => capability.id);
+  const pairing = await postJson(endpoints.device_pairing.url, "device_pairing", {
+    purpose: "hardware_acceptance"
+  });
+  assert(pairing.ok === true, "device pairing ok check failed");
+  assert(pairing.schema === "innerworld-device-pairing/v1", "device pairing schema failed");
+  assert(typeof pairing.pairing_code === "string" && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(pairing.pairing_code), "device pairing code format failed");
+  assert(pairing.required_for_hardware_acceptance === true, "device pairing hardware requirement failed");
+  assert(pairing.code_persisted === false, "device pairing persistence failed");
+  assert(!JSON.stringify({ bootstrap, deviceManifest }).includes(pairing.pairing_code), "pairing code leaked into manifest/bootstrap");
+
+  const badPairing = await postJsonStatus(endpoints.device_register.url, "device_register_bad_pairing", {
+    profile: "rokid-ar",
+    device_id: "RA202 bad pairing",
+    pairing_code: "BAD0-CODE",
+    capabilities: requiredCapabilities
+  }, 403);
+  assert(badPairing.ok === false, "bad pairing register must fail");
+  assert(badPairing.error === "device_pairing_failed", "bad pairing error mismatch");
+  assert(badPairing.pairing?.status === "rejected", "bad pairing status mismatch");
+  assert(!JSON.stringify(badPairing).includes("BAD0-CODE"), "bad pairing response leaked submitted code");
+
   const register = await postJson(endpoints.device_register.url, "device_register", {
     profile: "rokid-ar",
     device_id: "RA202 dev kit #1",
     client_version: "unity-runtime-0.1.0",
+    pairing_code: pairing.pairing_code,
     serial_number: "SN-ABC-SECRET",
     access_token: "real-token-secret",
     capabilities: requiredCapabilities,
@@ -370,7 +411,12 @@ async function main() {
   assert(register.runtime?.snapshot?.ok === true, "device register runtime snapshot failed");
   assert(register.sdk_binding_status?.stage === "boundary_compiled", "device register SDK binding stage failed");
   assert(register.sdk_binding_status?.live_binding_ready === false, "device register SDK binding live flag failed");
+  assert(register.pairing?.status === "operator_paired", "device register pairing status failed");
+  assert(register.pairing?.required_for_hardware_acceptance === true, "device register pairing hardware requirement failed");
+  assert(register.pairing?.code_persisted === false, "device register pairing persistence failed");
+  assert(register.hardware_acceptance_eligible === true, "device register hardware acceptance eligibility failed");
   const registerText = JSON.stringify(register);
+  assert(!registerText.includes(pairing.pairing_code), "device register leaked pairing code");
   assert(!registerText.includes("SN-ABC-SECRET"), "device register leaked serial");
   assert(!registerText.includes("real-token-secret"), "device register leaked token");
   assert(!registerText.includes("10.0.0.18"), "device register leaked IP");
@@ -424,10 +470,13 @@ async function main() {
   assert(heartbeat.health?.severity === "ok", "device heartbeat health severity failed");
   assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage failed");
   assert(heartbeat.sdk_binding_status?.live_binding_ready === false, "device heartbeat SDK binding live flag failed");
+  assert(heartbeat.pairing?.status === "operator_paired", "device heartbeat pairing status failed");
+  assert(heartbeat.hardware_acceptance_eligible === true, "device heartbeat hardware eligibility failed");
   assert(heartbeat.runtime?.session_status === "online", "device heartbeat runtime session status failed");
   assert(heartbeat.runtime?.snapshot?.ok === true, "device heartbeat runtime snapshot failed");
   assert(heartbeat.next_poll_ms > 0, "device heartbeat next poll failed");
   assert(!JSON.stringify(heartbeat).includes("10.0.0.18"), "device heartbeat leaked IP");
+  assert(!JSON.stringify(heartbeat).includes(pairing.pairing_code), "device heartbeat leaked pairing code");
   assert(!JSON.stringify(heartbeat).includes("real-token-secret"), "device heartbeat leaked token");
   assert(!JSON.stringify(heartbeat).includes("SN-ABC-SECRET"), "device heartbeat leaked serial");
   assert(!JSON.stringify(heartbeat).includes("private-demo-wifi"), "device heartbeat leaked SSID");
@@ -438,6 +487,11 @@ async function main() {
   assert(sessions.total >= 1, "device sessions total check failed");
   assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.heartbeat_count === 1), "device sessions summary failed");
   assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.session_status === "online"), "device sessions online status failed");
+  assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.pairing_status === "operator_paired"), "device sessions pairing status failed");
+  assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.hardware_acceptance_eligible === true), "device sessions hardware eligibility failed");
+  assert(sessions.pairing?.paired_sessions >= 1, "device sessions pairing summary failed");
+  assert(sessions.pairing?.required_for_hardware_acceptance === true, "device sessions pairing hardware requirement failed");
+  assert(sessions.smoke_test_summary?.checks?.has_operator_paired_session === true, "device sessions paired smoke summary failed");
   assert(sessions.devices?.some((device) => device.device_id === register.device_id), "device sessions device registry failed");
   assert(sessions.events?.some((event) => event.type === "device_heartbeat"), "device sessions event log failed");
   assert(sessions.smoke_test_summary?.checks?.has_live_session === true, "device sessions smoke summary failed");
@@ -446,6 +500,7 @@ async function main() {
   assert(sessions.sdk_binding?.live_bound_sessions === 0, "device sessions SDK live summary failed");
   assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.sdk_binding_status?.stage === "package_detected"), "device sessions SDK binding stage failed");
   assert(!JSON.stringify(sessions).includes("10.0.0.18"), "device sessions leaked IP");
+  assert(!JSON.stringify(sessions).includes(pairing.pairing_code), "device sessions leaked pairing code");
   assert(!JSON.stringify(sessions).includes("real-token-secret"), "device sessions leaked token");
   assert(!JSON.stringify(sessions).includes("SN-ABC-SECRET"), "device sessions leaked serial");
   assert(!JSON.stringify(sessions).includes("private-demo-wifi"), "device sessions leaked SSID");
@@ -559,6 +614,7 @@ async function main() {
     device_manifest_schema: deviceManifest.schema,
     device_session_id: register.session_id,
     device_health: heartbeat.health.severity,
+    device_pairing: register.pairing.status,
     device_sessions: sessions.total,
     device_runtime_events: sessions.events.length,
     device_smoke_live_sessions: sessions.smoke_test_summary.sessions_online,

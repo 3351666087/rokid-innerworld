@@ -147,10 +147,13 @@ function assertAcceptancePayload(payload) {
   assert(payload.summary?.ready_for_hardware === false || payload.summary?.trusted_hardware_session_count > 0, "hardware ready requires trusted live SDK session");
   assert(payload.summary?.trusted_hardware_ready === payload.summary?.ready_for_hardware, "trusted hardware readiness must drive top-level hardware readiness");
   assert(payload.summary?.sdk_live_binding_required === true, "SDK live binding must be required for hardware readiness");
+  assert(payload.summary?.operator_pairing_required === true, "operator pairing must be required for hardware readiness");
   assert(payload.summary?.simulator_rehearsal_is_not_hardware_ready === true, "simulator rehearsal hardware separation missing");
   assert(hardware.evidence?.hardware_alignment_ready === (hardware.status === "ready"), "hardware alignment gate evidence mismatch");
   assert(trusted.evidence?.ready_for_hardware === payload.summary.ready_for_hardware, "trusted hardware summary and gate evidence mismatch");
   assert(trusted.evidence?.sdk_live_binding_required === true, "trusted hardware gate must require SDK live binding");
+  assert(trusted.evidence?.operator_pairing_required === true, "trusted hardware gate must require operator pairing");
+  assert(Array.isArray(trusted.required) && trusted.required.includes("operator_paired_session"), "trusted hardware gate missing operator paired requirement");
   assert(Array.isArray(trusted.evidence?.trusted_hardware_sessions), "trusted hardware sessions evidence missing");
   assert(Array.isArray(trusted.evidence?.untrusted_hardware_anchor_ids), "untrusted hardware anchors evidence missing");
   assert(hardware.evidence?.hardware_tracking_modes?.includes("simulator") === false, "hardware evidence modes must exclude simulator");
@@ -322,6 +325,8 @@ function hardwareReadyWallCalibration(space) {
           session_status: "online",
           sdk_binding_stage: "live_binding_ready",
           live_binding_ready: true,
+          pairing_status: "operator_paired",
+          hardware_acceptance_eligible: true,
           last_seen_at: "2026-07-02T00:05:01.000Z",
           heartbeat_count: 2
         }

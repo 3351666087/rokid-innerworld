@@ -434,6 +434,9 @@ function checkStaticSources(sources) {
     { name: "field marker contract details", ok: sources.js.includes("A1:qr-entry") && sources.js.includes("A2:image-target") && sources.js.includes("A3:image-target") && sources.js.includes("trackingModesLabel") && sources.js.includes("expected_pose") },
     { name: "dynamic SDK binding rendering", ok: sources.js.includes("renderSdkBindingReadiness") },
     { name: "SDK binding status contract", ok: sources.js.includes("sdk_binding_status") && sources.js.includes("ROKID_UXR boundary") },
+    { name: "device pairing endpoint contract", ok: sources.js.includes("/api/device/pairing") && sources.js.includes("issueDevicePairing") },
+    { name: "device pairing status rendering", ok: sources.js.includes("devicePairingSummary") && sources.js.includes("pairing_status") && sources.js.includes("hardware_acceptance_eligible") && sources.js.includes("required_for_hardware_acceptance") && sources.js.includes("pairing.expires_at") },
+    { name: "device pairing no local persistence", ok: !/localStorage|sessionStorage/i.test(sources.js) && sources.js.includes("held only in page memory") },
     { name: "dynamic agent trace/log rendering", ok: sources.js.includes("renderLog") }
   ];
 

@@ -62,6 +62,7 @@ function assertEndpointMap(endpoints) {
     field_markers: ["GET", "/api/field/markers"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
     device_manifest: ["GET", "/api/device/manifest"],
+    device_pairing: ["POST", "/api/device/pairing"],
     device_register: ["POST", "/api/device/register"],
     device_heartbeat: ["POST", "/api/device/heartbeat"],
     device_sessions: ["GET", "/api/device/sessions"],
@@ -258,6 +259,11 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(manifest.runtime_persistence.authoritative_store === "SQLite data/innerworld.sqlite", "device manifest SQLite store mismatch");
   assert(manifest.runtime_persistence.dataset_api.catalog === "/api/datasets/catalog", "device manifest dataset catalog mismatch");
   assert(manifest.runtime_persistence.dataset_api.call === "/api/datasets/call", "device manifest dataset call mismatch");
+  assert(manifest.pairing_contract?.schema === "innerworld-device-pairing/v1", "device manifest pairing schema mismatch");
+  assert(manifest.pairing_contract?.issue_endpoint === "/api/device/pairing", "device manifest pairing endpoint mismatch");
+  assert(manifest.pairing_contract?.consume_on === "/api/device/register", "device manifest pairing consume route mismatch");
+  assert(manifest.pairing_contract?.required_for_hardware_acceptance === true, "device manifest pairing hardware requirement mismatch");
+  assert(manifest.pairing_contract?.code_persisted === false, "device manifest pairing persistence mismatch");
   assert(manifest.adapter_slots.length >= 4, "device manifest adapter slots mismatch");
   assert(manifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema mismatch");
   assert(manifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define mismatch");
@@ -270,11 +276,20 @@ function assertDeviceRuntimeContract(space, aiSchema) {
 
   const runtime = createDeviceRuntimeStore();
   const capabilities = manifest.required_capabilities.map((capability) => capability.id);
+  const pairing = runtime.issuePairing({
+    body: { purpose: "hardware_acceptance" },
+    createdAt: new Date("2026-07-02T00:00:01.000Z")
+  });
+  assert(pairing.ok === true, "device pairing issue ok mismatch");
+  assert(pairing.schema === "innerworld-device-pairing/v1", "device pairing schema mismatch");
+  assert(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(pairing.pairing_code), "device pairing code format mismatch");
+  assert(pairing.code_persisted === false, "device pairing code persistence mismatch");
   const register = runtime.register({
     body: {
       profile: "rokid-ar",
       device_id: "RA202 dev kit #1",
       client_version: "unity-runtime-0.1.0",
+      pairing_code: pairing.pairing_code,
       serial_number: "SN-CONTRACT-SECRET",
       access_token: "real-contract-token",
       capabilities,
@@ -319,7 +334,10 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(register.mission_snapshot.space_id === INNERWORLD_SPACE_ID, "device register mission snapshot mismatch");
   assert(register.sdk_binding_status?.stage === "boundary_compiled", "device register SDK binding stage mismatch");
   assert(register.sdk_binding_status?.live_binding_ready === false, "device register SDK binding live flag mismatch");
+  assert(register.pairing?.status === "operator_paired", "device register pairing mismatch");
+  assert(register.hardware_acceptance_eligible === true, "device register hardware eligibility mismatch");
   const registerJson = JSON.stringify(register);
+  assert(registerJson.includes(pairing.pairing_code) === false, "device register leaked pairing code");
   assert(registerJson.includes("SN-CONTRACT-SECRET") === false, "device register leaked serial");
   assert(registerJson.includes("real-contract-token") === false, "device register leaked token");
   assert(registerJson.includes("10.0.0.18") === false, "device register leaked IP");
@@ -379,10 +397,13 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action missing");
   assert(heartbeat.health.severity === "ok", "device heartbeat health severity mismatch");
   assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage mismatch");
+  assert(heartbeat.pairing?.status === "operator_paired", "device heartbeat pairing mismatch");
+  assert(heartbeat.hardware_acceptance_eligible === true, "device heartbeat hardware eligibility mismatch");
   assert(heartbeat.sdk_binding_status?.live_binding_ready === false, "device heartbeat SDK binding live flag mismatch");
   assert(heartbeat.pending_actions.some((action) => action.action_id === "bind_rokid_sdk_live_adapter"), "device heartbeat SDK binding pending action missing");
   assert(heartbeat.next_poll_ms > 0, "device heartbeat next poll mismatch");
   assert(JSON.stringify(heartbeat).includes("10.0.0.18") === false, "device heartbeat leaked IP");
+  assert(JSON.stringify(heartbeat).includes(pairing.pairing_code) === false, "device heartbeat leaked pairing code");
   assert(JSON.stringify(heartbeat).includes("real-contract-token") === false, "device heartbeat leaked token");
   assert(JSON.stringify(heartbeat).includes("SN-CONTRACT-SECRET") === false, "device heartbeat leaked serial");
   assert(JSON.stringify(heartbeat).includes("private-contract-wifi") === false, "device heartbeat leaked SSID");
@@ -393,6 +414,10 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(sessions.total === 1, "device sessions total mismatch");
   assert(sessions.sessions[0].session_id === register.session_id, "device sessions session mismatch");
   assert(sessions.sessions[0].heartbeat_count === 1, "device sessions heartbeat count mismatch");
+  assert(sessions.sessions[0].pairing_status === "operator_paired", "device sessions pairing mismatch");
+  assert(sessions.sessions[0].hardware_acceptance_eligible === true, "device sessions hardware eligibility mismatch");
+  assert(sessions.pairing?.paired_sessions === 1, "device sessions pairing summary mismatch");
+  assert(sessions.smoke_test_summary?.checks?.has_operator_paired_session === true, "device sessions smoke pairing mismatch");
   assert(sessions.sdk_binding?.package_detected_sessions === 1, "device sessions SDK package summary mismatch");
   assert(sessions.sdk_binding?.live_bound_sessions === 0, "device sessions SDK live summary mismatch");
   assert(sessions.sessions[0].sdk_binding_status?.stage === "package_detected", "device sessions SDK binding status mismatch");
@@ -681,6 +706,7 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("BuildBootstrapUrl"), "Unity bootstrap URL builder missing");
   assert(client.includes("/api/device/bootstrap"), "Unity bootstrap route missing");
   assert(client.includes("DeviceRegisterUrl"), "Unity device register URL property missing");
+  assert(client.includes("BuildDevicePairingUrl"), "Unity device pairing URL builder missing");
   assert(client.includes("DeviceHeartbeatUrl"), "Unity device heartbeat URL property missing");
   assert(client.includes("WallCalibrationUrl"), "Unity wall calibration URL property missing");
   assert(client.includes("WallCalibrationObservationsUrl"), "Unity wall calibration observations URL property missing");
@@ -700,6 +726,7 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("service_actions = Endpoint(cleanBaseUrl, \"POST\", \"/api/service-actions\")"), "Unity service_actions endpoint mismatch");
   assert(client.includes("service_actions_outbox = Endpoint(cleanBaseUrl, \"GET\", \"/api/service-actions/outbox\")"), "Unity service_actions_outbox endpoint mismatch");
   assert(client.includes("device_heartbeat = Endpoint(cleanBaseUrl, \"POST\", \"/api/device/heartbeat\")"), "Unity device heartbeat endpoint mismatch");
+  assert(client.includes("device_pairing = Endpoint(cleanBaseUrl, \"POST\", \"/api/device/pairing\")"), "Unity device pairing endpoint mismatch");
   assert(client.includes("wall_calibration = Endpoint(cleanBaseUrl, \"GET\", \"/api/calibration/wall\")"), "Unity wall calibration endpoint mismatch");
   assert(client.includes("wall_calibration_observations = Endpoint(cleanBaseUrl, \"POST\", \"/api/calibration/observations\")"), "Unity wall calibration observations endpoint mismatch");
   assert(client.includes("write_back = Endpoint(cleanBaseUrl, \"POST\", writeBackPath)"), "Unity write_back endpoint mismatch");
@@ -909,6 +936,7 @@ async function main() {
   assert(typeof client.getLedgerEvents === "function", "client ledger events method missing");
   assert(typeof client.getDeviceBootstrap === "function", "client bootstrap method missing");
   assert(typeof client.getDeviceManifest === "function", "client device manifest method missing");
+  assert(typeof client.issueDevicePairing === "function", "client device pairing method missing");
   assert(typeof client.registerDevice === "function", "client device register method missing");
   assert(typeof client.sendDeviceHeartbeat === "function", "client device heartbeat method missing");
   assert(typeof client.getDeviceSessions === "function", "client device sessions method missing");
@@ -929,6 +957,7 @@ async function main() {
   assert(client.endpoints().wall_calibration.path === "/api/calibration/wall", "client wall calibration endpoint mismatch");
   assert(client.endpoints().wall_calibration_observations.path === "/api/calibration/observations", "client wall calibration observations endpoint mismatch");
   assert(client.endpoints().field_markers.path === "/api/field/markers", "client field markers endpoint mismatch");
+  assert(client.endpoints().device_pairing.path === "/api/device/pairing", "client device pairing endpoint mismatch");
   assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");
   assert(client.endpoints().service_actions_outbox.path === "/api/service-actions/outbox", "client service actions outbox endpoint mismatch");
   assert(client.endpoints().service_action_ack_template.path === "/api/service-actions/{action_record_id}/ack", "client service action ack template endpoint mismatch");

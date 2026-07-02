@@ -653,6 +653,9 @@ export async function createSqliteStore({
   function trustedHardwareSessionForObservation(observation, referenceTime = new Date()) {
     const proof = observation?.acceptance?.hardware_session || null;
     if (proof?.trusted === true) {
+      if (proof.hardware_acceptance_eligible !== true || proof.pairing_status_at_observation !== "operator_paired") {
+        return null;
+      }
       return {
         session_id: proof.session_id || observation.session_id,
         device_id: proof.device_id || observation.device_id,
@@ -660,6 +663,8 @@ export async function createSqliteStore({
         session_status: proof.session_status_at_observation || "online",
         sdk_binding_stage: proof.sdk_binding_stage || "live_binding_ready",
         live_binding_ready: true,
+        pairing_status: proof.pairing_status_at_observation || "operator_paired",
+        hardware_acceptance_eligible: proof.hardware_acceptance_eligible === true,
         last_seen_at: proof.session_last_seen_at || null,
         heartbeat_count: Number(proof.heartbeat_count_at_observation || 0)
       };
@@ -680,7 +685,8 @@ export async function createSqliteStore({
     const sdk = session.sdk_binding_status || {};
     const online = getDeviceSessionStatus(session, referenceTime) === "online";
     const live = sdk.live_binding_ready === true && sdk.input_binding_ready === true && sdk.overlay_binding_ready === true;
-    if (!online || !live) {
+    const paired = session.pairing_status === "operator_paired" && session.hardware_acceptance_eligible === true;
+    if (!online || !live || !paired) {
       return null;
     }
 
@@ -691,6 +697,8 @@ export async function createSqliteStore({
       session_status: getDeviceSessionStatus(session, referenceTime),
       sdk_binding_stage: sdk.stage || "unknown",
       live_binding_ready: true,
+      pairing_status: session.pairing_status || "unpaired",
+      hardware_acceptance_eligible: session.hardware_acceptance_eligible === true,
       last_seen_at: session.last_seen_at || null,
       heartbeat_count: Number(session.heartbeat_count || 0)
     };

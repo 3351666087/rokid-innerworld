@@ -50,7 +50,9 @@ const requiredCombinedDirection = [
   "field_markers",
   "/api/field/acceptance",
   "innerworld-field-acceptance/v1",
-  "trusted_hardware_session"
+  "trusted_hardware_session",
+  "operator_paired_session",
+  "/api/device/pairing"
 ];
 
 const requiredWebModules = [
@@ -80,6 +82,7 @@ const requiredContractTokens = [
   "wall_calibration_observations",
   "field_markers",
   "field_acceptance",
+  "device_pairing",
   "service_actions_outbox",
   "service_action_ack_template",
   "ai_hud",

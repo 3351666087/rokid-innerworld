@@ -11,6 +11,7 @@ import {
   missionSteps,
   normalizeMissionState
 } from "../../../../shared/innerworld-contract.js";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -23,8 +24,11 @@ const SESSION_EXPIRES_AFTER_MS = 60_000;
 const DEVICE_RUNTIME_SNAPSHOT_SCHEMA = "innerworld-device-runtime-snapshot/v1";
 const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "output", "runtime", "device-runtime-snapshot.json");
 const ROKID_SDK_BINDING_SCHEMA = "innerworld-rokid-sdk-binding/v1";
+const DEVICE_PAIRING_SCHEMA = "innerworld-device-pairing/v1";
 const ROKID_UXR_DEFINE_SYMBOL = "ROKID_UXR";
 const HARDWARE_OBSERVATION_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
+const DEVICE_PAIRING_TTL_MS = 10 * 60 * 1000;
+const DEVICE_PAIRING_CODE_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 
 const SDK_BINDING_STAGES = Object.freeze([
   "fallback_only",
@@ -207,6 +211,42 @@ function sanitizeProofId(value, maxLength = 64) {
   return trimText(redacted, maxLength)
     .replace(/[^\w.:-]+/g, "-")
     .replace(/^-+|-+$/g, "") || null;
+}
+
+function sanitizePairingCode(value) {
+  const clean = trimText(value, 32).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (clean.length === 8) return `${clean.slice(0, 4)}-${clean.slice(4)}`;
+  const dashed = trimText(value, 32).toUpperCase();
+  return DEVICE_PAIRING_CODE_PATTERN.test(dashed) ? dashed : "";
+}
+
+function pairingCodeHash(code) {
+  return crypto.createHash("sha256").update(`innerworld-device-pairing:${code}`).digest("hex");
+}
+
+function pairingExpiresAt(issuedAt) {
+  return new Date(issuedAt.getTime() + DEVICE_PAIRING_TTL_MS).toISOString();
+}
+
+function createPairingCode() {
+  return crypto.randomBytes(4).toString("hex").toUpperCase().replace(/^(.{4})(.{4})$/, "$1-$2");
+}
+
+function publicPairingState(pairing) {
+  const status = pairing?.status || "unpaired";
+  return {
+    schema: DEVICE_PAIRING_SCHEMA,
+    status,
+    paired: status === "operator_paired",
+    required_for_hardware_acceptance: true,
+    pairing_id: pairing?.pairing_id || null,
+    issued_at: pairing?.issued_at || null,
+    paired_at: pairing?.paired_at || null,
+    expires_at: pairing?.expires_at || null,
+    method: pairing?.method || "operator_issued_code",
+    code_persisted: false,
+    privacy: "Pairing codes are one-time operator handoff secrets. The code is returned only on issue and is never persisted in sessions, SQLite, snapshots, or summaries."
+  };
 }
 
 function normalizeSdkBindingStage(value, fallback = "fallback_only") {
@@ -592,6 +632,7 @@ function buildPendingActions({ capabilityStatus, network, battery, activeAnchorK
 function endpointSubset(endpoints) {
   return {
     manifest: endpoints.device_manifest,
+    pairing: endpoints.device_pairing,
     register: endpoints.device_register,
     heartbeat: endpoints.device_heartbeat,
     sessions: endpoints.device_sessions,
@@ -755,6 +796,7 @@ export function buildDeviceRuntimeSmokeSummary({
   const readySession = sessionRows.some((session) => {
     return getDeviceSessionStatus(session, generatedAt) !== "expired" && session.last_health_severity === "ok";
   });
+  const pairedSessions = sessionRows.filter((session) => session.pairing_status === "operator_paired").length;
 
   return {
     ok: readySession && (snapshot?.ok !== false),
@@ -764,6 +806,7 @@ export function buildDeviceRuntimeSmokeSummary({
     sessions_online: statusCounts.online || 0,
     sessions_stale: statusCounts.stale || 0,
     sessions_expired: statusCounts.expired || 0,
+    sessions_operator_paired: pairedSessions,
     recent_event_count: recentEvents.length,
     recent_events: recentEvents,
     snapshot: snapshot
@@ -778,6 +821,7 @@ export function buildDeviceRuntimeSmokeSummary({
       has_registered_device: devices.size > 0,
       has_live_session: (statusCounts.online || 0) > 0,
       has_healthy_session: readySession,
+      has_operator_paired_session: pairedSessions > 0,
       snapshot_available: snapshot ? snapshot.ok !== false : false
     },
     sdk_binding: summarizeSdkBindingAcrossSessions(sessionRows)
@@ -794,6 +838,7 @@ export function createDeviceRuntimeStore({
   const devices = restored?.restored ? restored.devices : new Map();
   const sessions = restored?.restored ? restored.sessions : new Map();
   const events = restored?.restored ? restored.events : [];
+  const activePairings = new Map();
   let lastSnapshot = restored?.restored
     ? {
         ok: true,
@@ -824,6 +869,107 @@ export function createDeviceRuntimeStore({
     for (const session of sorted.slice(0, sessions.size - SESSION_RETENTION_LIMIT)) {
       sessions.delete(session.session_id);
     }
+  }
+
+  function prunePairings(referenceTime = new Date()) {
+    for (const [hash, pairing] of activePairings.entries()) {
+      if (pairing.consumed_at || new Date(pairing.expires_at).getTime() <= referenceTime.getTime()) {
+        activePairings.delete(hash);
+      }
+    }
+  }
+
+  function issuePairing({ body = {}, createdAt = new Date() } = {}) {
+    prunePairings(createdAt);
+    const code = createPairingCode();
+    const pairing = {
+      pairing_id: `pair-${createdAt.getTime().toString(36)}-${crypto.randomBytes(3).toString("hex")}`,
+      code_hash: pairingCodeHash(code),
+      status: "issued",
+      method: "operator_issued_code",
+      purpose: sanitizeEnumText(body.purpose, 40) || "hardware_acceptance",
+      issued_at: createdAt.toISOString(),
+      expires_at: pairingExpiresAt(createdAt),
+      consumed_at: null
+    };
+    activePairings.set(pairing.code_hash, pairing);
+    addRuntimeEvent(events, {
+      at: createdAt,
+      type: "device_pairing_issued",
+      severity: "info",
+      summary: "Operator issued a one-time device pairing code for hardware acceptance.",
+      details: {
+        pairing_id: pairing.pairing_id,
+        purpose: pairing.purpose,
+        expires_at: pairing.expires_at,
+        code_persisted: false
+      }
+    });
+    const snapshot = persist(createdAt);
+    return {
+      ok: true,
+      schema: DEVICE_PAIRING_SCHEMA,
+      pairing_id: pairing.pairing_id,
+      pairing_code: code,
+      expires_at: pairing.expires_at,
+      expires_after_ms: DEVICE_PAIRING_TTL_MS,
+      consume_on: "/api/device/register",
+      required_for_hardware_acceptance: true,
+      code_persisted: false,
+      runtime: { snapshot },
+      privacy: "Show this code to the device operator once. It is stored only as a SHA-256 hash until consumed or expired."
+    };
+  }
+
+  function consumePairing(body = {}, referenceTime = new Date()) {
+    prunePairings(referenceTime);
+    const code = sanitizePairingCode(body.pairing_code || body.pairingCode || body.pairing?.code);
+    if (!code) {
+      return {
+        status: "unpaired",
+        paired: false,
+        issues: ["pairing_code_missing"]
+      };
+    }
+
+    const hash = pairingCodeHash(code);
+    const pairing = activePairings.get(hash);
+    if (!pairing) {
+      return {
+        status: "rejected",
+        paired: false,
+        issues: ["pairing_code_unknown_or_expired"]
+      };
+    }
+    if (pairing.consumed_at) {
+      activePairings.delete(hash);
+      return {
+        status: "rejected",
+        paired: false,
+        issues: ["pairing_code_already_consumed"]
+      };
+    }
+    if (new Date(pairing.expires_at).getTime() <= referenceTime.getTime()) {
+      activePairings.delete(hash);
+      return {
+        status: "rejected",
+        paired: false,
+        issues: ["pairing_code_expired"]
+      };
+    }
+
+    pairing.consumed_at = referenceTime.toISOString();
+    activePairings.delete(hash);
+    return {
+      status: "operator_paired",
+      paired: true,
+      pairing_id: pairing.pairing_id,
+      issued_at: pairing.issued_at,
+      paired_at: referenceTime.toISOString(),
+      expires_at: pairing.expires_at,
+      method: pairing.method,
+      issues: []
+    };
   }
 
   function upsertDevice({ deviceId, profile, clientVersion, capabilities, capabilityStatus, network, sdkBindingStatus, timestamp }) {
@@ -909,6 +1055,7 @@ export function createDeviceRuntimeStore({
     if (session && Number(session.heartbeat_count || 0) <= 0) issues.push("device_heartbeat_missing");
     if (session && session.last_health_severity !== "ok") issues.push("device_health_not_ok");
     if (session && !session.last_pose_present) issues.push("device_pose_not_reported");
+    if (session && session.pairing_status !== "operator_paired") issues.push("device_not_operator_paired");
     if (session && cleanAnchorId && session.last_active_anchor && session.last_active_anchor !== cleanAnchorId) {
       issues.push("active_anchor_mismatch");
     }
@@ -932,6 +1079,8 @@ export function createDeviceRuntimeStore({
       session_last_seen_at: session?.last_seen_at || null,
       heartbeat_count_at_observation: Number(session?.heartbeat_count || 0),
       active_anchor_at_observation: session?.last_active_anchor || null,
+      pairing_status_at_observation: session?.pairing_status || "missing",
+      hardware_acceptance_eligible: session?.hardware_acceptance_eligible === true,
       sdk_binding_stage: sdkBindingStatus.stage || "unknown",
       sdk_live_binding_ready: sdkBindingStatus.live_binding_ready === true,
       sdk_input_binding_ready: sdkBindingStatus.input_binding_ready === true,
@@ -951,6 +1100,17 @@ export function createDeviceRuntimeStore({
     const network = sanitizeNetwork(body.network);
     const clientVersion = sanitizeClientVersion(body.client_version);
     const sdkBindingStatus = sanitizeSdkBindingStatus(body.sdk_binding_status || body.adapter_binding || body.binding_status);
+    const pairing = consumePairing(body, createdAt);
+    if (pairing.status === "rejected") {
+      return {
+        ok: false,
+        error: "device_pairing_failed",
+        status: 403,
+        issues: pairing.issues,
+        pairing: publicPairingState(pairing),
+        privacy: "Pairing codes are never echoed back or stored in public responses."
+      };
+    }
     const sessionId = generateSessionId(createdAt);
     const warnings = buildWarnings({ capabilities, network, profile, sdkBindingStatus });
     const missionSnapshot = buildMissionSnapshot(space, state);
@@ -970,6 +1130,9 @@ export function createDeviceRuntimeStore({
       last_battery: null,
       last_pose_present: false,
       sdk_binding_status: sdkBindingStatus,
+      pairing_status: pairing.status,
+      pairing: publicPairingState(pairing),
+      hardware_acceptance_eligible: pairing.status === "operator_paired",
       current_user: null
     };
 
@@ -995,7 +1158,9 @@ export function createDeviceRuntimeStore({
         missing_required_capabilities: capabilityStatus.missing_required,
         network_online: network?.online ?? null,
         lan_reachable: network?.lan_reachable ?? null,
-        sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus)
+        sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus),
+        pairing_status: pairing.status,
+        hardware_acceptance_eligible: pairing.status === "operator_paired"
       }
     });
     pruneSessions();
@@ -1019,6 +1184,8 @@ export function createDeviceRuntimeStore({
       endpoints: endpointSubset(endpoints),
       capabilities: capabilityStatus,
       sdk_binding_status: sdkBindingStatus,
+      pairing: publicPairingState(pairing),
+      hardware_acceptance_eligible: pairing.status === "operator_paired",
       mission_snapshot: missionSnapshot,
       warnings,
       runtime: {
@@ -1062,6 +1229,7 @@ export function createDeviceRuntimeStore({
     const sdkBindingStatus = body.sdk_binding_status || body.adapter_binding || body.binding_status
       ? sanitizeSdkBindingStatus(body.sdk_binding_status || body.adapter_binding || body.binding_status)
       : session.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported");
+    const pairing = session.pairing || publicPairingState({ status: session.pairing_status || "unpaired" });
     const activeAnchorKnown = !activeAnchor || anchors(space).some((anchor) => anchor.anchor_id === activeAnchor);
     const missionSnapshot = buildMissionSnapshot(space, state, activeAnchor);
     const capabilityStatus = session.capability_status;
@@ -1107,7 +1275,9 @@ export function createDeviceRuntimeStore({
         battery_level_percent: battery?.level_percent ?? null,
         network_online: network?.online ?? null,
         pose_present: Boolean(pose),
-        sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus)
+        sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus),
+        pairing_status: session.pairing_status || "unpaired",
+        hardware_acceptance_eligible: session.hardware_acceptance_eligible === true
       }
     });
     sessionStore?.saveDeviceSession?.(session);
@@ -1134,9 +1304,12 @@ export function createDeviceRuntimeStore({
         pose_status: pose ? "received" : "not_reported",
         active_anchor_known: activeAnchorKnown,
         missing_required_capabilities: capabilityStatus.missing_required,
-        sdk_binding_status: sdkBindingStatus
+        sdk_binding_status: sdkBindingStatus,
+        pairing_status: session.pairing_status || "unpaired"
       },
       sdk_binding_status: sdkBindingStatus,
+      pairing,
+      hardware_acceptance_eligible: session.hardware_acceptance_eligible === true,
       runtime: {
         session_status: getDeviceSessionStatus(session, receivedAt),
         expires_at: sessionExpiresAt(session),
@@ -1174,7 +1347,10 @@ export function createDeviceRuntimeStore({
           lan_reachable: session.network?.lan_reachable ?? null
         },
         sdk_binding_status: session.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
-        pose_present: Boolean(session.last_pose_present)
+        pose_present: Boolean(session.last_pose_present),
+        pairing_status: session.pairing_status || "unpaired",
+        pairing: session.pairing || publicPairingState({ status: session.pairing_status || "unpaired" }),
+        hardware_acceptance_eligible: session.hardware_acceptance_eligible === true
       }));
     const deviceRows = Array.from(devices.values())
       .sort((a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime())
@@ -1190,7 +1366,10 @@ export function createDeviceRuntimeStore({
         missing_required_capabilities: device.capability_status?.missing_required || [],
         active_anchor: device.last_active_anchor,
         battery_level_percent: device.last_battery?.level_percent ?? null,
-        sdk_binding_status: device.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported")
+        sdk_binding_status: device.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
+        paired_session_count: Array.from(sessions.values()).filter((session) => {
+          return session.device_id === device.device_id && session.pairing_status === "operator_paired";
+        }).length
       }));
     const summary = buildDeviceRuntimeSmokeSummary({
       devices,
@@ -1213,6 +1392,14 @@ export function createDeviceRuntimeStore({
       sessions: rows,
       events: events.slice(-20),
       sdk_binding: summarizeSdkBindingAcrossSessions(rows),
+      pairing: {
+        schema: DEVICE_PAIRING_SCHEMA,
+        required_for_hardware_acceptance: true,
+        active_issued_codes: activePairings.size,
+        paired_sessions: rows.filter((session) => session.pairing_status === "operator_paired").length,
+        unpaired_sessions: rows.filter((session) => session.pairing_status !== "operator_paired").length,
+        code_persisted: false
+      },
       smoke_test_summary: summary,
       retention: {
         stale_after_ms: SESSION_STALE_AFTER_MS,
@@ -1225,6 +1412,7 @@ export function createDeviceRuntimeStore({
   }
 
   return {
+    issuePairing,
     register,
     heartbeat,
     sessionsSummary,
@@ -1294,6 +1482,16 @@ export function buildDeviceManifest({
       lan_mode: "Use HOST=0.0.0.0 and the Windows host IP only during field device testing.",
       cleartext_http: "Required for the local dev profile unless an HTTPS reverse proxy is supplied.",
       private_data_policy: "Do not send or store SSID, MAC, IP address, phone, serial number, or real access tokens."
+    },
+    pairing_contract: {
+      schema: DEVICE_PAIRING_SCHEMA,
+      issue_endpoint: endpoints.device_pairing.path,
+      consume_on: endpoints.device_register.path,
+      ttl_ms: DEVICE_PAIRING_TTL_MS,
+      required_for_hardware_acceptance: true,
+      rehearsal_allowed_without_pairing: true,
+      code_persisted: false,
+      operator_rule: "Issue a one-time pairing code on the Windows host before registering RA202/RAS201 for hardware acceptance. Web/Unity fallback may register unpaired rehearsal sessions, but unpaired sessions cannot satisfy trusted hardware evidence."
     },
     runtime_persistence: {
       authoritative_store: "SQLite data/innerworld.sqlite",

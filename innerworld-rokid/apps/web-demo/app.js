@@ -26,6 +26,9 @@ const api = {
   async getDeviceSessions() {
     return requestJson("/api/device/sessions", { cache: "no-store" }, "读取设备会话失败");
   },
+  async issueDevicePairing(payload) {
+    return requestJson("/api/device/pairing", jsonPost(payload), "Issue device pairing failed");
+  },
   async getWallCalibration() {
     return requestJson("/api/calibration/wall", { cache: "no-store" }, "读取展墙标定失败");
   },
@@ -86,6 +89,8 @@ const model = {
   deviceManifest: null,
   deviceSessions: null,
   deviceSession: null,
+  devicePairing: null,
+  devicePairingError: null,
   deviceLastHeartbeat: null,
   wallCalibration: null,
   wallCalibrationLastResult: null,
@@ -965,6 +970,172 @@ function latestDeviceSession() {
   return sessions[0] || model.deviceSession || null;
 }
 
+function pairingSources() {
+  return [
+    ["issued_pairing", model.devicePairing],
+    ["last_heartbeat", model.deviceLastHeartbeat],
+    ["latest_session", latestDeviceSession()],
+    ["registered_device", model.deviceSession],
+    ["device_sessions", model.deviceSessions],
+    ["device_manifest", model.deviceManifest],
+    ["device_bootstrap", model.bootstrap],
+    ["ops_status", model.ops]
+  ];
+}
+
+function readObjectPath(source, path) {
+  if (!source || typeof source !== "object") return undefined;
+  return path.split(".").reduce((value, part) => {
+    if (value === undefined || value === null) return undefined;
+    return value[part];
+  }, source);
+}
+
+function firstPairingField(paths) {
+  for (const [sourceName, source] of pairingSources()) {
+    for (const path of paths) {
+      const value = readObjectPath(source, path);
+      if (value !== undefined && value !== null && value !== "") {
+        return { value, path: `${sourceName}.${path}`, sourceName };
+      }
+    }
+  }
+  return null;
+}
+
+function boolish(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  const text = compact(value).toLowerCase();
+  if (!text) return null;
+  if (/^(true|yes|y|eligible|ready|accepted|enabled|active)$/.test(text)) return true;
+  if (/^(false|no|n|ineligible|disabled|inactive)$/.test(text)) return false;
+  if (/not[_ -]?required|optional|waived/.test(text)) return false;
+  if (/required|mandatory/.test(text)) return true;
+  return null;
+}
+
+function boolishLabel(value, fallback = "unknown") {
+  const parsed = boolish(value);
+  if (parsed === true) return "yes";
+  if (parsed === false) return "no";
+  return compactLabel(value, fallback);
+}
+
+function formatPairingTime(value) {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return compactLabel(value);
+  return date.toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function pairingCodeFrom(payload) {
+  return compact(
+    readObjectPath(payload, "pairing.code")
+      || readObjectPath(payload, "pairing.pairing_code")
+      || readObjectPath(payload, "pairing.one_time_code")
+      || readObjectPath(payload, "code")
+      || readObjectPath(payload, "pairing_code")
+      || readObjectPath(payload, "pairingCode")
+      || readObjectPath(payload, "one_time_code")
+  );
+}
+
+function pairingEndpoint() {
+  const endpoints = model.bootstrap?.endpoints || {};
+  return endpointUrl(
+    endpoints.device_pairing
+      || endpoints.device_pairing_code
+      || endpoints.pairing
+      || model.deviceManifest?.pairing_endpoint
+      || model.deviceManifest?.pairing?.endpoint
+      || "/api/device/pairing"
+  );
+}
+
+function devicePairingSummary() {
+  const statusField = firstPairingField([
+    "pairing_status",
+    "pairing.status",
+    "pairing.pairing_status",
+    "device_pairing.status",
+    "runtime.pairing_status"
+  ]);
+  const eligibleField = firstPairingField([
+    "hardware_acceptance_eligible",
+    "pairing.hardware_acceptance_eligible",
+    "device_pairing.hardware_acceptance_eligible",
+    "runtime.hardware_acceptance_eligible"
+  ]);
+  const requiredField = firstPairingField([
+    "pairing.required_for_hardware_acceptance",
+    "device_pairing.required_for_hardware_acceptance",
+    "required_for_hardware_acceptance"
+  ]);
+  const expiresField = firstPairingField([
+    "pairing.expires_at",
+    "pairing.expiresAt",
+    "device_pairing.expires_at",
+    "expires_at",
+    "expiresAt"
+  ]);
+  const code = pairingCodeFrom(model.devicePairing);
+  const status = code
+    ? "code issued"
+    : compactLabel(statusField?.value, model.devicePairingError ? "endpoint unavailable" : "pairing unknown");
+  const eligible = boolish(eligibleField?.value);
+  const required = boolish(requiredField?.value);
+  const expiresAt = expiresField?.value || null;
+  const expiresMs = expiresAt ? new Date(expiresAt).getTime() : NaN;
+  const expired = Number.isFinite(expiresMs) && expiresMs < Date.now();
+  const lower = `${status} ${boolishLabel(eligibleField?.value, "")} ${boolishLabel(requiredField?.value, "")}`.toLowerCase();
+  const tone = expired || /expired|revoked|rejected|blocked|failed|denied/.test(lower)
+    ? "bad"
+    : eligible === true && required === false
+      ? "good"
+      : eligible === true && /paired|verified|accepted|active|ready|bound|eligible/.test(lower)
+        ? "good"
+        : "warn";
+
+  return {
+    tone,
+    status,
+    code,
+    endpoint: pairingEndpoint(),
+    error: model.devicePairingError?.message || null,
+    pairing_status: compactLabel(statusField?.value, code ? "code issued" : "unknown"),
+    hardware_acceptance_eligible: boolishLabel(eligibleField?.value),
+    required_for_hardware_acceptance: boolishLabel(requiredField?.value),
+    expires_at: formatPairingTime(expiresAt),
+    expires_at_raw: expiresAt,
+    source: statusField?.path
+      || eligibleField?.path
+      || requiredField?.path
+      || expiresField?.path
+      || (code ? "issued_pairing.code" : null)
+      || (model.devicePairingError ? "POST /api/device/pairing" : "waiting for manifest/session pairing fields")
+  };
+}
+
+function pairingRequestPayload() {
+  const session = latestDeviceSession();
+  return {
+    profile: session?.profile || model.deviceManifest?.profile || "rokid-ar",
+    session_id: session?.session_id || model.deviceSession?.session_id || null,
+    device_id: session?.device_id || model.deviceSession?.device_id || "rokid-operator-issued",
+    requested_by: "web-operator",
+    purpose: "hardware_acceptance"
+  };
+}
+
 function textFrom(value) {
   if (value === undefined || value === null) return "";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
@@ -1189,6 +1360,7 @@ function renderBindingSlot(slot, index) {
 
 function renderSdkBindingReadiness() {
   const binding = sdkBindingSummary();
+  const pairing = devicePairingSummary();
 
   if (els.sdkBindingPill) {
     els.sdkBindingPill.textContent = {
@@ -1202,7 +1374,12 @@ function renderSdkBindingReadiness() {
   if (!els.sdkBindingGrid) return;
   els.sdkBindingGrid.innerHTML = "";
 
-  const current = renderInfoCard(`binding-current ${binding.tone} wide`, "Current", binding.title, `${binding.body} Source: ${binding.source}.`);
+  const current = renderInfoCard(
+    `binding-current ${binding.tone} wide`,
+    "Current",
+    binding.title,
+    `${binding.body} Pairing: ${pairing.pairing_status}; hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible}. Source: ${binding.source}.`
+  );
   els.sdkBindingGrid.append(current);
 
   const steps = [
@@ -1223,6 +1400,13 @@ function renderSdkBindingReadiness() {
       tone: binding.hasBoundary ? "warn" : "neutral"
     },
     {
+      label: "Pairing",
+      title: pairing.status,
+      body: `pairing_status: ${pairing.pairing_status}; hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible}; pairing.required_for_hardware_acceptance: ${pairing.required_for_hardware_acceptance}; pairing.expires_at: ${pairing.expires_at}.`,
+      state: pairing.code ? "active" : pairing.tone === "good" ? "ready" : "waiting",
+      tone: pairing.tone
+    },
+    {
       label: "Live SDK",
       title: binding.live ? "Real SDK bound" : "Waiting for backend signal",
       body: binding.live
@@ -1239,7 +1423,7 @@ function renderSdkBindingReadiness() {
     "binding-current wide",
     "Session Evidence",
     binding.simSession,
-    "Simulator sessions do not claim real SDK binding; live status requires an explicit backend binding field."
+    `Simulator sessions do not claim real SDK binding; live status requires an explicit backend binding field. Pairing source: ${pairing.source}.`
   );
   els.sdkBindingGrid.append(session);
 
@@ -1624,6 +1808,7 @@ function renderHardwareRuntime() {
   const sessionStatus = latestSession?.session_status || model.deviceLastHeartbeat?.runtime?.session_status || "no session";
   const heartbeatCount = latestSession?.heartbeat_count ?? model.deviceLastHeartbeat?.heartbeat_count ?? 0;
   const binding = sdkBindingSummary();
+  const pairing = devicePairingSummary();
   const calibration = wallCalibrationSummary();
   const calibrationReady = Boolean(calibration?.ready_for_hardware);
   const hardwareCalibratedCount = Number.isFinite(Number(calibration?.hardware_calibrated_anchor_count))
@@ -1636,13 +1821,25 @@ function renderHardwareRuntime() {
     renderInfoCard("hardware-card good", "Network", isLoopback(baseUrl) ? "Localhost now" : "LAN ready", isLoopback(baseUrl) ? "硬件到场后切 dev:lan 和 Windows 主控机 IP。" : baseUrl),
     renderInfoCard(storeReady ? "hardware-card good" : "hardware-card warn", "SQLite Store", storeReady ? "authoritative" : "checking", `${datasetCount} safe datasets · ${model.store?.device_sessions ?? 0} device sessions`),
     renderInfoCard("hardware-card", "Runtime API", `${endpointCount} endpoints`, "bootstrap / AI HUD / evidence / session plan / dataset call / device runtime 同一套契约。"),
-    renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount}` : "点击注册模拟设备，硬件到场后替换为 RA202/RAS201。"),
+    renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount} · pairing_status ${pairing.pairing_status}` : `No session yet · pairing_status ${pairing.pairing_status}`),
     renderInfoCard(`hardware-card ${binding.tone}`, "SDK Binding", binding.title, binding.body),
+    renderInfoCard(`hardware-card ${pairing.tone}`, "Pairing Status", pairing.status, `pairing_status: ${pairing.pairing_status} · source: ${pairing.source}`),
+    renderInfoCard(`hardware-card ${pairing.tone}`, "Acceptance Pairing", `eligible ${pairing.hardware_acceptance_eligible}`, `hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible} · pairing.required_for_hardware_acceptance: ${pairing.required_for_hardware_acceptance} · pairing.expires_at: ${pairing.expires_at}`),
     renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Hardware Wall Lock", calibrationReady ? "hardware ready" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · ${endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")}`),
     renderInfoCard("hardware-card", "Adapter Slots", `${binding.slots.length || 0} declared`, "ROKID_UXR boundary keeps gaze, pose, network, and overlay swappable without changing the campus wall layer."),
     renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
     renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
   );
+  if (pairing.code || pairing.error) {
+    els.hardwareGrid.append(renderInfoCard(
+      `hardware-card ${pairing.error ? "warn" : pairing.tone} wide`,
+      pairing.code ? "Pairing Code" : "Pairing Endpoint",
+      pairing.code || "not available",
+      pairing.code
+        ? `One-time code from POST ${pairing.endpoint}; expires_at: ${pairing.expires_at}; held only in page memory.`
+        : `${pairing.error}; POST ${pairing.endpoint} is optional until the backend route exists.`
+    ));
+  }
 
   const actions = document.createElement("div");
   actions.className = "hardware-actions";
@@ -1659,7 +1856,11 @@ function renderHardwareRuntime() {
   refreshBtn.type = "button";
   refreshBtn.textContent = "刷新运行库";
   refreshBtn.addEventListener("click", runAction(refreshOps));
-  actions.append(registerBtn, heartbeatBtn, refreshBtn);
+  const pairingBtn = document.createElement("button");
+  pairingBtn.type = "button";
+  pairingBtn.textContent = "Issue pairing code";
+  pairingBtn.addEventListener("click", runAction(issueDevicePairingCode));
+  actions.append(registerBtn, heartbeatBtn, refreshBtn, pairingBtn);
   els.hardwareGrid.append(actions);
 }
 
@@ -2052,6 +2253,20 @@ async function sendSimulatedHeartbeat() {
   await refreshDeviceRuntime();
 }
 
+async function issueDevicePairingCode() {
+  try {
+    model.devicePairingError = null;
+    model.devicePairing = await api.issueDevicePairing(pairingRequestPayload());
+    await refreshDeviceRuntime();
+  } catch (error) {
+    model.devicePairing = null;
+    model.devicePairingError = error;
+    renderSdkBindingReadiness();
+    renderHardwareRuntime();
+    renderLog();
+  }
+}
+
 async function submitSimulatedCalibration(anchorId) {
   if (!model.wallCalibration) {
     await refreshWallCalibration();
@@ -2134,6 +2349,7 @@ async function refreshOps() {
 function renderLog() {
   if (!els.log) return;
   const binding = sdkBindingSummary();
+  const pairing = devicePairingSummary();
   const payload = {
     active_user: model.activeUser,
     selected_anchor: model.currentAnchor,
@@ -2219,6 +2435,16 @@ function renderLog() {
       adapter_slots: binding.slotIds,
       field_value: binding.fieldValue,
       session_evidence: binding.simSession
+    },
+    device_pairing: {
+      endpoint: pairing.endpoint,
+      source: pairing.source,
+      pairing_status: pairing.pairing_status,
+      hardware_acceptance_eligible: pairing.hardware_acceptance_eligible,
+      required_for_hardware_acceptance: pairing.required_for_hardware_acceptance,
+      expires_at: pairing.expires_at_raw,
+      has_code: Boolean(pairing.code),
+      error: pairing.error
     },
     ledger: {
       online: Boolean(model.ledgerSummary || model.ledgerEvents),

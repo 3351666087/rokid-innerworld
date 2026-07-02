@@ -125,6 +125,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint session_plan;
         public SpaceApiEndpoint device_bootstrap;
         public SpaceApiEndpoint device_manifest;
+        public SpaceApiEndpoint device_pairing;
         public SpaceApiEndpoint device_register;
         public SpaceApiEndpoint device_heartbeat;
         public SpaceApiEndpoint device_sessions;

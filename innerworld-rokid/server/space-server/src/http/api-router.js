@@ -335,13 +335,29 @@ export function createApiRouter({
         readJson(aiSchemaPath),
         readBody(req)
       ]);
-      sendJson(res, 201, deviceRuntime.register({
+      const result = deviceRuntime.register({
         body,
         baseUrl: getRequestBaseUrl(req, url, port),
         space,
         state,
         aiSchema
-      }));
+      });
+      if (result.ok === false) {
+        sendJson(res, result.status || 400, {
+          ok: false,
+          error: result.error || "device_register_failed",
+          issues: result.issues,
+          pairing: result.pairing
+        });
+        return;
+      }
+      sendJson(res, 201, result);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/device/pairing") {
+      const body = await readBody(req);
+      sendJson(res, 201, deviceRuntime.issuePairing({ body }));
       return;
     }
 
