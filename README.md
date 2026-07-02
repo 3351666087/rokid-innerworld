@@ -2,6 +2,14 @@
 
 ## Latest Checkpoint
 
+2026-07-03 00:57 Asia/Shanghai:
+
+- Kepler re-audited teammate documents for hardware-independent but heavy long-run modules. `innerworld-rokid/docs/active-goal.md` now records the long module backlog: `a1_spatial_entry_experience`, `story_graph_mission_runtime_v2`, `evidence_replay_judge_mode`, `premium_unity_spatial_shell_2`, `controlled_timemark_authoring`, `ai_hud_contract_hardening`, `institution_lite_content_compiler`, and `spatial_audio_gesture_feedback_pack`.
+- `check:mainline` now locks those long modules to the same product direction: one real campus wall, A1 entry, A2 memory, A3 write-back, User B readback, Space API, SQLite, shared contract, and no hardware-ready claim from rehearsal.
+- First slices landed for Story Graph / Mission Runtime v2, A1 Spatial Entry, and Evidence Replay / Judge Mode. The judge replay is sanitized and read-only; Unity fallback now reports A1 entry lock/confirmation/transition state through the Rokid boundary; session planning and device bootstrap expose the story graph contract.
+- Kepler found and we fixed the main consistency issue before submit: User B readback and handoff now bind to A3 write-back, not A2 memory. `check-contract` asserts both the story graph node/action and session-plan handoff anchor stay on A3.
+- Verified before GitHub sync: `check:mainline`, `check:contract`, `check:device`, `check:web`, `check:unity`, `check:ops`, `check:security`, and `git diff --check` all passed. Commit `bc1c1a8e` is pushed to `origin/main`; the unrelated local `docs/rokid_sdk_docs_full.md` change remains unstaged.
+
 2026-07-03 00:08 Asia/Shanghai:
 
 - Kepler reviewed the teammate files again. P0 remains the real Rokid campus wall mainline: A1 spatial entry, A2/A3 image target lock, wall calibration, writeback, User B readback, and hardware-safe evidence gates. Open UGC, institution dashboards, broad route maps, and generic social features stay P2.
