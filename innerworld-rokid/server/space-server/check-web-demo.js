@@ -135,6 +135,19 @@ const requiredModules = [
     ]
   },
   {
+    name: "Wall Calibration",
+    needles: [
+      "Wall Calibration",
+      "calibration-section",
+      "calibrationGrid",
+      "calibration-grid",
+      "/api/calibration/wall",
+      "/api/calibration/observations",
+      "submitSimulatedCalibration",
+      "ready_for_hardware"
+    ]
+  },
+  {
     name: "Rokid SDK Binding",
     needles: [
       "Rokid SDK Binding",
@@ -186,6 +199,7 @@ const requiredContainers = [
   ".binding-grid",
   ".ledger-grid",
   ".hardware-grid",
+  ".calibration-grid",
   ".evidence-rail",
   ".delivery-timeline",
   ".risk-grid",
@@ -228,6 +242,8 @@ const requiredContainerGroups = [
   { name: ".lens-grid", selectors: [".lens-grid"] },
   { name: ".binding-grid", selectors: [".binding-grid"] },
   { name: ".ledger-grid", selectors: [".ledger-grid"] },
+  { name: ".hardware-grid", selectors: [".hardware-grid"] },
+  { name: ".calibration-grid", selectors: [".calibration-grid"] },
   { name: ".evidence-rail", selectors: [".evidence-rail"] },
   { name: ".delivery-timeline", selectors: [".delivery-timeline"] },
   { name: ".risk-grid", selectors: [".risk-grid"] },
@@ -372,6 +388,11 @@ function checkStaticSources(sources) {
     { name: "dynamic delivery script rendering", ok: sources.js.includes("renderDeliveryScript") },
     { name: "dynamic risk guardrail rendering", ok: sources.js.includes("renderRiskGuardrails") },
     { name: "dynamic hardware runtime rendering", ok: sources.js.includes("renderHardwareRuntime") },
+    { name: "wall calibration API load", ok: sources.js.includes("getWallCalibration") && sources.js.includes("/api/calibration/wall") },
+    { name: "wall calibration observation write", ok: sources.js.includes("submitWallCalibrationObservation") && sources.js.includes("/api/calibration/observations") },
+    { name: "dynamic wall calibration rendering", ok: sources.js.includes("renderWallCalibration") && sources.js.includes("calibrationGrid") },
+    { name: "wall calibration simulated lock", ok: sources.js.includes("submitSimulatedCalibration") && sources.js.includes("submitAllSimulatedCalibration") },
+    { name: "wall calibration trace contract", ok: sources.js.includes("ready_for_hardware") && sources.js.includes("calibrated_anchor_ids") },
     { name: "dynamic SDK binding rendering", ok: sources.js.includes("renderSdkBindingReadiness") },
     { name: "SDK binding status contract", ok: sources.js.includes("sdk_binding_status") && sources.js.includes("ROKID_UXR boundary") },
     { name: "dynamic agent trace/log rendering", ok: sources.js.includes("renderLog") }

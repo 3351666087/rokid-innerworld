@@ -27,6 +27,12 @@ function cleanId(value, fallback = "") {
   return trimText(value, 96).replace(/[^A-Za-z0-9_.:-]/g, "-") || fallback;
 }
 
+function cleanPublicId(value, fallback = "") {
+  const redacted = trimText(redactSensitiveText(value), 96)
+    .replace(/\[redacted_([a-z]+)\]/gi, "redacted_$1");
+  return cleanId(redacted, fallback);
+}
+
 function finiteNumber(value, fallback = null) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -237,8 +243,8 @@ export function createWallCalibrationObservation({ body = {}, space, receivedAt 
     space_id: space?.space_id || "innerworld_campus_wall",
     anchor_id: anchorId || null,
     tracking_mode: mode,
-    session_id: cleanId(body.session_id, null),
-    device_id: cleanId(body.device_id, null),
+    session_id: cleanPublicId(body.session_id, null),
+    device_id: cleanPublicId(body.device_id, null),
     observed_pose: observedPose,
     expected_pose: expectedPose,
     confidence,

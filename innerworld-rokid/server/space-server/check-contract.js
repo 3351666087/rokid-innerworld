@@ -513,8 +513,8 @@ function assertWallCalibrationContract(space) {
     space,
     receivedAt: "2026-07-02T00:00:05.000Z",
     body: {
-      session_id: "iw-contract",
-      device_id: "RA202-contract",
+      session_id: "iw-contract-token-secret-10.0.0.18",
+      device_id: "SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55",
       anchor_id: "A2",
       tracking_mode: "image_tracking",
       observed_pose: {
@@ -522,13 +522,19 @@ function assertWallCalibrationContract(space) {
         rotation: { x: 0, y: 0, z: 0, w: 1 }
       },
       confidence: 0.96,
-      notes: "contract calibration"
+      notes: "contract calibration token real-token-secret 10.0.0.18 SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55"
     }
   });
   assert(accepted.schema === WALL_CALIBRATION_OBSERVATION_SCHEMA, "wall calibration observation schema mismatch");
   assert(accepted.status === "accepted", "wall calibration accepted observation mismatch");
   assert(accepted.anchor_id === "A2", "wall calibration observation anchor mismatch");
   assert(accepted.position_error_m === 0, "wall calibration position error mismatch");
+  const acceptedText = JSON.stringify(accepted);
+  assert(!acceptedText.includes("10.0.0.18"), "wall calibration observation leaked IP");
+  assert(!acceptedText.includes("real-token-secret"), "wall calibration observation leaked token");
+  assert(!acceptedText.includes("SN-ABC-SECRET"), "wall calibration observation leaked serial");
+  assert(!acceptedText.includes("private-demo-wifi"), "wall calibration observation leaked SSID");
+  assert(!acceptedText.includes("00:11:22:33:44:55"), "wall calibration observation leaked MAC");
 
   const rejected = createWallCalibrationObservation({
     space,

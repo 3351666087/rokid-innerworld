@@ -968,6 +968,7 @@ textarea:focus {
 .lens-grid,
 .ledger-grid,
 .hardware-grid,
+.calibration-grid,
 .risk-grid {
   position: relative;
   z-index: 1;
@@ -1077,6 +1078,7 @@ textarea:focus {
 .lens-card,
 .ledger-card,
 .hardware-card,
+.calibration-card,
 .risk-card,
 .binding-current,
 .binding-step,
@@ -1094,6 +1096,7 @@ textarea:focus {
 .lens-card:hover,
 .ledger-card:hover,
 .hardware-card:hover,
+.calibration-card:hover,
 .risk-card:hover,
 .binding-current:hover,
 .binding-step:hover,
@@ -1107,6 +1110,7 @@ textarea:focus {
 .lens-card.wide,
 .ledger-card.wide,
 .hardware-card.wide,
+.calibration-card.wide,
 .risk-card.wide,
 .binding-current.wide {
   grid-column: 1 / -1;
@@ -1117,6 +1121,7 @@ textarea:focus {
 .lens-card span,
 .ledger-card span,
 .hardware-card span,
+.calibration-card span,
 .risk-card span,
 .binding-current span,
 .binding-step span,
@@ -1135,6 +1140,7 @@ textarea:focus {
 .lens-card strong,
 .ledger-card strong,
 .hardware-card strong,
+.calibration-card strong,
 .risk-card strong,
 .binding-current strong,
 .binding-step strong,
@@ -1151,6 +1157,7 @@ textarea:focus {
 .lens-card p,
 .ledger-card p,
 .hardware-card p,
+.calibration-card p,
 .risk-card p,
 .binding-current p,
 .binding-step p,
@@ -1170,6 +1177,10 @@ textarea:focus {
   border-left: 3px solid var(--green);
 }
 
+.calibration-card.good {
+  border-left: 3px solid var(--green);
+}
+
 .lens-card.good,
 .binding-current.good,
 .binding-step.good {
@@ -1180,6 +1191,10 @@ textarea:focus {
   border-left: 3px solid var(--amber);
 }
 
+.calibration-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
 .lens-card.warn,
 .binding-current.warn,
 .binding-step.warn {
@@ -1187,6 +1202,10 @@ textarea:focus {
 }
 
 .hardware-card.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.calibration-card.bad {
   border-left: 3px solid var(--rose);
 }
 
@@ -1287,14 +1306,81 @@ textarea:focus {
   gap: 8px;
 }
 
-.hardware-actions button {
+.calibration-anchor-list,
+.calibration-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.calibration-anchor {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: 9px;
+  min-height: 64px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.046);
+}
+
+.calibration-anchor.good {
+  border-left: 3px solid var(--green);
+}
+
+.calibration-anchor.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.calibration-anchor.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.calibration-marker {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #061014;
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.calibration-anchor strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.calibration-anchor p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.calibration-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.hardware-actions button,
+.calibration-actions button,
+.calibration-anchor button {
   min-width: 0;
   padding-inline: 8px;
   font-size: 12px;
   font-weight: 760;
 }
 
-.hardware-actions button:disabled {
+.hardware-actions button:disabled,
+.calibration-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
@@ -1750,12 +1836,14 @@ pre {
 
   .control-strip,
   .hardware-actions,
+  .calibration-actions,
   .product-grid,
   .showcase-grid,
   .lens-grid,
   .binding-grid,
   .ledger-grid,
   .hardware-grid,
+  .calibration-grid,
   .risk-grid,
   .ops-grid {
     grid-template-columns: 1fr;
@@ -1772,6 +1860,7 @@ pre {
   .route-node,
   .agent-row,
   .ledger-event,
+  .calibration-anchor,
   .evidence-item {
     grid-template-columns: 30px minmax(0, 1fr);
   }
@@ -1779,6 +1868,7 @@ pre {
   .route-state,
   .agent-state,
   .ledger-event span,
+  .calibration-anchor button,
   .evidence-state {
     grid-column: 2;
   }

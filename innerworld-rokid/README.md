@@ -15,6 +15,7 @@ npm run dev
 - API health: `http://localhost:5177/api/health`
 - Ops status: `http://localhost:5177/api/ops/status`
 - Space data: `http://localhost:5177/api/spaces/innerworld_campus_wall`
+- Wall calibration: `http://localhost:5177/api/calibration/wall`
 
 现场有 Rokid/手机从同一局域网访问这台 Windows 主控机时，用 LAN 模式：
 
@@ -28,6 +29,8 @@ npm run unity:config -- http://<Windows主控机IP>:5177
 SQLite (`data/innerworld.sqlite`) is the authoritative local/field store now. It owns runtime state, write-back records, safe dataset catalog, device sessions, and bounded device events for the Windows host; it is not a throwaway demo database.
 
 Server deployment preserves the same Space API, mission state machine, write-back flow, device runtime, AI schema/prompt, and SQLite-backed store contract. Moving from localhost/LAN to a public host is a deployment change, not a database-contract rewrite. Raw private evidence, loan-image private fields, `.env`, `secrets/`, and `local-secrets/` stay outside the database, API, packages, and GitHub unless explicitly sanitized.
+
+Wall calibration is now part of the runtime contract, not a future note: Web can rehearse A1/A2/A3 marker lock through `/api/calibration/observations`, and Unity reads `/api/calibration/wall` during startup before device registration.
 
 ## SQLite Backup
 

@@ -932,12 +932,31 @@ export async function createSqliteStore({
         latestByAnchor[observation.anchor_id] = observation;
       }
     }
-    const calibratedAnchors = select(`
-      SELECT anchor_id, MAX(created_at) AS last_seen_at
+    const latestAnchorObservations = select(`
+      SELECT current.observation_id, current.schema, current.status, current.issues_json, current.space_id,
+        current.anchor_id, current.tracking_mode, current.session_id, current.device_id,
+        current.observed_pose_json, current.expected_pose_json, current.confidence,
+        current.position_error_m, current.notes, current.client_time, current.acceptance_json,
+        current.created_at
       FROM wall_calibration_observations
-      WHERE status IN ('accepted', 'warning') AND anchor_id IS NOT NULL
-      GROUP BY anchor_id
-    `);
+      AS current
+      WHERE current.anchor_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM wall_calibration_observations AS newer
+          WHERE newer.anchor_id = current.anchor_id
+            AND (
+              datetime(newer.created_at) > datetime(current.created_at)
+              OR (
+                datetime(newer.created_at) = datetime(current.created_at)
+                AND newer.observation_id > current.observation_id
+              )
+            )
+        )
+      ORDER BY current.anchor_id
+    `).map(wallCalibrationObservationFromRow);
+    const readyAnchors = latestAnchorObservations.filter((observation) => ["accepted", "warning"].includes(observation.status));
+    const readyAnchorIds = readyAnchors.map((observation) => observation.anchor_id).sort();
     return {
       ok: true,
       schema: `${WALL_CALIBRATION_SCHEMA}/summary`,
@@ -946,9 +965,10 @@ export async function createSqliteStore({
       accepted: counts.accepted,
       warning: counts.warning,
       rejected: counts.rejected,
-      calibrated_anchor_count: calibratedAnchors.length,
-      calibrated_anchor_ids: calibratedAnchors.map((row) => row.anchor_id).sort(),
-      ready_for_hardware: ["A1", "A2", "A3"].every((anchorId) => calibratedAnchors.some((row) => row.anchor_id === anchorId)),
+      calibrated_anchor_count: readyAnchors.length,
+      calibrated_anchor_ids: readyAnchorIds,
+      ready_for_hardware: ["A1", "A2", "A3"].every((anchorId) => readyAnchorIds.includes(anchorId)),
+      latest_anchor_observations: latestAnchorObservations,
       latest_by_anchor: latestByAnchor,
       latest,
       privacy: "Wall calibration summary is safe for field evidence. It omits raw device/network identifiers and private evidence."

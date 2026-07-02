@@ -80,7 +80,9 @@ Hardware arrival should start with wall calibration, not with ad hoc placement.
 - Submit `POST /api/calibration/observations` with `session_id`, `device_id`, `anchor_id`, `tracking_mode`, `observed_pose`, `confidence`, `notes`, and `client_time`.
 - Accepted observations prove a marker is close enough to the configured wall pose; warning observations are usable but need operator attention; rejected observations block hardware confidence for that anchor.
 - The SQLite store persists sanitized calibration observations and exposes a summary through the same API. Raw network/device identifiers are redacted.
+- Calibration `ready_for_hardware` is latest-observation based: if A1/A2/A3 ever had an accepted observation but the latest observation for that anchor is rejected, the anchor is no longer counted ready.
 - Calibration can use QR, image tracking, SLAM, manual, or simulator modes, but field evidence should prefer QR/image tracking for A1/A2/A3 marker lock.
+- The Web operator console has a Wall Calibration panel that reads the same manifest, displays A1/A2/A3 marker/pose/latest observation state, and can submit simulator observations before hardware arrives.
 
 ## Unity Adapter Boundary
 
@@ -92,6 +94,7 @@ The Unity runtime now has a compile-safe SDK boundary:
 - `IRokidInputStateSink` keeps connection status, LAN base URL, and anchor-hit state flowing through the same interface for fallback and future hardware adapters.
 - `RokidSdkBindingProbe` reports `fallback_only`, `boundary_compiled`, `package_detected`, or `live_binding_ready`. The first three are not proof that real hardware input/display is bound.
 - `/api/device/manifest`, `/api/device/register`, `/api/device/heartbeat`, and `/api/device/sessions` carry a sanitized `sdk_binding_status` report so the operator console can distinguish SDK stub readiness from live Rokid SDK binding.
+- The Unity controller actively fetches `endpoints.wall_calibration.url` during startup after bootstrap and before device registration. The HUD/log/heartbeat show schema, anchor count, `ready_for_hardware`, and calibrated anchor IDs.
 - Vendor SDK packages downloaded through Unity Package Manager stay out of Git. Commit only the small adapter code that maps SDK gaze/ray/gesture/voice events into `IRokidInputSource`, `IRokidInputStateSink`, and `IRokidOverlayRenderer`.
 
 ## Hardware Arrival Checklist
@@ -102,7 +105,7 @@ The Unity runtime now has a compile-safe SDK boundary:
 4. Run `npm run field:preflight -- -RequireLan` to verify LAN health, update Unity config, and refresh the field-kit QR.
 5. In Unity Package Manager, add the official Rokid UXR/OpenXR registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
 6. Build an Android/Rokid APK from Unity, keeping `Assets/Plugins/Android/InnerWorldNetwork.androidlib` for HTTP LAN access during local demo.
-7. Fetch `/api/calibration/wall`, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
+7. Open the Web Wall Calibration panel, confirm the manifest and A1/A2/A3 expected poses, then fetch `/api/calibration/wall` from Unity/Rokid, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
 8. Replace only the input/display adapters:
    - Input: gaze/ray/gesture/voice/keyboard events map to `SelectAnchor`, `CompleteNextStep`, `PostServiceAction`, and `PostWriteBack`.
    - Display: UXR binocular/spatial overlay renders the same HUD text, anchor labels, and mission state currently shown by the fallback.
@@ -162,17 +165,20 @@ Run these before connecting real hardware:
 ```powershell
 npm run check:device
 npm run check:ops -- --require-artifacts
+npm run check:web
 npm run check:unity
 ```
 
 `check:device` verifies `/api/device/bootstrap`, follows the advertised URLs, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
+`check:web` verifies the operator console keeps the Wall Calibration panel, API read/write hooks, simulator lock actions, and trace fields.
+`check:unity` verifies the controller actively fetches and parses the wall calibration manifest instead of only declaring protocol DTOs.
 
 ## Runtime Flow
 
 1. Fetch `/api/device/bootstrap`.
 2. Poll `endpoints.health.url` or `endpoints.space.url`.
 3. Use `endpoints.nearby_pins.url` to map A1/A2/A3 to visible overlays.
-4. Fetch `endpoints.wall_calibration.url` and submit marker observations before claiming hardware alignment.
+4. Fetch `endpoints.wall_calibration.url`, display the returned readiness summary, and submit marker observations before claiming hardware alignment.
 5. POST task progress to `endpoints.interactions.url`.
 6. POST service intent to `endpoints.service_actions.url`.
 7. POST user write-back text to `endpoints.write_back.url`.

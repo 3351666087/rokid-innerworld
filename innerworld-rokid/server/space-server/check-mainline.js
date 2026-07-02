@@ -54,6 +54,7 @@ const requiredWebModules = [
   "Delivery Script",
   "Risk Guardrails",
   "Hardware Runtime",
+  "Wall Calibration",
   "Mission Ledger",
   "Operator Console",
   "Agent Runtime",

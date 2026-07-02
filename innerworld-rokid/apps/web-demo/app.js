@@ -23,6 +23,12 @@ const api = {
   async getDeviceSessions() {
     return requestJson("/api/device/sessions", { cache: "no-store" }, "读取设备会话失败");
   },
+  async getWallCalibration() {
+    return requestJson("/api/calibration/wall", { cache: "no-store" }, "读取展墙标定失败");
+  },
+  async submitWallCalibrationObservation(payload) {
+    return requestJson("/api/calibration/observations", jsonPost(payload), "提交展墙标定失败");
+  },
   async getStoreStatus() {
     return requestJson("/api/store/status", { cache: "no-store" }, "读取数据库状态失败");
   },
@@ -72,6 +78,9 @@ const model = {
   deviceSessions: null,
   deviceSession: null,
   deviceLastHeartbeat: null,
+  wallCalibration: null,
+  wallCalibrationLastResult: null,
+  wallCalibrationError: null,
   activeUser: "A",
   currentAnchor: null,
   hudByAnchor: new Map(),
@@ -97,6 +106,7 @@ const els = {
   hudMeta: document.querySelector("#hudMeta"),
   hudTitle: document.querySelector("#hudTitle"),
   hardwareGrid: document.querySelector("#hardwareGrid"),
+  calibrationGrid: document.querySelector("#calibrationGrid"),
   deliveryTimeline: document.querySelector("#deliveryTimeline"),
   evidenceRail: document.querySelector("#evidenceRail"),
   agentQueue: document.querySelector("#agentQueue"),
@@ -351,6 +361,64 @@ function simulatedHeartbeatPayload() {
     },
     active_anchor: model.currentAnchor || entryAnchorId(),
     current_user: model.activeUser
+  };
+}
+
+function wallCalibrationSummary() {
+  return model.wallCalibration?.runtime?.summary || model.wallCalibrationLastResult?.summary || null;
+}
+
+function wallCalibrationAnchors() {
+  return listFrom(model.wallCalibration?.anchors);
+}
+
+function calibratedAnchorIds() {
+  return new Set(listFrom(wallCalibrationSummary()?.calibrated_anchor_ids));
+}
+
+function latestCalibrationObservation(anchor) {
+  const summaryLatest = wallCalibrationSummary()?.latest_by_anchor || {};
+  return anchor?.latest_observation || summaryLatest[anchor?.anchor_id] || null;
+}
+
+function poseLabel(pose) {
+  const position = pose?.position || pose;
+  if (!position) return "pose pending";
+  const x = Number(position.x || 0).toFixed(2);
+  const y = Number(position.y || 0).toFixed(2);
+  const z = Number(position.z || 0).toFixed(2);
+  return `x ${x} / y ${y} / z ${z}`;
+}
+
+function calibrationTone(anchor) {
+  const latest = latestCalibrationObservation(anchor);
+  if (latest?.status === "accepted") return "good";
+  if (latest?.status === "warning") return "warn";
+  if (latest?.status === "rejected") return "bad";
+  return calibratedAnchorIds().has(anchor?.anchor_id) ? "good" : "warn";
+}
+
+function calibrationStateLabel(anchor) {
+  const latest = latestCalibrationObservation(anchor);
+  if (latest?.status) {
+    const error = latest.position_error_m === null || latest.position_error_m === undefined
+      ? "n/a"
+      : `${Number(latest.position_error_m).toFixed(3)}m`;
+    return `${latest.status} / ${latest.tracking_mode || "unknown"} / ${error}`;
+  }
+  return calibratedAnchorIds().has(anchor?.anchor_id) ? "calibrated" : "waiting";
+}
+
+function simulatedCalibrationPayload(anchor) {
+  return {
+    session_id: model.deviceSession?.session_id || "web-operator-simulator",
+    device_id: model.deviceSession?.device_id || "RA202 operator simulator",
+    anchor_id: anchor.anchor_id,
+    tracking_mode: "simulator",
+    observed_pose: anchor.expected_pose,
+    confidence: 0.94,
+    notes: "web operator calibration rehearsal",
+    client_time: new Date().toISOString()
   };
 }
 
@@ -1284,6 +1352,8 @@ function renderHardwareRuntime() {
   const sessionStatus = latestSession?.session_status || model.deviceLastHeartbeat?.runtime?.session_status || "no session";
   const heartbeatCount = latestSession?.heartbeat_count ?? model.deviceLastHeartbeat?.heartbeat_count ?? 0;
   const binding = sdkBindingSummary();
+  const calibration = wallCalibrationSummary();
+  const calibrationReady = Boolean(calibration?.ready_for_hardware);
 
   els.hardwareGrid.innerHTML = "";
   els.hardwareGrid.append(
@@ -1293,6 +1363,7 @@ function renderHardwareRuntime() {
     renderInfoCard("hardware-card", "Runtime API", `${endpointCount} endpoints`, "bootstrap / AI HUD / evidence / session plan / dataset call / device runtime 同一套契约。"),
     renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount}` : "点击注册模拟设备，硬件到场后替换为 RA202/RAS201。"),
     renderInfoCard(`hardware-card ${binding.tone}`, "SDK Binding", binding.title, binding.body),
+    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Wall Lock", calibrationReady ? "A1/A2/A3 ready" : `${calibration?.calibrated_anchor_count || 0}/3 anchors`, endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")),
     renderInfoCard("hardware-card", "Adapter Slots", `${binding.slots.length || 0} declared`, "ROKID_UXR boundary keeps gaze, pose, network, and overlay swappable without changing the campus wall layer."),
     renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
     renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
@@ -1315,6 +1386,69 @@ function renderHardwareRuntime() {
   refreshBtn.addEventListener("click", runAction(refreshOps));
   actions.append(registerBtn, heartbeatBtn, refreshBtn);
   els.hardwareGrid.append(actions);
+}
+
+function renderWallCalibration() {
+  if (!els.calibrationGrid) return;
+  const manifest = model.wallCalibration;
+  const summary = wallCalibrationSummary();
+  const anchors = wallCalibrationAnchors();
+  const ready = Boolean(summary?.ready_for_hardware);
+  const endpoint = endpointUrl(manifest?.observation_endpoint || model.bootstrap?.endpoints?.wall_calibration_observations || "/api/calibration/observations");
+  const generatedAt = manifest?.generated_at ? new Date(manifest.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "not fetched";
+
+  els.calibrationGrid.innerHTML = "";
+  els.calibrationGrid.append(
+    renderInfoCard(ready ? "calibration-card good" : "calibration-card warn", "Hardware Gate", ready ? "ready_for_hardware" : `${summary?.calibrated_anchor_count || 0}/3 locked`, "A1/A2/A3 must be observed before claiming real-wall alignment."),
+    renderInfoCard("calibration-card", "Schema", manifest?.schema || "waiting", `${manifest?.wall?.coordinate_system || "innerworld-wall-local/v1"} / ${generatedAt}`),
+    renderInfoCard("calibration-card wide", "Observation Route", endpoint, "Rokid QR/image tracking, SLAM, manual field check, and Web simulator all write through this route.")
+  );
+
+  const list = document.createElement("div");
+  list.className = "calibration-anchor-list";
+  if (anchors.length) {
+    anchors.forEach((anchor) => {
+      const row = document.createElement("div");
+      row.className = ["calibration-anchor", calibrationTone(anchor)].filter(Boolean).join(" ");
+
+      const marker = document.createElement("span");
+      marker.className = "calibration-marker";
+      marker.textContent = anchor.anchor_id;
+
+      const copy = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = anchor.label || anchor.anchor_id;
+      const body = document.createElement("p");
+      body.textContent = `${anchor.marker?.marker_type || "marker"} · ${calibrationStateLabel(anchor)} · ${poseLabel(anchor.expected_pose)}`;
+      copy.append(title, body);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Lock";
+      button.title = `提交 ${anchor.anchor_id} 模拟标定观测`;
+      button.addEventListener("click", runAction(() => submitSimulatedCalibration(anchor.anchor_id)));
+
+      row.append(marker, copy, button);
+      list.append(row);
+    });
+  } else {
+    list.append(renderInfoCard("calibration-card warn wide", "Anchors", "Waiting", model.wallCalibrationError?.message || "Click refresh after Space Server is online."));
+  }
+  els.calibrationGrid.append(list);
+
+  const actions = document.createElement("div");
+  actions.className = "calibration-actions";
+  const refreshBtn = document.createElement("button");
+  refreshBtn.type = "button";
+  refreshBtn.textContent = "Refresh Manifest";
+  refreshBtn.addEventListener("click", runAction(refreshWallCalibration));
+  const lockAllBtn = document.createElement("button");
+  lockAllBtn.type = "button";
+  lockAllBtn.textContent = "Lock A1/A2/A3";
+  lockAllBtn.disabled = !anchors.length;
+  lockAllBtn.addEventListener("click", runAction(submitAllSimulatedCalibration));
+  actions.append(refreshBtn, lockAllBtn);
+  els.calibrationGrid.append(actions);
 }
 
 function renderProductModules() {
@@ -1442,6 +1576,7 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   renderShowcase();
   renderRiskGuardrails();
   renderHardwareRuntime();
+  renderWallCalibration();
   renderLedgerAudit();
 }
 
@@ -1461,20 +1596,40 @@ async function refreshLedger() {
   renderLog();
 }
 
+async function refreshWallCalibration() {
+  try {
+    model.wallCalibration = await api.getWallCalibration();
+    model.wallCalibrationError = null;
+  } catch (error) {
+    model.wallCalibrationError = error;
+  }
+  renderWallCalibration();
+  renderHardwareRuntime();
+  renderLog();
+}
+
 async function refreshDeviceRuntime() {
-  const [manifestResult, sessionsResult, storeResult, catalogResult] = await Promise.allSettled([
+  const [manifestResult, sessionsResult, storeResult, catalogResult, calibrationResult] = await Promise.allSettled([
     api.getDeviceManifest(),
     api.getDeviceSessions(),
     api.getStoreStatus(),
-    api.getDatasetCatalog()
+    api.getDatasetCatalog(),
+    api.getWallCalibration()
   ]);
 
   if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
   if (sessionsResult.status === "fulfilled") model.deviceSessions = sessionsResult.value;
   if (storeResult.status === "fulfilled") model.store = storeResult.value;
   if (catalogResult.status === "fulfilled") model.datasetCatalog = catalogResult.value;
+  if (calibrationResult.status === "fulfilled") {
+    model.wallCalibration = calibrationResult.value;
+    model.wallCalibrationError = null;
+  } else {
+    model.wallCalibrationError = calibrationResult.reason;
+  }
   renderSdkBindingReadiness();
   renderHardwareRuntime();
+  renderWallCalibration();
   renderLedgerAudit();
   renderLog();
 }
@@ -1495,8 +1650,36 @@ async function sendSimulatedHeartbeat() {
   await refreshDeviceRuntime();
 }
 
+async function submitSimulatedCalibration(anchorId) {
+  if (!model.wallCalibration) {
+    await refreshWallCalibration();
+  }
+  if (!model.deviceSession?.session_id) {
+    await registerSimulatedDevice();
+  }
+  const anchor = wallCalibrationAnchors().find((item) => item.anchor_id === anchorId);
+  if (!anchor) {
+    throw new Error(`Calibration anchor ${anchorId} is not available`);
+  }
+  model.wallCalibrationLastResult = await api.submitWallCalibrationObservation(simulatedCalibrationPayload(anchor));
+  await refreshWallCalibration();
+}
+
+async function submitAllSimulatedCalibration() {
+  if (!model.wallCalibration) {
+    await refreshWallCalibration();
+  }
+  if (!model.deviceSession?.session_id) {
+    await registerSimulatedDevice();
+  }
+  for (const anchor of wallCalibrationAnchors()) {
+    model.wallCalibrationLastResult = await api.submitWallCalibrationObservation(simulatedCalibrationPayload(anchor));
+  }
+  await refreshWallCalibration();
+}
+
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
@@ -1504,7 +1687,8 @@ async function refreshOps() {
     api.getStoreStatus(),
     api.getDatasetCatalog(),
     api.getLedgerSummary(),
-    api.getLedgerEvents()
+    api.getLedgerEvents(),
+    api.getWallCalibration()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
@@ -1513,6 +1697,12 @@ async function refreshOps() {
   model.deviceSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : model.deviceSessions;
   model.store = storeResult.status === "fulfilled" ? storeResult.value : model.store;
   model.datasetCatalog = catalogResult.status === "fulfilled" ? catalogResult.value : model.datasetCatalog;
+  if (calibrationResult.status === "fulfilled") {
+    model.wallCalibration = calibrationResult.value;
+    model.wallCalibrationError = null;
+  } else {
+    model.wallCalibrationError = calibrationResult.reason;
+  }
   if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
   if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
   model.ledgerErrors = {
@@ -1549,6 +1739,19 @@ function renderLog() {
       total: model.deviceSessions.total,
       smoke: model.deviceSessions.smoke_test_summary
     } : null,
+    wall_calibration: model.wallCalibration ? {
+      schema: model.wallCalibration.schema,
+      ready_for_hardware: Boolean(wallCalibrationSummary()?.ready_for_hardware),
+      calibrated_anchor_ids: wallCalibrationSummary()?.calibrated_anchor_ids || [],
+      anchors: wallCalibrationAnchors().map((anchor) => ({
+        anchor_id: anchor.anchor_id,
+        marker_type: anchor.marker?.marker_type,
+        latest_status: latestCalibrationObservation(anchor)?.status || null
+      })),
+      error: model.wallCalibrationError?.message || null
+    } : {
+      error: model.wallCalibrationError?.message || null
+    },
     sdk_binding: {
       mode: binding.mode,
       title: binding.title,
@@ -1605,6 +1808,7 @@ async function refresh(options = {}) {
   renderDeliveryScript();
   renderRiskGuardrails();
   renderHardwareRuntime();
+  renderWallCalibration();
   renderLedgerAudit();
   await refreshOps();
   requestAiHud(model.currentAnchor);

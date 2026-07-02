@@ -7,6 +7,7 @@ const homepageModules = [
   "Agent Runtime",
   "Show Mode",
   "Hardware Runtime",
+  "Wall Calibration",
   "Mission Ledger"
 ];
 
@@ -50,13 +51,14 @@ async function fetchText(route, label) {
 }
 
 async function main() {
-  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents] = await Promise.all([
+  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration] = await Promise.all([
     fetchJson("/api/health"),
     fetchJson("/api/ops/status"),
     fetch(`${base}/`),
     fetchText("/app.js", "web demo app script"),
     fetchJson("/api/ledger/summary"),
-    fetchJson("/api/ledger/events?limit=8")
+    fetchJson("/api/ledger/events?limit=8"),
+    fetchJson("/api/calibration/wall")
   ]);
   const html = await htmlRes.text();
   const hud = await postJson("/api/ai/hud", {
@@ -82,6 +84,10 @@ async function main() {
   assert(ledgerSummary.mission?.state, "ledger mission summary check failed");
   assert(ledgerEvents.ok === true, "ledger events ok check failed");
   assert(Array.isArray(ledgerEvents.events), "ledger events list check failed");
+  assert(wallCalibration.ok === true, "wall calibration ok check failed");
+  assert(wallCalibration.schema === "innerworld-wall-calibration/v1", "wall calibration schema check failed");
+  assert(Array.isArray(wallCalibration.anchors) && wallCalibration.anchors.length === 3, "wall calibration anchor list check failed");
+  assert(wallCalibration.runtime?.summary, "wall calibration summary check failed");
 
   assert(htmlRes.ok, "homepage status check failed");
   for (const moduleLabel of homepageModules) {
@@ -90,7 +96,10 @@ async function main() {
   assert(appJs.includes("/api/ai/hud"), "web demo HUD route missing");
   assert(appJs.includes("/api/ledger/summary"), "web demo ledger summary route missing");
   assert(appJs.includes("/api/ledger/events"), "web demo ledger events route missing");
+  assert(appJs.includes("/api/calibration/wall"), "web demo wall calibration route missing");
+  assert(appJs.includes("/api/calibration/observations"), "web demo wall calibration observation route missing");
   assert(appJs.includes("renderLedgerAudit"), "web demo ledger renderer missing");
+  assert(appJs.includes("renderWallCalibration"), "web demo wall calibration renderer missing");
   assert(typeof hud.mission_state === "string", "AI HUD mission_state check failed");
   assert(typeof hud.display_text === "string" && hud.display_text.length > 0, "AI HUD display_text check failed");
   assert(["none", "weak", "strong"].includes(hud.hint_level), "AI HUD hint_level check failed");
