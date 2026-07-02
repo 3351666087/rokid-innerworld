@@ -10,6 +10,8 @@ import {
   INNERWORLD_SPACE_ID,
   MISSION_STEP_IDS,
   MISSION_STATES,
+  WALL_CALIBRATION_OBSERVATION_SCHEMA,
+  WALL_CALIBRATION_SCHEMA,
   SESSION_PLAN_SCHEMA,
   buildDemoStatus,
   buildDeviceBootstrap,
@@ -22,6 +24,7 @@ import { buildEvidenceChain } from "./src/domain/evidence-chain.js";
 import { generateHudOutput } from "./src/domain/hud-generator.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "./src/domain/mission-engine.js";
 import { buildSessionPlan } from "./src/domain/session-planner.js";
+import { buildWallCalibrationManifest, createWallCalibrationObservation } from "./src/domain/wall-calibration.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,11 +55,15 @@ function assertEndpointMap(endpoints) {
     ledger_events: ["GET", "/api/ledger/events"],
     evidence_chain: ["GET", "/api/evidence/chain"],
     session_plan: ["GET", "/api/session/plan"],
+    wall_calibration: ["GET", "/api/calibration/wall"],
+    wall_calibration_observations: ["POST", "/api/calibration/observations"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
     device_manifest: ["GET", "/api/device/manifest"],
     device_register: ["POST", "/api/device/register"],
     device_heartbeat: ["POST", "/api/device/heartbeat"],
     device_sessions: ["GET", "/api/device/sessions"],
+    service_actions_outbox: ["GET", "/api/service-actions/outbox"],
+    service_action_ack_template: ["POST", "/api/service-actions/{action_record_id}/ack"],
     ai_schema: ["GET", "/api/ai/schema"],
     ai_prompt: ["GET", "/api/ai/prompt"],
     ai_hud: ["POST", "/api/ai/hud"],
@@ -76,7 +83,7 @@ function assertEndpointMap(endpoints) {
     assert(endpoint.path === route, `${key} path mismatch`);
     assert(endpoint.url === `http://localhost:5177${route}`, `${key} url mismatch`);
   }
-  assert(Object.keys(endpoints).length >= 24, "endpoint map count mismatch");
+  assert(Object.keys(endpoints).length >= 28, "endpoint map count mismatch");
 }
 
 function assertSpaceContract(space) {
@@ -471,6 +478,73 @@ function assertSessionPlanContract(space, aiSchema) {
   assert(plan.target.guardrails.includes("not a PPT"), "session plan guardrail missing");
 }
 
+function assertWallCalibrationContract(space) {
+  const state = {
+    active_user: "A",
+    mission_state: "entered",
+    current_step_index: 0,
+    completed_steps: [],
+    beacons: space.beacons,
+    events: []
+  };
+  const manifest = buildWallCalibrationManifest({
+    baseUrl: "http://localhost:5177",
+    space,
+    state,
+    generatedAt: "2026-07-02T00:00:04.000Z"
+  });
+
+  assert(manifest.ok === true, "wall calibration ok mismatch");
+  assert(manifest.schema === WALL_CALIBRATION_SCHEMA, "wall calibration schema mismatch");
+  assert(manifest.space_id === INNERWORLD_SPACE_ID, "wall calibration space mismatch");
+  assert(manifest.wall.coordinate_system === "innerworld-wall-local/v1", "wall calibration coordinate system mismatch");
+  assert(manifest.wall.origin_anchor_id === "A2", "wall calibration origin anchor mismatch");
+  assert(manifest.wall.dimensions.width_m > 0, "wall calibration width missing");
+  assert(manifest.wall.dimensions.height_m > 0, "wall calibration height missing");
+  assert(manifest.anchors.length === 3, "wall calibration anchor count mismatch");
+  assert(manifest.anchors.map((anchor) => anchor.anchor_id).join(",") === "A1,A2,A3", "wall calibration anchor ids mismatch");
+  assert(manifest.anchors.every((anchor) => anchor.expected_pose?.position), "wall calibration expected pose missing");
+  assert(manifest.anchors.some((anchor) => anchor.marker?.marker_type === "qr_poster"), "wall calibration QR marker missing");
+  assert(manifest.observation_endpoint.method === "POST", "wall calibration observation endpoint method mismatch");
+  assert(manifest.observation_endpoint.schema === WALL_CALIBRATION_OBSERVATION_SCHEMA, "wall calibration observation schema mismatch");
+  assert(manifest.procedure.length >= 5, "wall calibration procedure missing");
+
+  const accepted = createWallCalibrationObservation({
+    space,
+    receivedAt: "2026-07-02T00:00:05.000Z",
+    body: {
+      session_id: "iw-contract",
+      device_id: "RA202-contract",
+      anchor_id: "A2",
+      tracking_mode: "image_tracking",
+      observed_pose: {
+        position: { x: 0, y: 1.5, z: 3 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 }
+      },
+      confidence: 0.96,
+      notes: "contract calibration"
+    }
+  });
+  assert(accepted.schema === WALL_CALIBRATION_OBSERVATION_SCHEMA, "wall calibration observation schema mismatch");
+  assert(accepted.status === "accepted", "wall calibration accepted observation mismatch");
+  assert(accepted.anchor_id === "A2", "wall calibration observation anchor mismatch");
+  assert(accepted.position_error_m === 0, "wall calibration position error mismatch");
+
+  const rejected = createWallCalibrationObservation({
+    space,
+    receivedAt: "2026-07-02T00:00:06.000Z",
+    body: {
+      anchor_id: "A3",
+      tracking_mode: "slam",
+      observed_pose: { position: { x: 9, y: 9, z: 9 } },
+      confidence: 0.2,
+      access_token: "should-not-matter"
+    }
+  });
+  assert(rejected.status === "rejected", "wall calibration rejected observation mismatch");
+  assert(rejected.issues.includes("confidence_below_threshold"), "wall calibration confidence issue missing");
+}
+
 function assertStateMachine(space) {
   const state = {
     active_user: "A",
@@ -525,6 +599,7 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("using InnerWorld.Rokid.Protocol;"), "Unity controller protocol namespace missing");
   assert(controller.includes("private SpaceApiClient apiClient;"), "Unity controller SpaceApiClient field missing");
   assert(controller.includes("private DeviceBootstrapResponse bootstrap;"), "Unity controller bootstrap response field missing");
+  assert(controller.includes("private DeviceRuntimeSessionResponse deviceSession;"), "Unity controller device session field missing");
   assert(controller.includes("private EditorRokidInputSource editorRokidInputSource;"), "Unity controller Rokid input source missing");
   assert(controller.includes("private RokidAdapterBoundaryStatus rokidAdapterStatus;"), "Unity controller adapter boundary status missing");
   assert(controller.includes("private IRokidInputStateSink rokidInputStateSink;"), "Unity controller input state sink missing");
@@ -535,6 +610,12 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.InteractionsUrl"), "Unity controller interactions URL not using client");
   assert(controller.includes("apiClient.ServiceActionsUrl"), "Unity controller service URL not using client");
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
+  assert(controller.includes("apiClient.DeviceRegisterUrl"), "Unity controller device register URL not using client");
+  assert(controller.includes("apiClient.DeviceHeartbeatUrl"), "Unity controller device heartbeat URL not using client");
+  assert(controller.includes("RegisterDeviceSession"), "Unity controller device register coroutine missing");
+  assert(controller.includes("PostDeviceHeartbeat"), "Unity controller device heartbeat coroutine missing");
+  assert(controller.includes("BuildSdkBindingStatusPayload"), "Unity controller SDK binding payload missing");
+  assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller device capabilities missing");
   assert(controller.includes("InnerWorldRuntimeConfig.FromCurrentProcess"), "Unity controller runtime config load missing");
   assert(runtimeConfig.includes("INNERWORLD_DEVICE_PROFILE"), "Unity runtime config device profile env override missing");
   assert(runtimeConfig.includes("--innerworld-profile"), "Unity runtime config command-line profile override missing");
@@ -544,6 +625,13 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("DefaultDeviceProfile = \"rokid-ar\""), "Unity default device profile mismatch");
   assert(client.includes("BuildBootstrapUrl"), "Unity bootstrap URL builder missing");
   assert(client.includes("/api/device/bootstrap"), "Unity bootstrap route missing");
+  assert(client.includes("DeviceRegisterUrl"), "Unity device register URL property missing");
+  assert(client.includes("DeviceHeartbeatUrl"), "Unity device heartbeat URL property missing");
+  assert(client.includes("WallCalibrationUrl"), "Unity wall calibration URL property missing");
+  assert(client.includes("WallCalibrationObservationsUrl"), "Unity wall calibration observations URL property missing");
+  assert(client.includes("BuildWallCalibrationUrl"), "Unity wall calibration URL builder missing");
+  assert(client.includes("BuildWallCalibrationObservationsUrl"), "Unity wall calibration observations URL builder missing");
+  assert(client.includes("BuildServiceActionAckUrl"), "Unity service action ack URL builder missing");
   assert(client.includes("AiHudUrl"), "Unity AI HUD URL property missing");
   assert(client.includes("/api/ai/hud"), "Unity AI HUD route missing");
   assert(client.includes("LedgerEventsUrl"), "Unity ledger events URL property missing");
@@ -555,9 +643,21 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("ledger_events = Endpoint(cleanBaseUrl, \"GET\", \"/api/ledger/events\")"), "Unity ledger events endpoint mismatch");
   assert(client.includes("ledger_summary = Endpoint(cleanBaseUrl, \"GET\", \"/api/ledger/summary\")"), "Unity ledger summary endpoint mismatch");
   assert(client.includes("service_actions = Endpoint(cleanBaseUrl, \"POST\", \"/api/service-actions\")"), "Unity service_actions endpoint mismatch");
+  assert(client.includes("service_actions_outbox = Endpoint(cleanBaseUrl, \"GET\", \"/api/service-actions/outbox\")"), "Unity service_actions_outbox endpoint mismatch");
+  assert(client.includes("device_heartbeat = Endpoint(cleanBaseUrl, \"POST\", \"/api/device/heartbeat\")"), "Unity device heartbeat endpoint mismatch");
+  assert(client.includes("wall_calibration = Endpoint(cleanBaseUrl, \"GET\", \"/api/calibration/wall\")"), "Unity wall calibration endpoint mismatch");
+  assert(client.includes("wall_calibration_observations = Endpoint(cleanBaseUrl, \"POST\", \"/api/calibration/observations\")"), "Unity wall calibration observations endpoint mismatch");
   assert(client.includes("write_back = Endpoint(cleanBaseUrl, \"POST\", writeBackPath)"), "Unity write_back endpoint mismatch");
 
   assert(dtos.includes("public sealed class DeviceBootstrapResponse"), "Unity DeviceBootstrapResponse DTO missing");
+  assert(dtos.includes("public sealed class DeviceRuntimeSessionResponse"), "Unity device register response DTO missing");
+  assert(dtos.includes("public sealed class DeviceHeartbeatResponse"), "Unity device heartbeat response DTO missing");
+  assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health response DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationAnchor"), "Unity wall calibration anchor DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration result DTO missing");
+  assert(dtos.includes("public SpaceApiEndpoint wall_calibration;"), "Unity wall calibration endpoint DTO missing");
+  assert(dtos.includes("public SpaceApiEndpoint wall_calibration_observations;"), "Unity wall calibration observations endpoint DTO missing");
   assert(dtos.includes("public SpaceEndpointMap endpoints;"), "Unity endpoint map DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ai_hud;"), "Unity AI HUD endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_events;"), "Unity ledger events endpoint DTO missing");
@@ -571,6 +671,10 @@ async function assertUnityProtocolSkeleton() {
   assert(payloads.includes("public sealed class InteractionRequest"), "Unity interaction request missing");
   assert(payloads.includes("public sealed class ServiceActionRequest"), "Unity service action request missing");
   assert(payloads.includes("public sealed class WriteBackRequest"), "Unity write-back request missing");
+  assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request missing");
+  assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request missing");
+  assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
+  assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
   return "verified";
 }
 
@@ -633,14 +737,15 @@ async function assertRokidSimulatorSkeleton() {
 }
 
 async function assertServerCoreSkeleton() {
-  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore] = await Promise.all([
+  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration] = await Promise.all([
     readText("server/space-server/index.js"),
     readText("server/space-server/src/http/api-router.js"),
     readText("server/space-server/src/http/response.js"),
     readText("server/space-server/src/http/static-files.js"),
     readText("server/space-server/src/ops/status-service.js"),
     readText("server/space-server/src/domain/device-runtime.js"),
-    readText("server/space-server/src/store/sqlite-store.js")
+    readText("server/space-server/src/store/sqlite-store.js"),
+    readText("server/space-server/src/domain/wall-calibration.js")
   ]);
 
   assert(index.includes("createApiRouter"), "server index does not use api router module");
@@ -659,8 +764,12 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("createDeviceRuntimeStore"), "api router device runtime store missing");
   assert(apiRouter.includes("/api/evidence/chain"), "api router evidence chain route missing");
   assert(apiRouter.includes("/api/session/plan"), "api router session plan route missing");
+  assert(apiRouter.includes("/api/calibration/wall"), "api router wall calibration route missing");
+  assert(apiRouter.includes("/api/calibration/observations"), "api router wall calibration observation route missing");
   assert(apiRouter.includes("buildEvidenceChain"), "api router evidence chain builder missing");
   assert(apiRouter.includes("buildSessionPlan"), "api router session plan builder missing");
+  assert(apiRouter.includes("buildWallCalibrationManifest"), "api router wall calibration builder missing");
+  assert(apiRouter.includes("createWallCalibrationObservation"), "api router wall calibration observation builder missing");
   assert(apiRouter.includes("/api/ai/hud"), "api router AI HUD route missing");
   assert(apiRouter.includes("generateHudOutput"), "api router AI HUD generator call missing");
   assert(apiRouter.includes("applyWriteBack"), "api router write-back domain call missing");
@@ -678,9 +787,16 @@ async function assertServerCoreSkeleton() {
   assert(sqliteStore.includes("export async function createSqliteStore"), "SQLite store factory missing");
   assert(sqliteStore.includes("CREATE TABLE IF NOT EXISTS datasets"), "SQLite datasets table missing");
   assert(sqliteStore.includes("CREATE TABLE IF NOT EXISTS mission_ledger"), "SQLite mission ledger table missing");
+  assert(sqliteStore.includes("CREATE TABLE IF NOT EXISTS wall_calibration_observations"), "SQLite wall calibration table missing");
   assert(sqliteStore.includes("appendMissionLedgerEvent"), "SQLite mission ledger append missing");
   assert(sqliteStore.includes("missionLedgerSummary"), "SQLite mission ledger summary missing");
+  assert(sqliteStore.includes("appendWallCalibrationObservation"), "SQLite wall calibration append missing");
+  assert(sqliteStore.includes("wallCalibrationSummary"), "SQLite wall calibration summary missing");
   assert(sqliteStore.includes("raw_sql_api"), "SQLite raw SQL guard marker missing");
+  assert(wallCalibration.includes("innerworld-wall-calibration/v1"), "wall calibration schema missing");
+  assert(wallCalibration.includes("buildWallCalibrationManifest"), "wall calibration manifest builder missing");
+  assert(wallCalibration.includes("createWallCalibrationObservation"), "wall calibration observation builder missing");
+  assert(wallCalibration.includes("position_error_reject_m"), "wall calibration reject threshold missing");
   return "verified";
 }
 
@@ -699,6 +815,7 @@ async function main() {
   assertDeviceRuntimeContract(space, aiSchema);
   assertEvidenceChainContract(space, aiSchema, hardwareManifest);
   assertSessionPlanContract(space, aiSchema);
+  assertWallCalibrationContract(space);
   assertAiHudGenerator(space, aiSchema);
   assertStateMachine(space);
   const server_core = await assertServerCoreSkeleton();
@@ -716,8 +833,12 @@ async function main() {
   assert(typeof client.registerDevice === "function", "client device register method missing");
   assert(typeof client.sendDeviceHeartbeat === "function", "client device heartbeat method missing");
   assert(typeof client.getDeviceSessions === "function", "client device sessions method missing");
+  assert(typeof client.getServiceActionOutbox === "function", "client service action outbox method missing");
+  assert(typeof client.ackServiceAction === "function", "client service action ack method missing");
   assert(typeof client.getEvidenceChain === "function", "client evidence chain method missing");
   assert(typeof client.getSessionPlan === "function", "client session plan method missing");
+  assert(typeof client.getWallCalibration === "function", "client wall calibration method missing");
+  assert(typeof client.submitWallCalibrationObservation === "function", "client wall calibration observation method missing");
   assert(client.endpoints().space.path === `/api/spaces/${INNERWORLD_SPACE_ID}`, "client endpoints mismatch");
   assert(client.endpoints().store_status.path === "/api/store/status", "client store endpoint mismatch");
   assert(client.endpoints().dataset_call.path === "/api/datasets/call", "client dataset call endpoint mismatch");
@@ -725,7 +846,11 @@ async function main() {
   assert(client.endpoints().ledger_events.path === "/api/ledger/events", "client ledger events endpoint mismatch");
   assert(client.endpoints().evidence_chain.path === "/api/evidence/chain", "client evidence endpoint mismatch");
   assert(client.endpoints().session_plan.path === "/api/session/plan", "client session endpoint mismatch");
+  assert(client.endpoints().wall_calibration.path === "/api/calibration/wall", "client wall calibration endpoint mismatch");
+  assert(client.endpoints().wall_calibration_observations.path === "/api/calibration/observations", "client wall calibration observations endpoint mismatch");
   assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");
+  assert(client.endpoints().service_actions_outbox.path === "/api/service-actions/outbox", "client service actions outbox endpoint mismatch");
+  assert(client.endpoints().service_action_ack_template.path === "/api/service-actions/{action_record_id}/ack", "client service action ack template endpoint mismatch");
 
   console.log(JSON.stringify({
     ok: true,
@@ -740,6 +865,7 @@ async function main() {
     ai_hud: "server/space-server/src/domain/hud-generator.js",
     evidence_chain: "server/space-server/src/domain/evidence-chain.js",
     session_plan: "server/space-server/src/domain/session-planner.js",
+    wall_calibration: WALL_CALIBRATION_SCHEMA,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,

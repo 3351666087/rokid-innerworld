@@ -48,6 +48,13 @@ namespace InnerWorld.Rokid
         private IRokidInputSource rokidInputSource;
         private IRokidInputStateSink rokidInputStateSink;
         private IRokidOverlayRenderer rokidOverlayRenderer;
+        private DeviceRuntimeSessionResponse deviceSession;
+        private DeviceHeartbeatResponse lastDeviceHeartbeat;
+        private string deviceSessionId = string.Empty;
+        private string deviceId = string.Empty;
+        private string deviceRuntimeLine = "device session pending";
+        private float heartbeatClockSeconds;
+        private bool heartbeatInFlight;
         private string currentGazeAnchorId = string.Empty;
         private string currentGazeAnchorLabel = string.Empty;
         private bool currentGazeSelecting;
@@ -58,6 +65,7 @@ namespace InnerWorld.Rokid
 
         private const float GazeHitRadiusMeters = 0.16f;
         private const int GazeReticleSegments = 48;
+        private const string UnityClientVersion = "unity-runtime-0.2.0";
 
         private void Awake()
         {
@@ -80,6 +88,7 @@ namespace InnerWorld.Rokid
         private void Update()
         {
             TickRokidInput();
+            TickDeviceHeartbeat();
 
             if (Input.GetKeyDown(KeyCode.R)) StartCoroutine(BootstrapAndLoadSpace());
             if (!IsRokidInputActive() && Input.GetKeyDown(KeyCode.Space)) CompleteNextStep();
@@ -92,6 +101,7 @@ namespace InnerWorld.Rokid
         {
             EnsureApiClient();
             yield return LoadBootstrap();
+            yield return RegisterDeviceSession();
             yield return LoadSpace();
         }
 
@@ -282,10 +292,118 @@ namespace InnerWorld.Rokid
                 source = RequestSourceName(),
                 user_id = CurrentUserId(),
                 action_id = "JOIN_EVENT_1430",
-                label = "Join 14:30 demo"
+                label = "Join 14:30 demo",
+                anchor_id = CurrentActiveAnchorId(),
+                step_id = "service_action"
             };
             yield return PostJson(apiClient.ServiceActionsUrl, JsonUtility.ToJson(request), "Service action posted");
             yield return LoadSpace();
+        }
+
+        private IEnumerator RegisterDeviceSession()
+        {
+            EnsureApiClient();
+            if (bootstrap == null)
+            {
+                deviceRuntimeLine = "device session skipped: bootstrap unavailable";
+                yield break;
+            }
+
+            DeviceRegisterRequest payload = BuildDeviceRegisterRequest();
+            string json = JsonUtility.ToJson(payload);
+            SetRokidConnection(RokidConnectionStatus.Connecting, "Registering device runtime");
+
+            using (UnityWebRequest request = new UnityWebRequest(apiClient.DeviceRegisterUrl, "POST"))
+            {
+                byte[] body = Encoding.UTF8.GetBytes(json);
+                request.uploadHandler = new UploadHandlerRaw(body);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json; charset=utf-8");
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    deviceSession = JsonUtility.FromJson<DeviceRuntimeSessionResponse>(request.downloadHandler.text);
+                    deviceSessionId = deviceSession != null ? deviceSession.session_id : string.Empty;
+                    deviceId = deviceSession != null ? deviceSession.device_id : payload.device_id;
+                    heartbeatClockSeconds = 0f;
+                    deviceRuntimeLine = "device session " + ShortId(deviceSessionId) + " registered";
+                    SetRokidConnection(RokidConnectionStatus.Connected, deviceRuntimeLine);
+                    StartCoroutine(PostDeviceHeartbeat());
+                }
+                else
+                {
+                    deviceSession = null;
+                    deviceSessionId = string.Empty;
+                    deviceRuntimeLine = "device register failed: " + request.error;
+                    Debug.LogWarning(deviceRuntimeLine);
+                    SetRokidConnection(RokidConnectionStatus.Error, request.error);
+                }
+            }
+        }
+
+        private void TickDeviceHeartbeat()
+        {
+            if (usingFallback || string.IsNullOrEmpty(deviceSessionId) || heartbeatInFlight)
+            {
+                return;
+            }
+
+            int intervalMs = runtimeConfig != null ? runtimeConfig.health_interval_ms : InnerWorldRuntimeConfig.DefaultHealthIntervalMs;
+            float intervalSeconds = Mathf.Max(0.5f, intervalMs / 1000f);
+            heartbeatClockSeconds += Time.deltaTime;
+            if (heartbeatClockSeconds < intervalSeconds)
+            {
+                return;
+            }
+
+            heartbeatClockSeconds = 0f;
+            StartCoroutine(PostDeviceHeartbeat());
+        }
+
+        private IEnumerator PostDeviceHeartbeat()
+        {
+            EnsureApiClient();
+            if (string.IsNullOrEmpty(deviceSessionId) || heartbeatInFlight)
+            {
+                yield break;
+            }
+
+            heartbeatInFlight = true;
+            DeviceHeartbeatRequest payload = BuildDeviceHeartbeatRequest();
+            string json = JsonUtility.ToJson(payload);
+
+            using (UnityWebRequest request = new UnityWebRequest(apiClient.DeviceHeartbeatUrl, "POST"))
+            {
+                byte[] body = Encoding.UTF8.GetBytes(json);
+                request.uploadHandler = new UploadHandlerRaw(body);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json; charset=utf-8");
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    lastDeviceHeartbeat = JsonUtility.FromJson<DeviceHeartbeatResponse>(request.downloadHandler.text);
+                    string severity = lastDeviceHeartbeat != null && lastDeviceHeartbeat.health != null
+                        ? lastDeviceHeartbeat.health.severity
+                        : "unknown";
+                    string activeAnchor = lastDeviceHeartbeat != null && lastDeviceHeartbeat.mission_snapshot != null && lastDeviceHeartbeat.mission_snapshot.active_anchor != null
+                        ? lastDeviceHeartbeat.mission_snapshot.active_anchor.anchor_id
+                        : CurrentActiveAnchorId();
+                    deviceRuntimeLine = "device heartbeat " + severity + " | " + activeAnchor + " | " + ShortId(deviceSessionId);
+                    SetRokidConnection(RokidConnectionStatus.Connected, deviceRuntimeLine);
+                }
+                else
+                {
+                    deviceRuntimeLine = "device heartbeat failed: " + request.error;
+                    Debug.LogWarning(deviceRuntimeLine);
+                    SetRokidConnection(RokidConnectionStatus.Error, request.error);
+                }
+            }
+
+            heartbeatInFlight = false;
         }
 
         private IEnumerator PostWriteBack()
@@ -1244,7 +1362,213 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + " | " + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
+        }
+
+        private DeviceRegisterRequest BuildDeviceRegisterRequest()
+        {
+            return new DeviceRegisterRequest
+            {
+                profile = CurrentDeviceProfile(),
+                device_id = CurrentDeviceId(),
+                client_version = UnityClientVersion,
+                capabilities = RequiredDeviceCapabilities(),
+                network = BuildDeviceNetworkStatus(),
+                sdk_binding_status = BuildSdkBindingStatusPayload("unity_register")
+            };
+        }
+
+        private DeviceHeartbeatRequest BuildDeviceHeartbeatRequest()
+        {
+            return new DeviceHeartbeatRequest
+            {
+                session_id = deviceSessionId,
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId,
+                battery = BuildDeviceBatteryStatus(),
+                network = BuildDeviceNetworkStatus(),
+                pose = BuildDevicePosePayload(),
+                active_anchor = CurrentActiveAnchorId(),
+                current_user = CurrentUserId(),
+                sdk_binding_status = BuildSdkBindingStatusPayload("unity_heartbeat")
+            };
+        }
+
+        private string[] RequiredDeviceCapabilities()
+        {
+            return new[]
+            {
+                "display.hud_overlay",
+                "pose.head_tracking",
+                "input.gaze_or_touch",
+                "network.http_json",
+                "anchors.local_alignment",
+                "telemetry.battery"
+            };
+        }
+
+        private DeviceNetworkStatus BuildDeviceNetworkStatus()
+        {
+            return new DeviceNetworkStatus
+            {
+                online = Application.internetReachability != NetworkReachability.NotReachable,
+                transport = IsLoopbackBaseUrl(apiClient != null ? apiClient.BaseUrl : baseUrl) ? "localhost" : "wifi",
+                rtt_ms = 32,
+                lan_reachable = true,
+                http_cleartext_allowed = UsesCleartextHttp(apiClient != null ? apiClient.BaseUrl : baseUrl)
+            };
+        }
+
+        private DeviceBatteryStatus BuildDeviceBatteryStatus()
+        {
+            float batteryLevel = SystemInfo.batteryLevel;
+            int percent = batteryLevel >= 0f ? Mathf.RoundToInt(Mathf.Clamp01(batteryLevel) * 100f) : 100;
+            return new DeviceBatteryStatus
+            {
+                level_percent = percent,
+                charging = SystemInfo.batteryStatus == BatteryStatus.Charging,
+                temperature_c = 32f
+            };
+        }
+
+        private DevicePosePayload BuildDevicePosePayload()
+        {
+            RokidPose pose = CurrentRokidPose();
+            return new DevicePosePayload
+            {
+                confidence = rokidInputSource != null && rokidInputSource.IsPoseValid ? 0.92f : 0.72f,
+                position = new DeviceVector3
+                {
+                    x = pose.Position.x,
+                    y = pose.Position.y,
+                    z = pose.Position.z
+                },
+                rotation = new DeviceQuaternion
+                {
+                    x = pose.Rotation.x,
+                    y = pose.Rotation.y,
+                    z = pose.Rotation.z,
+                    w = pose.Rotation.w
+                }
+            };
+        }
+
+        private RokidPose CurrentRokidPose()
+        {
+            if (rokidInputSource != null && rokidInputSource.IsPoseValid)
+            {
+                return rokidInputSource.HeadPose;
+            }
+
+            Camera camera = Camera.main;
+            if (camera != null)
+            {
+                return new RokidPose(camera.transform.position, camera.transform.rotation);
+            }
+
+            return RokidPose.Identity;
+        }
+
+        private RokidSdkBindingStatusPayload BuildSdkBindingStatusPayload(string source)
+        {
+            RokidSdkBindingReport report = rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            return new RokidSdkBindingStatusPayload
+            {
+                schema = RokidSdkBindingReport.Schema,
+                source = source,
+                define_symbol = report.DefineSymbol,
+                stage = SdkBindingStageValue(report.Stage),
+                boundary_compiled = report.BoundaryCompiled,
+                package_detected = report.PackageDetected,
+                input_binding_ready = report.InputBindingReady,
+                overlay_binding_ready = report.OverlayBindingReady,
+                live_binding_ready = report.LiveBindingReady,
+                candidate_assemblies = report.CandidateAssemblies,
+                candidate_types = report.CandidateTypes,
+                message = report.Message
+            };
+        }
+
+        private string SdkBindingStageValue(RokidSdkBindingStage stage)
+        {
+            switch (stage)
+            {
+                case RokidSdkBindingStage.BoundaryCompiled:
+                    return "boundary_compiled";
+                case RokidSdkBindingStage.PackageDetected:
+                    return "package_detected";
+                case RokidSdkBindingStage.LiveBindingReady:
+                    return "live_binding_ready";
+                default:
+                    return "fallback_only";
+            }
+        }
+
+        private string CurrentDeviceId()
+        {
+            return "unity-shell-" + SanitizeDeviceToken(CurrentDeviceProfile());
+        }
+
+        private string CurrentActiveAnchorId()
+        {
+            if (!string.IsNullOrWhiteSpace(selectedAnchorId)) return selectedAnchorId.Trim();
+            if (!string.IsNullOrWhiteSpace(currentGazeAnchorId)) return currentGazeAnchorId.Trim();
+            if (missionState != null && missionState.anchor_selection != null && !string.IsNullOrWhiteSpace(missionState.anchor_selection.anchor_id))
+            {
+                return missionState.anchor_selection.anchor_id.Trim();
+            }
+            if (missionState != null && missionState.CurrentStep != null && !string.IsNullOrWhiteSpace(missionState.CurrentStep.anchor_id))
+            {
+                return missionState.CurrentStep.anchor_id.Trim();
+            }
+            return "A1";
+        }
+
+        private string SanitizeDeviceToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "runtime";
+            StringBuilder builder = new StringBuilder();
+            string clean = value.Trim();
+            for (int index = 0; index < clean.Length; index++)
+            {
+                char ch = clean[index];
+                if (char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-')
+                {
+                    builder.Append(ch);
+                }
+                else if (builder.Length == 0 || builder[builder.Length - 1] != '-')
+                {
+                    builder.Append('-');
+                }
+            }
+            return builder.Length == 0 ? "runtime" : builder.ToString().Trim('-');
+        }
+
+        private string ShortId(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "no-session";
+            string clean = value.Trim();
+            return clean.Length <= 12 ? clean : clean.Substring(0, 12);
+        }
+
+        private bool UsesCleartextHttp(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value) && value.Trim().StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsLoopbackBaseUrl(string value)
+        {
+            try
+            {
+                Uri uri = new Uri(value);
+                string host = uri.Host;
+                return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private int RequestTimeoutSeconds()

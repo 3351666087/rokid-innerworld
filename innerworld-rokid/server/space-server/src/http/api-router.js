@@ -9,6 +9,8 @@ import { buildDeviceManifest, createDeviceRuntimeStore } from "../domain/device-
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
 import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
+import { buildServiceActionAck, createServiceActionRecord, sanitizeServiceActionValue } from "../domain/service-action-runtime.js";
+import { buildWallCalibrationManifest, createWallCalibrationObservation } from "../domain/wall-calibration.js";
 import { generateHudOutput } from "../domain/hud-generator.js";
 import { readJson } from "../lib/json-file.js";
 import { readBody, sendError, sendJson } from "./response.js";
@@ -109,6 +111,19 @@ export function createApiRouter({
     });
   }
 
+  async function loadWallCalibration(req, url) {
+    const [space, state] = await Promise.all([
+      loadSpace(),
+      loadState()
+    ]);
+    return buildWallCalibrationManifest({
+      baseUrl: getRequestBaseUrl(req, url, port),
+      space,
+      state,
+      summary: sqliteStore?.wallCalibrationSummary?.() || null
+    });
+  }
+
   return async function routeApi(req, res, url) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       const space = await loadSpace();
@@ -196,6 +211,30 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/session/plan") {
       sendJson(res, 200, await loadSessionPlan(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/calibration/wall") {
+      sendJson(res, 200, await loadWallCalibration(req, url));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/calibration/observations") {
+      const [space, body] = await Promise.all([
+        loadSpace(),
+        readBody(req)
+      ]);
+      const observation = createWallCalibrationObservation({
+        body,
+        space,
+        receivedAt: new Date().toISOString()
+      });
+      const stored = sqliteStore?.appendWallCalibrationObservation?.(observation) || observation;
+      sendJson(res, 201, {
+        ok: true,
+        observation: stored,
+        summary: sqliteStore?.wallCalibrationSummary?.() || null
+      });
       return;
     }
 
@@ -363,19 +402,83 @@ export function createApiRouter({
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/service-actions/outbox") {
+      const result = sqliteStore?.listServiceActionOutbox?.({
+        limit: url.searchParams.get("limit") || 50,
+        status: url.searchParams.get("status") || "pending"
+      }) || {
+        ok: false,
+        status: 503,
+        error: "service_action_outbox_unavailable"
+      };
+      if (result.ok === false) {
+        sendError(res, result.status || 400, result.error || "service_action_outbox_failed");
+        return;
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
+    const serviceActionAckMatch = url.pathname.match(/^\/api\/service-actions\/([^/]+)\/ack$/);
+    if (req.method === "POST" && serviceActionAckMatch) {
+      const body = await readBody(req);
+      const actionRecordId = decodeURIComponent(serviceActionAckMatch[1]);
+      const createdAt = new Date().toISOString();
+      const ack = buildServiceActionAck({ body, record: { action_record_id: actionRecordId }, createdAt });
+      const result = sqliteStore?.ackServiceActionRecord?.({ actionRecordId, ack, createdAt }) || {
+        ok: false,
+        status: 503,
+        error: "service_action_outbox_unavailable"
+      };
+      if (result.ok === false) {
+        sendError(res, result.status || 400, result.error || "service_action_ack_failed");
+        return;
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/service-actions") {
       const body = await readBody(req);
+      const createdAt = new Date().toISOString();
+      const safeBody = sanitizeServiceActionValue(body) || {};
       const updated = await updateState((state, space) => {
-        return applyServiceAction({ state, space, body });
+        return applyServiceAction({ state, space, body: safeBody, createdAt });
       });
+      const record = createServiceActionRecord({
+        body,
+        space: updated.space,
+        state: updated.state,
+        createdAt
+      });
+      const storedRecord = sqliteStore?.appendServiceActionRecord?.(record) || record;
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "service_action",
         space: updated.space,
-        payload: body,
-        result: missionResultSummary("service_action", updated),
+        payload: {
+          ...storedRecord.payload,
+          action_record_id: storedRecord.action_record_id,
+          service_action_status: storedRecord.status
+        },
+        result: {
+          ...missionResultSummary("service_action", updated),
+          action_record_id: storedRecord.action_record_id,
+          service_action_status: storedRecord.status,
+          created_at: storedRecord.created_at
+        },
         state: updated.state
       }) || null;
-      sendJson(res, 200, { ok: true, action: body, state: updated.state, ledger });
+      sendJson(res, 200, {
+        ok: true,
+        action: storedRecord.payload,
+        record: storedRecord,
+        outbox: {
+          status: storedRecord.status,
+          action_record_id: storedRecord.action_record_id
+        },
+        state: sanitizeServiceActionValue(updated.state),
+        ledger
+      });
       return;
     }
 

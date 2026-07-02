@@ -55,6 +55,15 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("RokidAdapterResolver.Resolve(presentationStrategy)"), "Unity controller resolver boundary missing");
   assert(controller.includes("private RokidAdapterBoundaryStatus rokidAdapterStatus;"), "Unity controller boundary status missing");
   assert(controller.includes("private IRokidInputStateSink rokidInputStateSink;"), "Unity controller input state sink missing");
+  assert(controller.includes("private DeviceRuntimeSessionResponse deviceSession;"), "Unity controller device session field missing");
+  assert(controller.includes("RegisterDeviceSession"), "Unity controller device register coroutine missing");
+  assert(controller.includes("PostDeviceHeartbeat"), "Unity controller device heartbeat coroutine missing");
+  assert(controller.includes("apiClient.DeviceRegisterUrl"), "Unity controller device register URL missing");
+  assert(controller.includes("apiClient.DeviceHeartbeatUrl"), "Unity controller device heartbeat URL missing");
+  assert(controller.includes("BuildSdkBindingStatusPayload"), "Unity controller SDK binding heartbeat payload missing");
+  assert(controller.includes("BuildDeviceRegisterRequest"), "Unity controller device register payload builder missing");
+  assert(controller.includes("BuildDeviceHeartbeatRequest"), "Unity controller device heartbeat payload builder missing");
+  assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller required capabilities missing");
   assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
   assert(poseProvider.includes("interface IRokidInputStateSink"), "Unity input state sink interface missing");
   assert(bindingProbe.includes("innerworld-rokid-sdk-binding/v1"), "Rokid SDK binding schema missing");
@@ -79,6 +88,32 @@ async function assertUnityAdapterBoundary() {
   assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
   assert(docs.includes("RokidAdapterResolver.Resolve"), "Rokid adapter boundary docs missing");
   assert(docs.includes("ROKID_UXR"), "Rokid UXR docs missing");
+
+  const [client, dtos, payloads] = await Promise.all([
+    readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceApiClient.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceProtocolDtos.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Protocol/SpaceProtocolPayloads.cs")
+  ]);
+  assert(client.includes("DeviceRegisterUrl"), "Unity SpaceApiClient device register property missing");
+  assert(client.includes("DeviceHeartbeatUrl"), "Unity SpaceApiClient device heartbeat property missing");
+  assert(client.includes("WallCalibrationUrl"), "Unity SpaceApiClient wall calibration property missing");
+  assert(client.includes("WallCalibrationObservationsUrl"), "Unity SpaceApiClient wall calibration observations property missing");
+  assert(client.includes("BuildWallCalibrationUrl"), "Unity SpaceApiClient wall calibration builder missing");
+  assert(client.includes("BuildWallCalibrationObservationsUrl"), "Unity SpaceApiClient wall calibration observations builder missing");
+  assert(client.includes("BuildServiceActionAckUrl"), "Unity SpaceApiClient service action ack builder missing");
+  assert(client.includes("service_actions_outbox = Endpoint"), "Unity endpoint map service outbox missing");
+  assert(client.includes("wall_calibration = Endpoint"), "Unity endpoint map wall calibration missing");
+  assert(client.includes("wall_calibration_observations = Endpoint"), "Unity endpoint map wall calibration observations missing");
+  assert(dtos.includes("public sealed class DeviceRuntimeSessionResponse"), "Unity device register response DTO missing");
+  assert(dtos.includes("public sealed class DeviceHeartbeatResponse"), "Unity device heartbeat response DTO missing");
+  assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration observation result DTO missing");
+  assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request DTO missing");
+  assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request DTO missing");
+  assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
+  assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
+  assert(payloads.includes("public sealed class DeviceNetworkStatus"), "Unity device network payload missing");
   return "ROKID_UXR";
 }
 

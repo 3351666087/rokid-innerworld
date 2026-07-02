@@ -45,6 +45,36 @@ namespace InnerWorld.Rokid.Protocol
             get { return BuildBootstrapUrl(BaseUrl, DeviceProfile); }
         }
 
+        public string DeviceManifestUrl
+        {
+            get { return BuildDeviceManifestUrl(BaseUrl); }
+        }
+
+        public string DeviceRegisterUrl
+        {
+            get { return BuildDeviceRegisterUrl(BaseUrl); }
+        }
+
+        public string DeviceHeartbeatUrl
+        {
+            get { return BuildDeviceHeartbeatUrl(BaseUrl); }
+        }
+
+        public string DeviceSessionsUrl
+        {
+            get { return BuildDeviceSessionsUrl(BaseUrl); }
+        }
+
+        public string WallCalibrationUrl
+        {
+            get { return BuildWallCalibrationUrl(BaseUrl); }
+        }
+
+        public string WallCalibrationObservationsUrl
+        {
+            get { return BuildWallCalibrationObservationsUrl(BaseUrl); }
+        }
+
         public string SpaceUrl
         {
             get { return BuildSpaceUrl(BaseUrl, SpaceId); }
@@ -93,6 +123,11 @@ namespace InnerWorld.Rokid.Protocol
         public string ServiceActionsUrl
         {
             get { return BuildServiceActionsUrl(BaseUrl); }
+        }
+
+        public string ServiceActionsOutboxUrl
+        {
+            get { return BuildServiceActionsOutboxUrl(BaseUrl); }
         }
 
         public string WriteBackUrl
@@ -160,6 +195,36 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/state");
         }
 
+        public static string BuildDeviceManifestUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/device/manifest");
+        }
+
+        public static string BuildDeviceRegisterUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/device/register");
+        }
+
+        public static string BuildDeviceHeartbeatUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/device/heartbeat");
+        }
+
+        public static string BuildDeviceSessionsUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/device/sessions");
+        }
+
+        public static string BuildWallCalibrationUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/calibration/wall");
+        }
+
+        public static string BuildWallCalibrationObservationsUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/calibration/observations");
+        }
+
         public static string BuildEvidenceChainUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/evidence/chain");
@@ -206,6 +271,16 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/service-actions");
         }
 
+        public static string BuildServiceActionsOutboxUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/service-actions/outbox");
+        }
+
+        public static string BuildServiceActionAckUrl(string baseUrl, string actionRecordId)
+        {
+            return BuildUrl(baseUrl, "/api/service-actions/" + EscapePathSegment(CleanOrDefault(actionRecordId, "")) + "/ack");
+        }
+
         public static string BuildWriteBackUrl(string baseUrl)
         {
             return BuildWriteBackUrl(baseUrl, DefaultSpaceId);
@@ -237,6 +312,12 @@ namespace InnerWorld.Rokid.Protocol
                 ledger_summary = Endpoint(cleanBaseUrl, "GET", "/api/ledger/summary"),
                 session_plan = Endpoint(cleanBaseUrl, "GET", "/api/session/plan"),
                 device_bootstrap = Endpoint(cleanBaseUrl, "GET", "/api/device/bootstrap"),
+                device_manifest = Endpoint(cleanBaseUrl, "GET", "/api/device/manifest"),
+                device_register = Endpoint(cleanBaseUrl, "POST", "/api/device/register"),
+                device_heartbeat = Endpoint(cleanBaseUrl, "POST", "/api/device/heartbeat"),
+                device_sessions = Endpoint(cleanBaseUrl, "GET", "/api/device/sessions"),
+                wall_calibration = Endpoint(cleanBaseUrl, "GET", "/api/calibration/wall"),
+                wall_calibration_observations = Endpoint(cleanBaseUrl, "POST", "/api/calibration/observations"),
                 ai_schema = Endpoint(cleanBaseUrl, "GET", "/api/ai/schema"),
                 ai_prompt = Endpoint(cleanBaseUrl, "GET", "/api/ai/prompt"),
                 ai_hud = Endpoint(cleanBaseUrl, "POST", "/api/ai/hud"),
@@ -245,6 +326,8 @@ namespace InnerWorld.Rokid.Protocol
                 nearby_pins = Endpoint(cleanBaseUrl, "GET", "/api/pins/nearby?radius=20"),
                 interactions = Endpoint(cleanBaseUrl, "POST", "/api/interactions"),
                 service_actions = Endpoint(cleanBaseUrl, "POST", "/api/service-actions"),
+                service_actions_outbox = Endpoint(cleanBaseUrl, "GET", "/api/service-actions/outbox"),
+                service_action_ack_template = Endpoint(cleanBaseUrl, "POST", "/api/service-actions/{action_record_id}/ack"),
                 write_back = Endpoint(cleanBaseUrl, "POST", writeBackPath),
                 reset = Endpoint(cleanBaseUrl, "POST", "/api/reset")
             };

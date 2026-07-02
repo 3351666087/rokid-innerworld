@@ -2,6 +2,13 @@ import initSqlJs from "sql.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  SERVICE_ACTION_OUTBOX_SCHEMA,
+  normalizeServiceActionOutboxQuery,
+  publicServiceActionRecord,
+  sanitizeServiceActionValue
+} from "../domain/service-action-runtime.js";
+import { WALL_CALIBRATION_OBSERVATION_SCHEMA, WALL_CALIBRATION_SCHEMA } from "../domain/wall-calibration.js";
 
 const STORE_SCHEMA = "innerworld-sqlite-store/v1";
 const CURRENT_STATE_KEY = "current";
@@ -53,6 +60,15 @@ function trimText(value, maxLength = 160) {
   return String(value || "").trim().slice(0, maxLength);
 }
 
+function redactSensitiveText(value) {
+  return String(value || "")
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "[redacted_ip]")
+    .replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "[redacted_mac]")
+    .replace(/\b[A-Z0-9._:-]*(?:token|secret)[A-Z0-9._:-]*\b/gi, "[redacted_secret]")
+    .replace(/\bSN[-_A-Z0-9]*\b/gi, "[redacted_serial]")
+    .replace(/\bprivate[-_\w]*wifi\b/gi, "[redacted_ssid]");
+}
+
 function cleanId(value, pattern, fallback) {
   const candidate = String(value || "").trim();
   return pattern.test(candidate) ? candidate : fallback;
@@ -72,7 +88,7 @@ function cleanLedgerType(value) {
 function sanitizeLedgerValue(value, depth = 0) {
   if (depth > 5) return "[max_depth]";
   if (value === null || value === undefined) return null;
-  if (typeof value === "string") return value.slice(0, 400);
+  if (typeof value === "string") return redactSensitiveText(value).slice(0, 400);
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (Array.isArray(value)) {
     return value.slice(0, 40).map((item) => sanitizeLedgerValue(item, depth + 1));
@@ -110,10 +126,55 @@ function ledgerEventFromRow(row) {
     step_id: row.step_id,
     action_id: row.action_id,
     beacon_id: row.beacon_id,
-    payload: parseJson(row.payload_json, {}),
-    result: parseJson(row.result_json, {}),
-    state: parseJson(row.state_json, {}),
+    payload: sanitizeLedgerValue(parseJson(row.payload_json, {})) || {},
+    result: sanitizeLedgerValue(parseJson(row.result_json, {})) || {},
+    state: sanitizeLedgerValue(parseJson(row.state_json, {})) || {},
     created_at: row.created_at
+  };
+}
+
+function serviceActionRecordFromRow(row) {
+  return publicServiceActionRecord({
+    schema: row.schema,
+    action_record_id: row.action_record_id,
+    action_id: row.action_id,
+    status: row.status,
+    space_id: row.space_id,
+    mission_id: row.mission_id,
+    user_id: row.user_id,
+    anchor_id: row.anchor_id,
+    step_id: row.step_id,
+    label: row.label,
+    payload: parseJson(row.payload_json, {}),
+    ack: parseJson(row.ack_json, null),
+    attempts: Number(row.attempts || 0),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    acknowledged_at: row.acknowledged_at
+  });
+}
+
+function wallCalibrationObservationFromRow(row) {
+  return {
+    ok: true,
+    schema: row.schema,
+    observation_id: row.observation_id,
+    status: row.status,
+    issues: parseJson(row.issues_json, []),
+    space_id: row.space_id,
+    anchor_id: row.anchor_id,
+    tracking_mode: row.tracking_mode,
+    session_id: row.session_id,
+    device_id: row.device_id,
+    observed_pose: parseJson(row.observed_pose_json, null),
+    expected_pose: parseJson(row.expected_pose_json, null),
+    confidence: Number(row.confidence || 0),
+    position_error_m: row.position_error_m === null || row.position_error_m === undefined ? null : Number(row.position_error_m),
+    notes: row.notes || "",
+    client_time: row.client_time || null,
+    created_at: row.created_at,
+    acceptance: parseJson(row.acceptance_json, {}),
+    privacy: "Sanitized calibration observation. Device/network identifiers and secrets are not stored."
   };
 }
 
@@ -302,6 +363,47 @@ export async function createSqliteStore({
       CREATE INDEX IF NOT EXISTS idx_mission_ledger_type_time ON mission_ledger(type, created_at);
       CREATE INDEX IF NOT EXISTS idx_mission_ledger_anchor_time ON mission_ledger(anchor_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_mission_ledger_action_time ON mission_ledger(action_id, created_at);
+      CREATE TABLE IF NOT EXISTS service_action_records (
+        action_record_id TEXT PRIMARY KEY,
+        schema TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        space_id TEXT,
+        mission_id TEXT,
+        user_id TEXT,
+        anchor_id TEXT,
+        step_id TEXT,
+        label TEXT,
+        payload_json TEXT NOT NULL,
+        ack_json TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        acknowledged_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_service_action_records_status_time ON service_action_records(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_service_action_records_action_time ON service_action_records(action_id, created_at);
+      CREATE TABLE IF NOT EXISTS wall_calibration_observations (
+        observation_id TEXT PRIMARY KEY,
+        schema TEXT NOT NULL,
+        status TEXT NOT NULL,
+        issues_json TEXT NOT NULL,
+        space_id TEXT,
+        anchor_id TEXT,
+        tracking_mode TEXT NOT NULL,
+        session_id TEXT,
+        device_id TEXT,
+        observed_pose_json TEXT NOT NULL,
+        expected_pose_json TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        position_error_m REAL,
+        notes TEXT,
+        client_time TEXT,
+        acceptance_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_wall_calibration_anchor_time ON wall_calibration_observations(anchor_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_wall_calibration_status_time ON wall_calibration_observations(status, created_at);
     `);
   }
 
@@ -626,6 +728,233 @@ export async function createSqliteStore({
     });
   }
 
+  function serviceActionOutboxCounts() {
+    const byStatus = Object.fromEntries(select(`
+      SELECT status, COUNT(*) AS count
+      FROM service_action_records
+      GROUP BY status
+      ORDER BY status
+    `).map((row) => [row.status, Number(row.count || 0)]));
+    const total = Object.values(byStatus).reduce((sum, count) => sum + Number(count || 0), 0);
+    return {
+      total,
+      pending: byStatus.pending || 0,
+      acknowledged: byStatus.acknowledged || 0,
+      failed: byStatus.failed || 0,
+      cancelled: byStatus.cancelled || 0,
+      by_status: byStatus
+    };
+  }
+
+  function appendServiceActionRecord(record) {
+    const clean = publicServiceActionRecord(record);
+    if (!clean.action_record_id) throw new Error("invalid_service_action_record_id");
+    return writeTransaction(() => {
+      run(`
+        INSERT INTO service_action_records (
+          action_record_id, schema, action_id, status, space_id, mission_id, user_id, anchor_id,
+          step_id, label, payload_json, ack_json, attempts, created_at, updated_at, acknowledged_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        clean.action_record_id,
+        clean.schema,
+        clean.action_id,
+        clean.status,
+        clean.space_id,
+        clean.mission_id,
+        clean.user_id,
+        clean.anchor_id,
+        clean.step_id,
+        clean.label,
+        stringifyJson(clean.payload),
+        stringifyJson(clean.ack),
+        clean.attempts,
+        clean.created_at,
+        clean.updated_at,
+        clean.acknowledged_at
+      ]);
+      return clean;
+    });
+  }
+
+  function listServiceActionOutbox(query = {}) {
+    const { limit, status } = normalizeServiceActionOutboxQuery(query);
+    const params = [];
+    let where = "";
+    if (status !== "all") {
+      where = "WHERE status = ?";
+      params.push(status);
+    }
+    params.push(limit);
+    const records = select(`
+      SELECT action_record_id, schema, action_id, status, space_id, mission_id, user_id, anchor_id,
+        step_id, label, payload_json, ack_json, attempts, created_at, updated_at, acknowledged_at
+      FROM service_action_records
+      ${where}
+      ORDER BY datetime(created_at) ASC, action_record_id ASC
+      LIMIT ?
+    `, params).map(serviceActionRecordFromRow);
+    return {
+      ok: true,
+      schema: SERVICE_ACTION_OUTBOX_SCHEMA,
+      status,
+      total_returned: records.length,
+      counts: serviceActionOutboxCounts(),
+      outbox: records,
+      records,
+      privacy: "Service action records are sanitized before persistence. Tokens, secrets, serials, SSID, MAC, IP, phone, recipient, and address fields are redacted."
+    };
+  }
+
+  function ackServiceActionRecord({ actionRecordId, ack = {}, createdAt = nowIso() } = {}) {
+    const id = trimText(actionRecordId, 120);
+    if (!id) return { ok: false, status: 400, error: "invalid_service_action_record_id" };
+    const row = get(`
+      SELECT action_record_id, schema, action_id, status, space_id, mission_id, user_id, anchor_id,
+        step_id, label, payload_json, ack_json, attempts, created_at, updated_at, acknowledged_at
+      FROM service_action_records
+      WHERE action_record_id = ?
+    `, [id]);
+    if (!row) return { ok: false, status: 404, error: "service_action_record_not_found" };
+
+    const current = serviceActionRecordFromRow(row);
+    const alreadyAcknowledged = current.status === "acknowledged";
+    const cleanAck = sanitizeServiceActionValue({
+      ...(ack || {}),
+      action_record_id: current.action_record_id,
+      action_id: current.action_id,
+      status: "acknowledged",
+      received_at: ack?.received_at || createdAt
+    });
+    const updated = publicServiceActionRecord({
+      ...current,
+      status: "acknowledged",
+      ack: cleanAck,
+      attempts: current.attempts + 1,
+      updated_at: createdAt,
+      acknowledged_at: current.acknowledged_at || createdAt
+    });
+
+    return writeTransaction(() => {
+      run(`
+        UPDATE service_action_records
+        SET status = ?, ack_json = ?, attempts = ?, updated_at = ?, acknowledged_at = ?
+        WHERE action_record_id = ?
+      `, [
+        updated.status,
+        stringifyJson(updated.ack),
+        updated.attempts,
+        updated.updated_at,
+        updated.acknowledged_at,
+        updated.action_record_id
+      ]);
+      return {
+        ok: true,
+        schema: `${SERVICE_ACTION_OUTBOX_SCHEMA}/ack`,
+        already_acknowledged: alreadyAcknowledged,
+        record: updated,
+        counts: serviceActionOutboxCounts(),
+        privacy: "Acknowledgement payload is sanitized before persistence and response."
+      };
+    });
+  }
+
+  function wallCalibrationCounts() {
+    const byStatus = Object.fromEntries(select(`
+      SELECT status, COUNT(*) AS count
+      FROM wall_calibration_observations
+      GROUP BY status
+      ORDER BY status
+    `).map((row) => [row.status, Number(row.count || 0)]));
+    const total = Object.values(byStatus).reduce((sum, count) => sum + Number(count || 0), 0);
+    return {
+      total,
+      accepted: byStatus.accepted || 0,
+      warning: byStatus.warning || 0,
+      rejected: byStatus.rejected || 0,
+      by_status: byStatus
+    };
+  }
+
+  function appendWallCalibrationObservation(observation) {
+    const clean = {
+      ...observation,
+      schema: observation?.schema || WALL_CALIBRATION_OBSERVATION_SCHEMA,
+      observation_id: cleanId(observation?.observation_id, RECORD_ID_PATTERN, `cal-${Date.now().toString(36)}`),
+      status: String(observation?.status || "rejected"),
+      created_at: observation?.created_at || nowIso()
+    };
+    return writeTransaction(() => {
+      run(`
+        INSERT INTO wall_calibration_observations (
+          observation_id, schema, status, issues_json, space_id, anchor_id, tracking_mode,
+          session_id, device_id, observed_pose_json, expected_pose_json, confidence,
+          position_error_m, notes, client_time, acceptance_json, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        clean.observation_id,
+        clean.schema,
+        clean.status,
+        stringifyJson(clean.issues || []),
+        clean.space_id || null,
+        clean.anchor_id || null,
+        clean.tracking_mode || "unknown",
+        clean.session_id || null,
+        clean.device_id || null,
+        stringifyJson(clean.observed_pose || null),
+        stringifyJson(clean.expected_pose || null),
+        Number(clean.confidence || 0),
+        clean.position_error_m,
+        trimText(clean.notes, 240),
+        clean.client_time || null,
+        stringifyJson(clean.acceptance || {}),
+        clean.created_at
+      ]);
+      return clean;
+    });
+  }
+
+  function wallCalibrationSummary({ limit = 25 } = {}) {
+    const counts = wallCalibrationCounts();
+    const latest = select(`
+      SELECT observation_id, schema, status, issues_json, space_id, anchor_id, tracking_mode,
+        session_id, device_id, observed_pose_json, expected_pose_json, confidence,
+        position_error_m, notes, client_time, acceptance_json, created_at
+      FROM wall_calibration_observations
+      ORDER BY datetime(created_at) DESC, observation_id DESC
+      LIMIT ?
+    `, [clampLimit(limit)]).map(wallCalibrationObservationFromRow);
+    const latestByAnchor = {};
+    for (const observation of latest) {
+      if (observation.anchor_id && !latestByAnchor[observation.anchor_id]) {
+        latestByAnchor[observation.anchor_id] = observation;
+      }
+    }
+    const calibratedAnchors = select(`
+      SELECT anchor_id, MAX(created_at) AS last_seen_at
+      FROM wall_calibration_observations
+      WHERE status IN ('accepted', 'warning') AND anchor_id IS NOT NULL
+      GROUP BY anchor_id
+    `);
+    return {
+      ok: true,
+      schema: `${WALL_CALIBRATION_SCHEMA}/summary`,
+      counts,
+      total: counts.total,
+      accepted: counts.accepted,
+      warning: counts.warning,
+      rejected: counts.rejected,
+      calibrated_anchor_count: calibratedAnchors.length,
+      calibrated_anchor_ids: calibratedAnchors.map((row) => row.anchor_id).sort(),
+      ready_for_hardware: ["A1", "A2", "A3"].every((anchorId) => calibratedAnchors.some((row) => row.anchor_id === anchorId)),
+      latest_by_anchor: latestByAnchor,
+      latest,
+      privacy: "Wall calibration summary is safe for field evidence. It omits raw device/network identifiers and private evidence."
+    };
+  }
+
   function missionLedgerEvents({ limit = 50, type = "" } = {}) {
     const cleanType = String(type || "").trim();
     const params = [];
@@ -676,7 +1005,9 @@ export async function createSqliteStore({
     const latestEvent = latest[0] || null;
     const runtime = loadRuntimeState() || {};
     const stateSummary = summarizeRuntimeState(runtime);
-    const serviceActionTotal = byType.service_action || 0;
+    const serviceActionOutbox = serviceActionOutboxCounts();
+    const serviceActionLedgerTotal = byType.service_action || 0;
+    const serviceActionTotal = Math.max(serviceActionLedgerTotal, serviceActionOutbox.total);
 
     return {
       ok: true,
@@ -705,9 +1036,12 @@ export async function createSqliteStore({
       },
       service_actions: {
         total: serviceActionTotal,
-        pending: 0,
-        completed: serviceActionTotal,
-        failed: 0,
+        pending: serviceActionOutbox.pending,
+        completed: serviceActionLedgerTotal,
+        acknowledged: serviceActionOutbox.acknowledged,
+        failed: serviceActionOutbox.failed,
+        cancelled: serviceActionOutbox.cancelled,
+        outbox_total: serviceActionOutbox.total,
         last_action_id: latest.find((event) => event.type === "service_action")?.action_id || null,
         last_action_at: latest.find((event) => event.type === "service_action")?.created_at || null
       },
@@ -867,6 +1201,7 @@ export async function createSqliteStore({
     const deviceTotal = get("SELECT COUNT(*) AS count FROM device_sessions")?.count || 0;
     const eventTotal = get("SELECT COUNT(*) AS count FROM device_events")?.count || 0;
     const ledgerTotal = get("SELECT COUNT(*) AS count FROM mission_ledger")?.count || 0;
+    const serviceActionOutbox = serviceActionOutboxCounts();
     return {
       ok: true,
       schema: STORE_SCHEMA,
@@ -884,6 +1219,9 @@ export async function createSqliteStore({
       device_sessions: deviceTotal,
       device_events: eventTotal,
       mission_ledger_events: ledgerTotal,
+      service_action_records: serviceActionOutbox.total,
+      service_action_outbox_pending: serviceActionOutbox.pending,
+      wall_calibration_observations: wallCalibrationCounts().total,
       safe_storage: {
         atomic_export: true,
         raw_sql_api: false,
@@ -902,6 +1240,9 @@ export async function createSqliteStore({
     catalog,
     datasetCall,
     deviceEventSummary,
+    listServiceActionOutbox,
+    appendWallCalibrationObservation,
+    wallCalibrationSummary,
     missionLedgerEvents,
     missionLedgerSummary,
     loadDeviceSession,
@@ -910,6 +1251,8 @@ export async function createSqliteStore({
     saveDeviceSession,
     saveRuntimeState,
     appendDeviceEvent,
+    appendServiceActionRecord,
+    ackServiceActionRecord,
     appendMissionLedgerEvent,
     status
   };

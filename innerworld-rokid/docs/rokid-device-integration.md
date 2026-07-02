@@ -31,13 +31,56 @@ Facts to treat as design constraints:
 - Station Pro includes Wi-Fi 6, camera, physical buttons, and XR-class compute. The field demo must therefore support LAN server access and Android/Rokid builds, not only desktop localhost.
 - Max Pro / AR Studio supports spatial positioning, 6DoF head control, micro-gesture interaction, voice/keyboard/mouse style multimodal input, and Micro OLED binocular display. The Unity app should map those inputs to our existing anchor/mission/write-back commands.
 - Rokid's developer material points to Unity-side debugging/performance tooling and SDK documentation. The project should keep a Unity-first hardware lane.
-- UXR2.0 / UXR SDK package access is through Unity Package Manager scoped registry/package flow. Do not commit downloaded vendor SDK payloads into this repo.
+- UXR3.0/OpenXR package access is through Unity Package Manager scoped registry/package flow; the UXR2 component notes remain useful for RKCameraRig/RKInput/RKHand/PointableUI patterns. Do not commit downloaded vendor SDK payloads into this repo.
 
 Practical implication for this project:
 
 - Unity remains the primary hardware runtime. Web is the localhost/LAN fallback and operator console, not the final glasses experience.
-- Do not vendor Rokid SDK files into Git until the official UPM registry and package version are confirmed on the hardware account.
-- Treat Rokid SDK integration as an adapter swap: `EditorRokidInputSource` and screen-space HUD are replaced by UXR2.0 input/display adapters, while Space API, mission state, evidence chain, AI HUD schema, write-back, and LAN server stay stable.
+- Do not vendor Rokid SDK files into Git until the official UPM registry, package name, scoped registry, and package version are confirmed on the hardware account.
+- Treat Rokid SDK integration as an adapter swap: `EditorRokidInputSource` and screen-space HUD are replaced by UXR/OpenXR input/display adapters, while Space API, mission state, evidence chain, AI HUD schema, write-back, calibration, and LAN server stay stable.
+
+## SDK Docs Adoption Matrix
+
+The newly added SDK/design reference docs are actionable, but they enter the mainline only through the existing contract. Current P0 is still the real campus exhibition wall with A1/A2/A3, not a broad campus social platform.
+
+Immediate P0 adoption:
+
+- RKCameraRig: hardware scene must replace Unity `Main Camera` with the SDK rig when `ROKID_UXR` is enabled. Until then, fallback remains compile-safe.
+- RKInput: multimodal input maps into the same commands: select A1/A2/A3, complete mission step, create service action, submit write-back.
+- 3DoF controller ray: first live hardware control path because it is the default Rokid interaction and has lower demo risk.
+- RKHand / gesture: supported through the adapter boundary and five-state feedback contract, but live gesture binding waits for the official package and hardware.
+- PointableUI / PointableUICurve: use for A1 entry confirmation, A2 memory panel, and A3 write-back controls; do not create separate web-only UI semantics.
+- Image recognition: maps directly to `/api/calibration/wall` and `/api/calibration/observations`; A1 is the QR/entry marker, A2/A3 are image-target or wall-marker anchors.
+- SLAM/head tracking status: maps to device heartbeat and calibration observations, never to raw public logs.
+- FollowCamera / billboard: HUD panels and prompts must face the user and preserve the Space API mission state.
+- Visual rules: black is transparent, white is high-brightness; avoid large black/white slabs in glasses overlays.
+- Spatial layout: near-field controls use roughly 0.4m-0.5m, far/read panels stay 1m+; all hot zones must remain large enough for ray/gesture selection.
+- Spatial audio: allowed as a controlled enhancement for A2 memory or A3 confirmation, triggered deliberately rather than autoplaying multiple sources.
+
+P1 after hardware / SDK login:
+
+- Install `com.rokid.xr.unity` through Unity Package Manager from the official scoped registry visible to the account.
+- Use Rokid Environment Fix / Project Validation and OpenXR Feature Groups before claiming live SDK readiness.
+- Add real RKCameraRig/RKInput/RKHand/PointableUI prefab binding behind `ROKID_UXR`.
+- Add image library setup for A1/A2/A3 markers once final printed marker art is locked.
+- Add offline voice commands only for bounded actions such as "open memory", "next", "write back", and "reset demo".
+- Pull device logs with ADB only into private evidence folders; never commit raw device logs.
+
+Do not merge into current P0:
+
+- Open UGC social layer, free 3D graffiti, public voice uploads, personal homepage, institution dashboard, commercial task system, NPC reward layer, or broad campus route.
+- Raw hardware serials, SSID, MAC, IP, phone/address data, vendor SDK package files, Unity Library, Android build caches, or device logcat dumps.
+- A separate mobile/website state model that bypasses Space API, SQLite ledger, calibration, service action outbox, or write-back review.
+
+## Physical Wall Calibration Contract
+
+Hardware arrival should start with wall calibration, not with ad hoc placement.
+
+- Fetch `GET /api/calibration/wall` from Unity/Rokid to obtain the A1/A2/A3 wall coordinate system, expected poses, marker types, acceptance thresholds, and the observation endpoint.
+- Submit `POST /api/calibration/observations` with `session_id`, `device_id`, `anchor_id`, `tracking_mode`, `observed_pose`, `confidence`, `notes`, and `client_time`.
+- Accepted observations prove a marker is close enough to the configured wall pose; warning observations are usable but need operator attention; rejected observations block hardware confidence for that anchor.
+- The SQLite store persists sanitized calibration observations and exposes a summary through the same API. Raw network/device identifiers are redacted.
+- Calibration can use QR, image tracking, SLAM, manual, or simulator modes, but field evidence should prefer QR/image tracking for A1/A2/A3 marker lock.
 
 ## Unity Adapter Boundary
 
@@ -57,13 +100,14 @@ The Unity runtime now has a compile-safe SDK boundary:
 2. Put Station Pro and the Windows host on the same LAN.
 3. Start the server with `npm run dev:lan`; record `http://<Windows host IP>:5177`.
 4. Run `npm run field:preflight -- -RequireLan` to verify LAN health, update Unity config, and refresh the field-kit QR.
-5. In Unity Package Manager, add the official Rokid UXR2.0 registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
+5. In Unity Package Manager, add the official Rokid UXR/OpenXR registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
 6. Build an Android/Rokid APK from Unity, keeping `Assets/Plugins/Android/InnerWorldNetwork.androidlib` for HTTP LAN access during local demo.
-7. Replace only the input/display adapters:
+7. Fetch `/api/calibration/wall`, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
+8. Replace only the input/display adapters:
    - Input: gaze/ray/gesture/voice/keyboard events map to `SelectAnchor`, `CompleteNextStep`, `PostServiceAction`, and `PostWriteBack`.
    - Display: UXR binocular/spatial overlay renders the same HUD text, anchor labels, and mission state currently shown by the fallback.
-   - Networking: `SpaceApiClient` keeps using `/api/device/bootstrap`, `/api/spaces/{id}`, `/api/ai/hud`, `/api/evidence/chain`, and `/api/session/plan`.
-8. Run field acceptance:
+   - Networking: `SpaceApiClient` keeps using `/api/device/bootstrap`, `/api/calibration/wall`, `/api/spaces/{id}`, `/api/ai/hud`, `/api/evidence/chain`, and `/api/session/plan`.
+9. Run field acceptance:
    - A1 opens the memory layer.
    - A2 shows public memory content.
    - A3 writes a time capsule.
@@ -106,6 +150,8 @@ The bootstrap response includes:
 - `ai.output_schema_url` and `ai.prompt_url`: the HUD generation contract.
 - `endpoints.evidence_chain.url`: evidence chain for field verification.
 - `endpoints.session_plan.url`: staged on-site script and fallback actions.
+- `endpoints.wall_calibration.url`: A1/A2/A3 wall coordinate system, marker plan, and acceptance thresholds.
+- `endpoints.wall_calibration_observations.url`: calibration observation write path for Unity/Rokid.
 - `client_hints`: polling intervals, timeout, cache policy, and write-back anchor.
 - `unity_compat.config`: the same `{ base_url, space_id }` shape used by the Unity fallback.
 
@@ -119,17 +165,18 @@ npm run check:ops -- --require-artifacts
 npm run check:unity
 ```
 
-`check:device` verifies `/api/device/bootstrap`, follows the advertised URLs, and confirms AI schema/prompt availability. It does not mutate runtime state.
+`check:device` verifies `/api/device/bootstrap`, follows the advertised URLs, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
 
 ## Runtime Flow
 
 1. Fetch `/api/device/bootstrap`.
 2. Poll `endpoints.health.url` or `endpoints.space.url`.
 3. Use `endpoints.nearby_pins.url` to map A1/A2/A3 to visible overlays.
-4. POST task progress to `endpoints.interactions.url`.
-5. POST service intent to `endpoints.service_actions.url`.
-6. POST user write-back text to `endpoints.write_back.url`.
-7. Re-fetch state/space after every POST. API JSON uses `Cache-Control: no-store`.
+4. Fetch `endpoints.wall_calibration.url` and submit marker observations before claiming hardware alignment.
+5. POST task progress to `endpoints.interactions.url`.
+6. POST service intent to `endpoints.service_actions.url`.
+7. POST user write-back text to `endpoints.write_back.url`.
+8. Re-fetch state/space after every POST. API JSON uses `Cache-Control: no-store`.
 
 ## LAN Notes
 

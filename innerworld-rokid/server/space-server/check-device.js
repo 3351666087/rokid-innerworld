@@ -176,11 +176,15 @@ async function main() {
   assertEndpoint(endpoints.ledger_events, "ledger_events");
   assertEndpoint(endpoints.evidence_chain, "evidence_chain");
   assertEndpoint(endpoints.session_plan, "session_plan");
+  assertEndpoint(endpoints.wall_calibration, "wall_calibration");
+  assertEndpoint(endpoints.wall_calibration_observations, "wall_calibration_observations", "POST");
   assertEndpoint(endpoints.device_bootstrap, "device_bootstrap");
   assertEndpoint(endpoints.device_manifest, "device_manifest");
   assertEndpoint(endpoints.device_register, "device_register", "POST");
   assertEndpoint(endpoints.device_heartbeat, "device_heartbeat", "POST");
   assertEndpoint(endpoints.device_sessions, "device_sessions");
+  assertEndpoint(endpoints.service_actions_outbox, "service_actions_outbox");
+  assertEndpoint(endpoints.service_action_ack_template, "service_action_ack_template", "POST");
   assertEndpoint(endpoints.ai_schema, "ai_schema");
   assertEndpoint(endpoints.ai_prompt, "ai_prompt");
   assertEndpoint(endpoints.ai_hud, "ai_hud", "POST");
@@ -191,15 +195,16 @@ async function main() {
   assertEndpoint(endpoints.service_actions, "service_actions", "POST");
   assertEndpoint(endpoints.write_back, "write_back", "POST");
   assertEndpoint(endpoints.reset, "reset", "POST");
-  assert(Object.keys(endpoints).length >= 24, "endpoint count check failed");
+  assert(Object.keys(endpoints).length >= 28, "endpoint count check failed");
 
-  const [health, space, aiSchema, aiPrompt, evidenceChain, sessionPlan, deviceManifest, storeStatus, datasetCatalog, initialLedgerSummary, initialLedgerEvents] = await Promise.all([
+  const [health, space, aiSchema, aiPrompt, evidenceChain, sessionPlan, wallCalibration, deviceManifest, storeStatus, datasetCatalog, initialLedgerSummary, initialLedgerEvents] = await Promise.all([
     fetchJson(endpoints.health.url, "health"),
     fetchJson(endpoints.space.url, "space"),
     fetchJson(endpoints.ai_schema.url, "ai_schema"),
     fetchJson(endpoints.ai_prompt.url, "ai_prompt"),
     fetchJson(endpoints.evidence_chain.url, "evidence_chain"),
     fetchJson(endpoints.session_plan.url, "session_plan"),
+    fetchJson(endpoints.wall_calibration.url, "wall_calibration"),
     fetchJson(endpoints.device_manifest.url, "device_manifest"),
     fetchJson(endpoints.store_status.url, "store_status"),
     fetchJson(endpoints.dataset_catalog.url, "dataset_catalog"),
@@ -232,6 +237,14 @@ async function main() {
   assert(Array.isArray(sessionPlan.device_handoff_notes) && sessionPlan.device_handoff_notes.length >= 5, "session plan device notes check failed");
   assert(Array.isArray(sessionPlan.acceptance_checks) && sessionPlan.acceptance_checks.some((check) => check.id === "user_b_visibility"), "session plan acceptance checks failed");
   assert(Array.isArray(sessionPlan.fallback_actions) && sessionPlan.fallback_actions.length >= 4, "session plan fallback actions failed");
+  assert(wallCalibration.ok === true, "wall calibration ok check failed");
+  assert(wallCalibration.schema === "innerworld-wall-calibration/v1", "wall calibration schema check failed");
+  assert(wallCalibration.space_id === expectedSpaceId, "wall calibration space check failed");
+  assert(wallCalibration.wall?.coordinate_system === "innerworld-wall-local/v1", "wall calibration coordinate system failed");
+  assert(Array.isArray(wallCalibration.anchors) && wallCalibration.anchors.length === 3, "wall calibration anchors check failed");
+  assert(wallCalibration.anchors.some((anchor) => anchor.anchor_id === "A1" && anchor.marker?.marker_type === "qr_poster"), "wall calibration A1 marker failed");
+  assert(wallCalibration.anchors.every((anchor) => anchor.acceptance?.confidence_min >= 0.5), "wall calibration acceptance failed");
+  assert(wallCalibration.observation_endpoint?.path === "/api/calibration/observations", "wall calibration observation endpoint failed");
   assert(deviceManifest.ok === true, "device manifest ok check failed");
   assert(deviceManifest.schema === "innerworld-device-runtime-manifest/v1", "device manifest schema check failed");
   assert(deviceManifest.expected_kit?.devices?.some((device) => device.model === "RA202"), "device manifest RA202 check failed");
@@ -396,6 +409,32 @@ async function main() {
   assert(!JSON.stringify(sessions).includes("private-demo-wifi"), "device sessions leaked SSID");
   assert(!JSON.stringify(sessions).includes("00:11:22:33:44:55"), "device sessions leaked MAC");
 
+  const calibrationObservation = await postJson(endpoints.wall_calibration_observations.url, "wall_calibration_observation", {
+    session_id: register.session_id,
+    device_id: register.device_id,
+    anchor_id: "A2",
+    tracking_mode: "image_tracking",
+    observed_pose: {
+      position: { x: 0, y: 1.5, z: 3 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    confidence: 0.97,
+    notes: "A2 wall alignment check; token real-token-secret 10.0.0.18 SN-ABC-SECRET private-demo-wifi 00:11:22:33:44:55",
+    client_time: "2026-07-02T10:00:04.000Z"
+  });
+  assert(calibrationObservation.ok === true, "wall calibration observation ok failed");
+  assert(calibrationObservation.observation?.schema === "innerworld-wall-calibration-observation/v1", "wall calibration observation schema failed");
+  assert(calibrationObservation.observation?.status === "accepted", "wall calibration observation status failed");
+  assert(calibrationObservation.observation?.anchor_id === "A2", "wall calibration observation anchor failed");
+  assert(calibrationObservation.observation?.position_error_m === 0, "wall calibration observation error failed");
+  assert(calibrationObservation.summary?.calibrated_anchor_ids?.includes("A2"), "wall calibration summary anchor failed");
+  const calibrationText = JSON.stringify(calibrationObservation);
+  assert(!calibrationText.includes("10.0.0.18"), "wall calibration leaked IP");
+  assert(!calibrationText.includes("real-token-secret"), "wall calibration leaked token");
+  assert(!calibrationText.includes("SN-ABC-SECRET"), "wall calibration leaked serial");
+  assert(!calibrationText.includes("private-demo-wifi"), "wall calibration leaked SSID");
+  assert(!calibrationText.includes("00:11:22:33:44:55"), "wall calibration leaked MAC");
+
   assertLocalRuntimeSnapshot({ space, aiSchema, requiredCapabilities });
 
   const hud = await postJson(endpoints.ai_hud.url, "ai_hud", {
@@ -486,6 +525,9 @@ async function main() {
     ai_schema_title: aiSchema.title,
     evidence_items: evidenceChain.evidence_items.length,
     session_stages: sessionPlan.stages.length,
+    wall_calibration_schema: wallCalibration.schema,
+    wall_calibration_anchors: wallCalibration.anchors.length,
+    wall_calibration_observation_status: calibrationObservation.observation.status,
     ai_hud_hint_level: hud.hint_level,
     prompt_chars: aiPrompt.prompt.length,
     unity_base_url: bootstrap.unity_compat.config.base_url

@@ -32,6 +32,7 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - SQLite-backed dataset storage and safe dataset call layer.
 - Server core modules instead of one large server file.
 - Device bootstrap and AI contract checks.
+- Physical wall calibration contract and observation store for A1/A2/A3 marker lock.
 - Web device/ops panel.
 - Unity/Rokid protocol client.
 - Rokid simulator and integration checks.
@@ -41,7 +42,10 @@ Move from "environment and demo loop are runnable" to "main project framework an
 
 ## Current Checkpoint
 
-- Latest implementation checkpoint: Rokid SDK conditional adapter boundary.
+- Latest implementation checkpoint: physical wall calibration and Rokid SDK adoption matrix.
+- `/api/calibration/wall` exposes the A1/A2/A3 wall coordinate system, expected poses, marker types, and acceptance thresholds.
+- `/api/calibration/observations` accepts sanitized Unity/Rokid calibration observations and persists them in SQLite.
+- The newly added Rokid SDK/design docs are now treated as actionable input to the mainline: RKCameraRig/RKInput/RKHand/PointableUI/image tracking/SLAM/visual layout rules enter through the adapter boundary, calibration API, and existing Space API instead of creating a parallel product direction.
 - Unity controller now enters hardware/fallback selection through `RokidAdapterResolver.Resolve(...)`.
 - `IRokidInputStateSink` keeps base URL, connection status, and anchor-hit state flowing through both fallback and future hardware adapters.
 - `RokidUxrInputSource.cs` and `RokidUxrOverlayRenderer.cs` are fully wrapped in `#if ROKID_UXR`; no vendor SDK payload is committed.

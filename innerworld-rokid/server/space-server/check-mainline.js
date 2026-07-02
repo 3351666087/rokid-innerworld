@@ -43,7 +43,8 @@ const requiredCombinedDirection = [
   "write-back",
   "AI schema",
   "SQLite",
-  "dataset"
+  "dataset",
+  "calibration"
 ];
 
 const requiredWebModules = [
@@ -67,6 +68,10 @@ const requiredContractTokens = [
   "dataset_call",
   "ledger_summary",
   "ledger_events",
+  "wall_calibration",
+  "wall_calibration_observations",
+  "service_actions_outbox",
+  "service_action_ack_template",
   "ai_hud",
   "write_back"
 ];
@@ -76,7 +81,13 @@ const requiredStorageTokens = [
   "CREATE TABLE IF NOT EXISTS datasets",
   "CREATE TABLE IF NOT EXISTS device_sessions",
   "CREATE TABLE IF NOT EXISTS mission_ledger",
+  "CREATE TABLE IF NOT EXISTS service_action_records",
+  "CREATE TABLE IF NOT EXISTS wall_calibration_observations",
   "datasetCall",
+  "appendWallCalibrationObservation",
+  "wallCalibrationSummary",
+  "appendServiceActionRecord",
+  "ackServiceActionRecord",
   "appendMissionLedgerEvent",
   "missionLedgerSummary",
   "raw_sql_api"

@@ -3,6 +3,8 @@ export const INNERWORLD_SERVICE_NAME = "innerworld-space-server";
 export const DEVICE_BOOTSTRAP_PROTOCOL = "innerworld-device-bootstrap/v1";
 export const DEVICE_RUNTIME_MANIFEST_SCHEMA = "innerworld-device-runtime-manifest/v1";
 export const DEVICE_RUNTIME_SESSION_PROTOCOL = "innerworld-device-runtime-session/v1";
+export const WALL_CALIBRATION_SCHEMA = "innerworld-wall-calibration/v1";
+export const WALL_CALIBRATION_OBSERVATION_SCHEMA = "innerworld-wall-calibration-observation/v1";
 export const DEFAULT_DEVICE_PROFILE = "rokid-ar";
 export const DEFAULT_PORT = 5177;
 export const EVIDENCE_CHAIN_SCHEMA = "innerworld-evidence-chain/v1";
@@ -74,11 +76,15 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
     ledger_events: apiEndpoint(baseUrl, "/api/ledger/events"),
     evidence_chain: apiEndpoint(baseUrl, "/api/evidence/chain"),
     session_plan: apiEndpoint(baseUrl, "/api/session/plan"),
+    wall_calibration: apiEndpoint(baseUrl, "/api/calibration/wall"),
+    wall_calibration_observations: apiEndpoint(baseUrl, "/api/calibration/observations", "POST"),
     device_bootstrap: apiEndpoint(baseUrl, "/api/device/bootstrap"),
     device_manifest: apiEndpoint(baseUrl, "/api/device/manifest"),
     device_register: apiEndpoint(baseUrl, "/api/device/register", "POST"),
     device_heartbeat: apiEndpoint(baseUrl, "/api/device/heartbeat", "POST"),
     device_sessions: apiEndpoint(baseUrl, "/api/device/sessions"),
+    service_actions_outbox: apiEndpoint(baseUrl, "/api/service-actions/outbox"),
+    service_action_ack_template: apiEndpoint(baseUrl, "/api/service-actions/{action_record_id}/ack", "POST"),
     ai_schema: apiEndpoint(baseUrl, "/api/ai/schema"),
     ai_prompt: apiEndpoint(baseUrl, "/api/ai/prompt"),
     ai_hud: apiEndpoint(baseUrl, "/api/ai/hud", "POST"),
@@ -303,6 +309,12 @@ export function createInnerWorldClient({
     getSessionPlan() {
       return request("/api/session/plan", {}, "session_plan_failed");
     },
+    getWallCalibration() {
+      return request("/api/calibration/wall", {}, "wall_calibration_failed");
+    },
+    submitWallCalibrationObservation(payload) {
+      return request("/api/calibration/observations", jsonPost(payload), "wall_calibration_observation_failed");
+    },
     getDeviceBootstrap(profile = DEFAULT_DEVICE_PROFILE) {
       return request(`/api/device/bootstrap?profile=${encodeURIComponent(profile)}`, {}, "device_bootstrap_failed");
     },
@@ -317,6 +329,17 @@ export function createInnerWorldClient({
     },
     getDeviceSessions() {
       return request("/api/device/sessions", {}, "device_sessions_failed");
+    },
+    getServiceActionOutbox({ limit = 25, status = "pending" } = {}) {
+      const params = new URLSearchParams();
+      if (limit) params.set("limit", String(limit));
+      if (status) params.set("status", status);
+      const query = params.toString();
+      return request(`/api/service-actions/outbox${query ? `?${query}` : ""}`, {}, "service_actions_outbox_failed");
+    },
+    ackServiceAction(actionRecordId, payload = {}) {
+      const recordId = encodeURIComponent(String(actionRecordId || ""));
+      return request(`/api/service-actions/${recordId}/ack`, jsonPost(payload), "service_action_ack_failed");
     },
     generateHud(payload) {
       return request("/api/ai/hud", jsonPost(payload), "ai_hud_failed");
