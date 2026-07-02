@@ -70,6 +70,8 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
     store_status: apiEndpoint(baseUrl, "/api/store/status"),
     dataset_catalog: apiEndpoint(baseUrl, "/api/datasets/catalog"),
     dataset_call: apiEndpoint(baseUrl, "/api/datasets/call", "POST"),
+    ledger_summary: apiEndpoint(baseUrl, "/api/ledger/summary"),
+    ledger_events: apiEndpoint(baseUrl, "/api/ledger/events"),
     evidence_chain: apiEndpoint(baseUrl, "/api/evidence/chain"),
     session_plan: apiEndpoint(baseUrl, "/api/session/plan"),
     device_bootstrap: apiEndpoint(baseUrl, "/api/device/bootstrap"),
@@ -284,6 +286,16 @@ export function createInnerWorldClient({
     },
     callDataset(payload) {
       return request("/api/datasets/call", jsonPost(payload), "dataset_call_failed");
+    },
+    getLedgerSummary() {
+      return request("/api/ledger/summary", {}, "ledger_summary_failed");
+    },
+    getLedgerEvents({ limit = 25, type = "" } = {}) {
+      const params = new URLSearchParams();
+      if (limit) params.set("limit", String(limit));
+      if (type) params.set("type", String(type));
+      const query = params.toString();
+      return request(`/api/ledger/events${query ? `?${query}` : ""}`, {}, "ledger_events_failed");
     },
     getEvidenceChain() {
       return request("/api/evidence/chain", {}, "evidence_chain_failed");

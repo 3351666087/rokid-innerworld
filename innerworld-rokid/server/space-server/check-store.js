@@ -34,6 +34,8 @@ async function postJson(path, label, payload) {
 }
 
 async function main() {
+  await postJson("/api/reset", "reset", {});
+
   const [health, store, catalog] = await Promise.all([
     fetchJson("/api/health", "health"),
     fetchJson("/api/store/status", "store_status"),
@@ -50,7 +52,7 @@ async function main() {
   assert(Array.isArray(catalog.datasets), "catalog datasets missing");
 
   const datasetIds = catalog.datasets.map((dataset) => dataset.dataset_id);
-  for (const id of ["space.contract", "ai.hud_schema", "hardware.applied_kit"]) {
+  for (const id of ["space.contract", "ai.hud_schema", "hardware.applied_kit", "runtime.mission_ledger"]) {
     assert(datasetIds.includes(id), `catalog missing ${id}`);
   }
 
@@ -72,7 +74,87 @@ async function main() {
   assert(hardware.record.value.devices.some((device) => device.model === "RA202"), "hardware RA202 missing");
   assert(hardware.record.value.devices.some((device) => device.model === "RAS201"), "hardware RAS201 missing");
 
-  const allText = JSON.stringify({ store, catalog, spaceSnapshot, hardware });
+  const interaction = await postJson("/api/interactions", "interaction_write", {
+    user_id: "A",
+    anchor_id: "A2",
+    step_id: "read",
+    mission_state: "reading",
+    ip_address: "10.0.0.18",
+    access_token: "real-token-secret"
+  });
+  assert(interaction.ok === true, "interaction write ok failed");
+  assert(interaction.ledger?.type === "interaction", "interaction ledger missing");
+
+  const findYear = await postJson("/api/interactions", "find_year_write", {
+    user_id: "A",
+    anchor_id: "A2",
+    step_id: "find_year",
+    mission_state: "doing"
+  });
+  assert(findYear.ok === true, "find year write ok failed");
+  assert(findYear.ledger?.type === "interaction", "find year ledger missing");
+
+  const service = await postJson("/api/service-actions", "service_action_write", {
+    user_id: "A",
+    anchor_id: "A2",
+    action_id: "JOIN_EVENT_1430",
+    label: "Join 14:30"
+  });
+  assert(service.ok === true, "service action write ok failed");
+  assert(service.ledger?.type === "service_action", "service action ledger missing");
+
+  const writeBack = await postJson("/api/spaces/innerworld_campus_wall/beacons", "write_back_write", {
+    user_id: "A",
+    anchor_id: "A3",
+    title: "Time capsule",
+    text: "后来的人，别忘了抬头看这里。",
+    serial_number: "SN-ABC-SECRET"
+  });
+  assert(writeBack.ok === true, "write-back write ok failed");
+  assert(writeBack.ledger?.type === "write_back", "write-back ledger missing");
+
+  const [ledgerSummary, ledgerEvents, ledgerDataset] = await Promise.all([
+    fetchJson("/api/ledger/summary", "ledger_summary"),
+    fetchJson("/api/ledger/events?limit=20", "ledger_events"),
+    postJson("/api/datasets/call", "dataset_call_ledger", {
+      dataset_id: "runtime.mission_ledger",
+      operation: "snapshot",
+      limit: 20
+    })
+  ]);
+  assert(ledgerSummary.ok === true, "ledger summary ok failed");
+  assert(ledgerSummary.engine === "sqlite", "ledger engine must be sqlite");
+  assert(ledgerSummary.dataset_id === "runtime.mission_ledger", "ledger summary dataset mismatch");
+  assert(ledgerSummary.checks?.has_interaction === true, "ledger interaction check failed");
+  assert(ledgerSummary.checks?.has_service_action === true, "ledger service action check failed");
+  assert(ledgerSummary.checks?.has_write_back === true, "ledger write-back check failed");
+  assert(ledgerSummary.mission?.completed_steps?.includes("write_back"), "ledger mission completed steps failed");
+  assert(ledgerSummary.service_actions?.total >= 1, "ledger service action summary failed");
+  assert(ledgerSummary.mission?.completed_step_count >= 4, "ledger mission completed step count failed");
+  assert(ledgerSummary.audit?.event_count >= 4, "ledger audit event count failed");
+  assert(ledgerEvents.ok === true, "ledger events ok failed");
+  assert(Array.isArray(ledgerEvents.events) && ledgerEvents.events.length >= 4, "ledger events missing");
+  assert(ledgerDataset.ok === true, "ledger dataset ok failed");
+  assert(ledgerDataset.dataset.dataset_id === "runtime.mission_ledger", "ledger dataset id failed");
+  assert(ledgerDataset.records.length >= 4, "ledger dataset records missing");
+
+  const refreshedStore = await fetchJson("/api/store/status", "store_status_after_writes");
+  assert(refreshedStore.mission_ledger_events >= 4, "store mission ledger count failed");
+
+  const allText = JSON.stringify({
+    store,
+    catalog,
+    spaceSnapshot,
+    hardware,
+    interaction,
+    findYear,
+    service,
+    writeBack,
+    ledgerSummary,
+    ledgerEvents,
+    ledgerDataset,
+    refreshedStore
+  });
   for (const forbidden of ["SN-ABC-SECRET", "real-token-secret", "10.0.0.18", "private-demo-wifi", "00:11:22:33:44:55"]) {
     assert(!allText.includes(forbidden), `store API leaked forbidden value: ${forbidden}`);
   }
@@ -81,7 +163,9 @@ async function main() {
     ok: true,
     base,
     engine: store.engine,
-    runtime_state: store.runtime_state,
+    runtime_state: refreshedStore.runtime_state,
+    mission_ledger_events: refreshedStore.mission_ledger_events,
+    ledger_checks: ledgerSummary.checks,
     datasets: datasetIds,
     space_records: spaceSnapshot.records.length,
     hardware_devices: hardware.record.value.devices.map((device) => device.model)

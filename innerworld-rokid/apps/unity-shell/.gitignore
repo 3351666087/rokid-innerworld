@@ -1,0 +1,26 @@
+# Unity generated state
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+UserSettings/
+.utmp/
+
+# Local packages and caches
+Packages/packages-lock.json
+PackageCache/
+.cache/
+
+# IDE and OS noise
+.vs/
+.idea/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.suo
+*.tmp
+.DS_Store
+Thumbs.db

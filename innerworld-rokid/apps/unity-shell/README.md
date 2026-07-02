@@ -46,6 +46,16 @@ Windows fallback 已做过可视验收：三锚点可见，HUD 显示 localhost 
 - Evidence chain and session plan contracts are fetched as read-only runtime models for the HUD/debug surface. If the backend is unavailable, fallback behavior is controlled by `offline_fallback_enabled`.
 - Rokid hardware replacement points are explicit: `CreateHardwareRokidInputSource(...)` and `CreateHardwareOverlayRenderer(...)` return null until the Rokid SDK adapter is added. Desktop/editor builds continue through `EditorRokidInputSource` and the existing HUD.
 
+## Unity Ledger Fallback
+
+The Unity protocol layer is prepared for the backend mission ledger and service action ledger endpoints:
+
+- `GET /api/ledger/events` returns an append-only event list for mission progress, write-back reviews, and service action status transitions.
+- `GET /api/ledger/summary` returns the compact review state Unity can show in HUD/debug panels: mission state, completed step count, service action counts, and audit timestamps.
+- `SpaceApiClient` exposes `LedgerEventsUrl`, `LedgerSummaryUrl`, and matching endpoint-map entries (`ledger_events`, `ledger_summary`) so bootstrap/session-plan responses can override paths without controller rewiring.
+
+Fallback behavior should stay read-only. Windows/Android fallback can poll the summary for a lightweight HUD line during on-site review, and fetch events only when the debug surface is open or an auditor asks for the trail. If either ledger endpoint is unavailable, continue using the current mission/runtime snapshot and offline fallback; do not block gaze, write-back, or service-action rehearsal on ledger reads.
+
 ## Android Network
 
 `Assets\Plugins\Android\InnerWorldNetwork.androidlib` 提供 Android manifest 合并项：

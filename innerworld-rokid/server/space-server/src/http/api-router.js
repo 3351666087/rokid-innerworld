@@ -21,6 +21,18 @@ function getRequestBaseUrl(req, url, port) {
   return new URL("/", `http://${req.headers.host || `localhost:${port}`}`).origin;
 }
 
+function missionResultSummary(type, updated) {
+  if (type === "write_back") {
+    return updated.result || {};
+  }
+  return {
+    mission_state: updated.state?.mission_state || null,
+    current_step_index: updated.state?.current_step_index ?? 0,
+    completed_steps: Array.isArray(updated.state?.completed_steps) ? updated.state.completed_steps.slice() : [],
+    beacon_count: Array.isArray(updated.state?.beacons) ? updated.state.beacons.length : 0
+  };
+}
+
 export function createApiRouter({
   aiPromptPath,
   aiSchemaPath,
@@ -146,6 +158,31 @@ export function createApiRouter({
       };
       if (result.ok === false) {
         sendError(res, result.status || 400, result.error || "dataset_call_failed");
+        return;
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ledger/summary") {
+      sendJson(res, 200, sqliteStore?.missionLedgerSummary?.() || {
+        ok: false,
+        error: "mission_ledger_unavailable"
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/ledger/events") {
+      const result = sqliteStore?.missionLedgerEvents?.({
+        limit: url.searchParams.get("limit") || 50,
+        type: url.searchParams.get("type") || ""
+      }) || {
+        ok: false,
+        status: 503,
+        error: "mission_ledger_unavailable"
+      };
+      if (result.ok === false) {
+        sendError(res, result.status || 400, result.error || "ledger_events_failed");
         return;
       }
       sendJson(res, 200, result);
@@ -299,7 +336,14 @@ export function createApiRouter({
       const updated = await updateState((state, latestSpace) => {
         return applyWriteBack({ state, space: latestSpace, body, text });
       });
-      sendJson(res, 201, { ok: true, beacon: updated.result, state: updated.state });
+      const ledger = sqliteStore?.appendMissionLedgerEvent?.({
+        type: "write_back",
+        space: updated.space,
+        payload: body,
+        result: missionResultSummary("write_back", updated),
+        state: updated.state
+      }) || null;
+      sendJson(res, 201, { ok: true, beacon: updated.result, state: updated.state, ledger });
       return;
     }
 
@@ -308,7 +352,14 @@ export function createApiRouter({
       const updated = await updateState((state, space) => {
         return applyInteraction({ state, space, body });
       });
-      sendJson(res, 200, { ok: true, state: updated.state });
+      const ledger = sqliteStore?.appendMissionLedgerEvent?.({
+        type: "interaction",
+        space: updated.space,
+        payload: body,
+        result: missionResultSummary("interaction", updated),
+        state: updated.state
+      }) || null;
+      sendJson(res, 200, { ok: true, state: updated.state, ledger });
       return;
     }
 
@@ -317,7 +368,14 @@ export function createApiRouter({
       const updated = await updateState((state, space) => {
         return applyServiceAction({ state, space, body });
       });
-      sendJson(res, 200, { ok: true, action: body, state: updated.state });
+      const ledger = sqliteStore?.appendMissionLedgerEvent?.({
+        type: "service_action",
+        space: updated.space,
+        payload: body,
+        result: missionResultSummary("service_action", updated),
+        state: updated.state
+      }) || null;
+      sendJson(res, 200, { ok: true, action: body, state: updated.state, ledger });
       return;
     }
 

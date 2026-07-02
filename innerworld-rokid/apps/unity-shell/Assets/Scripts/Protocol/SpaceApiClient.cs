@@ -60,6 +60,16 @@ namespace InnerWorld.Rokid.Protocol
             get { return BuildEvidenceChainUrl(BaseUrl); }
         }
 
+        public string LedgerEventsUrl
+        {
+            get { return BuildLedgerEventsUrl(BaseUrl); }
+        }
+
+        public string LedgerSummaryUrl
+        {
+            get { return BuildLedgerSummaryUrl(BaseUrl); }
+        }
+
         public string SessionPlanUrl
         {
             get { return BuildSessionPlanUrl(BaseUrl); }
@@ -155,6 +165,16 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/evidence/chain");
         }
 
+        public static string BuildLedgerEventsUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/ledger/events");
+        }
+
+        public static string BuildLedgerSummaryUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/ledger/summary");
+        }
+
         public static string BuildSessionPlanUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/session/plan");
@@ -213,6 +233,8 @@ namespace InnerWorld.Rokid.Protocol
                 health = Endpoint(cleanBaseUrl, "GET", "/api/health"),
                 ops_status = Endpoint(cleanBaseUrl, "GET", "/api/ops/status"),
                 evidence_chain = Endpoint(cleanBaseUrl, "GET", "/api/evidence/chain"),
+                ledger_events = Endpoint(cleanBaseUrl, "GET", "/api/ledger/events"),
+                ledger_summary = Endpoint(cleanBaseUrl, "GET", "/api/ledger/summary"),
                 session_plan = Endpoint(cleanBaseUrl, "GET", "/api/session/plan"),
                 device_bootstrap = Endpoint(cleanBaseUrl, "GET", "/api/device/bootstrap"),
                 ai_schema = Endpoint(cleanBaseUrl, "GET", "/api/ai/schema"),

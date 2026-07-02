@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 17:55 Asia/Shanghai
+Updated: 2026-07-02 18:26 Asia/Shanghai
 
 ## Objective
 
@@ -16,7 +16,11 @@ Build the real project framework and delivery chain, not just an environment dem
 - After hardware arrives, Rokid / AR Studio replaces only input and display.
 - The data contract, mission state machine, service actions, write-back flow, AI schema/prompt, and evidence chain stay the same across Web, Unity fallback, Android fallback, and Rokid hardware.
 - Production-shaped modules are pulled forward immediately. Do not defer stable storage, device runtime, deployment automation, or sync automation as "later"; build the final local/server shape now, then harden it.
-- SQLite is the default authoritative local/field database (`data/innerworld.sqlite`) for runtime state, safe dataset catalog, device sessions, and bounded device events. Raw private evidence remains outside the database/API unless explicitly sanitized.
+- SQLite is the authoritative local/field store now (`data/innerworld.sqlite`) for runtime state, safe dataset catalog, device sessions, and bounded device events. It is not a disposable prototype database.
+- SQLite backups are a first-class runtime operation now: use `npm run db:backup`, `npm run db:backup:list`, and `npm run db:backup:verify` to create private SHA256-verified snapshots under the guarded backup root before release, restore, or server handoff work.
+- Server upload/deployment keeps the same Space API, mission state, write-back, device runtime, and SQLite-backed store contract. Treat a server move as a hosting/deployment boundary, not a product data-contract rewrite.
+- Do not describe the storage plan as "temporary" or "later swap databases." If remote replication or backup is added, it must preserve the same contract and sanitized evidence boundary.
+- Raw private evidence remains outside the database/API unless explicitly sanitized.
 - Field delivery should show a real spatial wall experience: A1 entry poster, A2 memory beacon, A3 write-back point, mission progress, service action, and User B seeing the new write-back beacon.
 
 ## Current Build Phase
@@ -50,6 +54,8 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Keep Chrome available for visual localhost and link verification; wait for pages to load.
 - Monitor and clean C drive frequently. Keep valuable build caches, delete only low-value temp/cache artifacts through guarded scripts.
 - Run anything that will later upload to a server locally first.
+- Run `npm run db:backup` before destructive rehearsal, restore, release packaging, or server handoff steps that depend on preserving the current field runtime state.
+- Run `npm run git:sync:dry` before any frequent auto-sync loop, then use `npm run git:sync:loop` only after confirming the selected files. Auto-sync must never stage ignored files, runtime state, SQLite files, `.env`/secret files, `output`, `node_modules`, Unity caches, or other private artifacts.
 - If a module's final version needs a real environment, dependency, database, or automation, install and wire that environment now instead of building a disposable placeholder.
 - Ask the user for login windows, licenses, hardware access, server credentials, or system prompts when needed.
 - This machine is a full Windows development environment with user-granted local and network permissions.
@@ -58,6 +64,7 @@ Move from "environment and demo loop are runnable" to "main project framework an
 
 Active worker lanes:
 
+- Kepler reviewer: the special long-line subagent for mainline audit. Keep it as the persistent reviewer, feed every major implementation checkpoint back to it, and adopt or explicitly record its findings before pushing large direction changes.
 - Web panel worker: `apps/web-demo/*`
 - Unity protocol worker: `apps/unity-shell/Assets/Scripts/Protocol/*`
 - Main thread: shared contract, server integration, checks, docs, packages, verification

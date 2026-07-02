@@ -9,6 +9,28 @@ const DATASET_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,80}$/;
 const RECORD_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,96}$/;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+const LEDGER_DATASET_ID = "runtime.mission_ledger";
+const LEDGER_SCHEMA = "innerworld-mission-ledger/v1";
+const LEDGER_MISSION_ID = "innerworld-campus-wall-mission";
+const LEDGER_TYPES = new Set(["interaction", "service_action", "write_back"]);
+const SENSITIVE_LEDGER_KEYS = new Set([
+  "access_token",
+  "address",
+  "bssid",
+  "gateway",
+  "ip",
+  "ip_address",
+  "ipv4",
+  "ipv6",
+  "mac",
+  "mac_address",
+  "phone",
+  "recipient",
+  "serial",
+  "serial_number",
+  "ssid",
+  "token"
+]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -27,6 +49,10 @@ function stringifyJson(value) {
   return JSON.stringify(value ?? null);
 }
 
+function trimText(value, maxLength = 160) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
 function cleanId(value, pattern, fallback) {
   const candidate = String(value || "").trim();
   return pattern.test(candidate) ? candidate : fallback;
@@ -36,6 +62,59 @@ function clampLimit(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return DEFAULT_LIMIT;
   return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(number)));
+}
+
+function cleanLedgerType(value) {
+  const type = String(value || "").trim();
+  return LEDGER_TYPES.has(type) ? type : "interaction";
+}
+
+function sanitizeLedgerValue(value, depth = 0) {
+  if (depth > 5) return "[max_depth]";
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value.slice(0, 400);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 40).map((item) => sanitizeLedgerValue(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const clean = {};
+    for (const [key, nested] of Object.entries(value)) {
+      const normalizedKey = String(key).toLowerCase();
+      if (SENSITIVE_LEDGER_KEYS.has(normalizedKey)) continue;
+      if (normalizedKey.includes("token") || normalizedKey.includes("secret")) continue;
+      clean[key] = sanitizeLedgerValue(nested, depth + 1);
+    }
+    return clean;
+  }
+  return String(value).slice(0, 160);
+}
+
+function summarizeRuntimeState(state) {
+  return {
+    active_user: state?.active_user || null,
+    mission_state: state?.mission_state || null,
+    current_step_index: Number.isFinite(Number(state?.current_step_index)) ? Number(state.current_step_index) : 0,
+    completed_steps: Array.isArray(state?.completed_steps) ? state.completed_steps.slice(0, 20) : [],
+    beacon_count: Array.isArray(state?.beacons) ? state.beacons.length : 0
+  };
+}
+
+function ledgerEventFromRow(row) {
+  return {
+    event_id: row.event_id,
+    type: row.type,
+    space_id: row.space_id,
+    user_id: row.user_id,
+    anchor_id: row.anchor_id,
+    step_id: row.step_id,
+    action_id: row.action_id,
+    beacon_id: row.beacon_id,
+    payload: parseJson(row.payload_json, {}),
+    result: parseJson(row.result_json, {}),
+    state: parseJson(row.state_json, {}),
+    created_at: row.created_at
+  };
 }
 
 function rowsFromExec(result) {
@@ -206,6 +285,23 @@ export async function createSqliteStore({
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_device_events_session ON device_events(session_id, created_at);
+      CREATE TABLE IF NOT EXISTS mission_ledger (
+        event_id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        space_id TEXT,
+        user_id TEXT,
+        anchor_id TEXT,
+        step_id TEXT,
+        action_id TEXT,
+        beacon_id TEXT,
+        payload_json TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_mission_ledger_type_time ON mission_ledger(type, created_at);
+      CREATE INDEX IF NOT EXISTS idx_mission_ledger_anchor_time ON mission_ledger(anchor_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_mission_ledger_action_time ON mission_ledger(action_id, created_at);
     `);
   }
 
@@ -272,6 +368,41 @@ export async function createSqliteStore({
     run("UPDATE datasets SET record_count = ?, updated_at = ? WHERE dataset_id = ?", [count, nowIso(), id]);
   }
 
+  function upsertLedgerDataset() {
+    const createdAt = nowIso();
+    const count = get("SELECT COUNT(*) AS count FROM mission_ledger")?.count || 0;
+    run(`
+      INSERT INTO datasets (
+        dataset_id, title, kind, schema_version, privacy, source_ref, metadata_json, record_count, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(dataset_id) DO UPDATE SET
+        title = excluded.title,
+        kind = excluded.kind,
+        schema_version = excluded.schema_version,
+        privacy = excluded.privacy,
+        source_ref = excluded.source_ref,
+        metadata_json = excluded.metadata_json,
+        record_count = excluded.record_count,
+        updated_at = excluded.updated_at
+    `, [
+      LEDGER_DATASET_ID,
+      "Mission Ledger",
+      "runtime_ledger",
+      LEDGER_SCHEMA,
+      "runtime_sanitized",
+      "SQLite mission_ledger table",
+      stringifyJson({
+        event_types: Array.from(LEDGER_TYPES),
+        raw_sql_api: false,
+        purpose: "Audit service actions, interactions, and write-backs for field evidence."
+      }),
+      count,
+      createdAt,
+      createdAt
+    ]);
+  }
+
   async function seedPublicDatasets() {
     const [space, aiSchema, hardwareManifest] = await Promise.all([
       readJsonFile(spacePath),
@@ -325,6 +456,7 @@ export async function createSqliteStore({
         },
         records: [{ record_id: "kit", value: publicHardwareManifest(hardwareManifest), tags: ["hardware", "public"] }]
       });
+      upsertLedgerDataset();
     });
   }
 
@@ -441,6 +573,161 @@ export async function createSqliteStore({
     }));
   }
 
+  function appendMissionLedgerEvent({ type, space, payload = {}, result = {}, state = {}, createdAt = null }) {
+    const eventType = cleanLedgerType(type);
+    const sanitizedPayload = sanitizeLedgerValue(payload) || {};
+    const sanitizedResult = sanitizeLedgerValue(result) || {};
+    const stateSummary = summarizeRuntimeState(state);
+    const timestamp = createdAt || result?.created_at || payload?.created_at || nowIso();
+    const eventId = `ledger-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const anchorId = trimText(payload.anchor_id || result.anchor_id, 40) || null;
+    const stepId = trimText(payload.step_id || result.step_id, 48) || null;
+    const actionId = trimText(payload.action_id || result.action_id, 64) || null;
+    const beaconId = trimText(result.beacon_id || payload.beacon_id, 80) || null;
+    const userId = trimText(payload.user_id || result.source || state?.active_user, 40) || null;
+    const spaceId = trimText(space?.space_id || payload.space_id, 80) || null;
+
+    return writeTransaction(() => {
+      run(`
+        INSERT INTO mission_ledger (
+          event_id, type, space_id, user_id, anchor_id, step_id, action_id, beacon_id,
+          payload_json, result_json, state_json, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        eventId,
+        eventType,
+        spaceId,
+        userId,
+        anchorId,
+        stepId,
+        actionId,
+        beaconId,
+        stringifyJson(sanitizedPayload),
+        stringifyJson(sanitizedResult),
+        stringifyJson(stateSummary),
+        timestamp
+      ]);
+      upsertLedgerDataset();
+      return {
+        event_id: eventId,
+        type: eventType,
+        space_id: spaceId,
+        user_id: userId,
+        anchor_id: anchorId,
+        step_id: stepId,
+        action_id: actionId,
+        beacon_id: beaconId,
+        payload: sanitizedPayload,
+        result: sanitizedResult,
+        state: stateSummary,
+        created_at: timestamp
+      };
+    });
+  }
+
+  function missionLedgerEvents({ limit = 50, type = "" } = {}) {
+    const cleanType = String(type || "").trim();
+    const params = [];
+    let where = "";
+    if (cleanType) {
+      if (!LEDGER_TYPES.has(cleanType)) {
+        return { ok: false, status: 400, error: "invalid_ledger_type" };
+      }
+      where = "WHERE type = ?";
+      params.push(cleanType);
+    }
+    params.push(clampLimit(limit));
+    const events = select(`
+      SELECT event_id, type, space_id, user_id, anchor_id, step_id, action_id, beacon_id,
+        payload_json, result_json, state_json, created_at
+      FROM mission_ledger
+      ${where}
+      ORDER BY datetime(created_at) DESC, event_id DESC
+      LIMIT ?
+    `, params).map(ledgerEventFromRow);
+
+    return {
+      ok: true,
+      schema: `${LEDGER_SCHEMA}/events`,
+      total_returned: events.length,
+      type: cleanType || "all",
+      events,
+      privacy: "Ledger events are sanitized summaries. Raw private identifiers, tokens, network addresses, serials, SSID, MAC, and raw pose are omitted."
+    };
+  }
+
+  function missionLedgerSummary() {
+    const generatedAt = nowIso();
+    const total = Number(get("SELECT COUNT(*) AS count FROM mission_ledger")?.count || 0);
+    const byType = Object.fromEntries(select(`
+      SELECT type, COUNT(*) AS count
+      FROM mission_ledger
+      GROUP BY type
+      ORDER BY type
+    `).map((row) => [row.type, Number(row.count || 0)]));
+    const latest = select(`
+      SELECT event_id, type, space_id, user_id, anchor_id, step_id, action_id, beacon_id,
+        payload_json, result_json, state_json, created_at
+      FROM mission_ledger
+      ORDER BY datetime(created_at) DESC, event_id DESC
+      LIMIT 5
+    `).map(ledgerEventFromRow);
+    const latestEvent = latest[0] || null;
+    const runtime = loadRuntimeState() || {};
+    const stateSummary = summarizeRuntimeState(runtime);
+    const serviceActionTotal = byType.service_action || 0;
+
+    return {
+      ok: true,
+      schema: `${LEDGER_SCHEMA}/summary`,
+      generated_at: generatedAt,
+      engine: "sqlite",
+      dataset_id: LEDGER_DATASET_ID,
+      mission_id: LEDGER_MISSION_ID,
+      total,
+      counts: {
+        interactions: byType.interaction || 0,
+        service_actions: serviceActionTotal,
+        write_backs: byType.write_back || 0
+      },
+      by_type: {
+        interaction: byType.interaction || 0,
+        service_action: serviceActionTotal,
+        write_back: byType.write_back || 0
+      },
+      mission: {
+        state: stateSummary.mission_state,
+        current_step_index: stateSummary.current_step_index,
+        completed_step_count: stateSummary.completed_steps.length,
+        completed_steps: stateSummary.completed_steps,
+        last_event_at: latestEvent?.created_at || null
+      },
+      service_actions: {
+        total: serviceActionTotal,
+        pending: 0,
+        completed: serviceActionTotal,
+        failed: 0,
+        last_action_id: latest.find((event) => event.type === "service_action")?.action_id || null,
+        last_action_at: latest.find((event) => event.type === "service_action")?.created_at || null
+      },
+      audit: {
+        event_count: total,
+        first_event_at: get("SELECT created_at FROM mission_ledger ORDER BY datetime(created_at) ASC, event_id ASC LIMIT 1")?.created_at || null,
+        last_event_at: latestEvent?.created_at || null,
+        sources: Array.from(new Set(latest.map((event) => event.user_id || "system"))).filter(Boolean)
+      },
+      latest,
+      latest_event: latestEvent,
+      checks: {
+        has_service_action: serviceActionTotal > 0,
+        has_write_back: (byType.write_back || 0) > 0,
+        has_interaction: (byType.interaction || 0) > 0
+      },
+      privacy: "Mission ledger is safe for local field evidence and release summaries; it does not expose raw private chat exports or device/network identifiers."
+    };
+  }
+
   function catalog() {
     const datasets = select(`
       SELECT dataset_id, title, kind, schema_version, privacy, source_ref, metadata_json, record_count, updated_at
@@ -483,6 +770,48 @@ export async function createSqliteStore({
         operation,
         dataset: datasetSummaryFromRow(dataset)
       };
+    }
+
+    if (datasetId === LEDGER_DATASET_ID) {
+      if (["snapshot", "list_records"].includes(operation)) {
+        const ledger = missionLedgerEvents({ limit, type: body.type || "" });
+        if (ledger.ok === false) return ledger;
+        return {
+          ok: true,
+          operation,
+          dataset: datasetSummaryFromRow(dataset),
+          records: ledger.events.map((event) => ({
+            record_id: event.event_id,
+            value: event,
+            tags: [event.type].filter(Boolean),
+            updated_at: event.created_at
+          })),
+          truncated: Number(dataset.record_count || 0) > ledger.events.length
+        };
+      }
+      if (operation === "get_record") {
+        const recordId = cleanId(body.record_id, RECORD_ID_PATTERN, null);
+        if (!recordId) return { ok: false, status: 400, error: "invalid_record_id" };
+        const row = get(`
+          SELECT event_id, type, space_id, user_id, anchor_id, step_id, action_id, beacon_id,
+            payload_json, result_json, state_json, created_at
+          FROM mission_ledger
+          WHERE event_id = ?
+        `, [recordId]);
+        if (!row) return { ok: false, status: 404, error: "record_not_found" };
+        const event = ledgerEventFromRow(row);
+        return {
+          ok: true,
+          operation,
+          dataset: datasetSummaryFromRow(dataset),
+          record: {
+            record_id: event.event_id,
+            value: event,
+            tags: [event.type],
+            updated_at: event.created_at
+          }
+        };
+      }
     }
 
     if (operation === "get_record") {
@@ -537,6 +866,7 @@ export async function createSqliteStore({
     const runtime = loadRuntimeState();
     const deviceTotal = get("SELECT COUNT(*) AS count FROM device_sessions")?.count || 0;
     const eventTotal = get("SELECT COUNT(*) AS count FROM device_events")?.count || 0;
+    const ledgerTotal = get("SELECT COUNT(*) AS count FROM mission_ledger")?.count || 0;
     return {
       ok: true,
       schema: STORE_SCHEMA,
@@ -553,6 +883,7 @@ export async function createSqliteStore({
       datasets: get("SELECT COUNT(*) AS count FROM datasets")?.count || 0,
       device_sessions: deviceTotal,
       device_events: eventTotal,
+      mission_ledger_events: ledgerTotal,
       safe_storage: {
         atomic_export: true,
         raw_sql_api: false,
@@ -571,12 +902,15 @@ export async function createSqliteStore({
     catalog,
     datasetCall,
     deviceEventSummary,
+    missionLedgerEvents,
+    missionLedgerSummary,
     loadDeviceSession,
     listDeviceSessions,
     loadRuntimeState,
     saveDeviceSession,
     saveRuntimeState,
     appendDeviceEvent,
+    appendMissionLedgerEvent,
     status
   };
 }

@@ -243,6 +243,8 @@ namespace InnerWorld.Rokid.Runtime
         public InnerWorldEvidenceEndpoint health;
         public InnerWorldEvidenceEndpoint ops_status;
         public InnerWorldEvidenceEndpoint evidence_chain;
+        public InnerWorldEvidenceEndpoint ledger_events;
+        public InnerWorldEvidenceEndpoint ledger_summary;
         public InnerWorldEvidenceEndpoint session_plan;
         public InnerWorldEvidenceEndpoint device_bootstrap;
         public InnerWorldEvidenceEndpoint ai_schema;

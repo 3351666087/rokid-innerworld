@@ -12,6 +12,11 @@ output/
 data/runtime_state.json
 data/innerworld.sqlite
 data/innerworld.sqlite-*
+innerworld-sqlite-*.sqlite
+innerworld-sqlite-*.manifest.json
+innerworld-before-restore-*.sqlite
+innerworld-before-restore-*.manifest.json
+sqlite-backup-latest.md
 Logs/
 .utmp/
 UserSettings/

@@ -29,6 +29,12 @@ const api = {
   async getDatasetCatalog() {
     return requestJson("/api/datasets/catalog", { cache: "no-store" }, "读取数据集目录失败");
   },
+  async getLedgerSummary() {
+    return requestJson("/api/ledger/summary", { cache: "no-store" }, "Read ledger summary failed");
+  },
+  async getLedgerEvents() {
+    return requestJson("/api/ledger/events", { cache: "no-store" }, "Read ledger events failed");
+  },
   async generateHud(payload) {
     return requestJson("/api/ai/hud", jsonPost(payload), "生成 HUD 失败");
   },
@@ -53,6 +59,15 @@ const model = {
   bootstrap: null,
   store: null,
   datasetCatalog: null,
+  ledgerSummary: null,
+  ledgerEvents: null,
+  ledgerErrors: {},
+  localLedgerCounts: {
+    serviceActions: 0,
+    writeBacks: 0,
+    interactions: 0
+  },
+  localLedgerEvents: [],
   deviceManifest: null,
   deviceSessions: null,
   deviceSession: null,
@@ -85,6 +100,9 @@ const els = {
   deliveryTimeline: document.querySelector("#deliveryTimeline"),
   evidenceRail: document.querySelector("#evidenceRail"),
   agentQueue: document.querySelector("#agentQueue"),
+  ledgerGrid: document.querySelector("#ledgerGrid"),
+  ledgerRefreshBtn: document.querySelector("#ledgerRefreshBtn"),
+  ledgerStatus: document.querySelector("#ledgerStatus"),
   lensGrid: document.querySelector("#lensGrid"),
   lensState: document.querySelector("#lensState"),
   log: document.querySelector("#log"),
@@ -588,6 +606,186 @@ function renderInfoCard(className, label, title, body, options = {}) {
   return card;
 }
 
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
+}
+
+function arrayFromLedgerEvents(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.events)) return payload.events;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
+
+function eventTimeValue(event) {
+  return event?.created_at || event?.timestamp || event?.time || event?.ts || event?.occurred_at || null;
+}
+
+function formatLedgerTime(value) {
+  if (!value) return "local";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value).slice(0, 12);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function ledgerEventKind(event) {
+  return String(event?.kind || event?.type || event?.event_type || event?.category || "event").replace(/_/g, " ");
+}
+
+function ledgerEventTitle(event) {
+  return compact(event?.label || event?.action_id || event?.step_id || event?.title || event?.message || ledgerEventKind(event));
+}
+
+function ledgerEventActor(event) {
+  return compact(event?.user_id || event?.actor || event?.source || event?.service || event?.anchor_id || "system");
+}
+
+function recordLocalLedgerEvent(kind, detail = {}) {
+  const countKey = {
+    service_action: "serviceActions",
+    write_back: "writeBacks",
+    interaction: "interactions"
+  }[kind];
+  if (countKey) {
+    model.localLedgerCounts[countKey] += 1;
+  }
+  model.localLedgerEvents.unshift({
+    kind,
+    user_id: model.activeUser,
+    anchor_id: model.currentAnchor,
+    timestamp: new Date().toISOString(),
+    ...detail
+  });
+  model.localLedgerEvents = model.localLedgerEvents.slice(0, 12);
+  renderLedgerAudit();
+  renderLog();
+}
+
+function latestLedgerEvent(events) {
+  return [...events].sort((a, b) => {
+    const left = new Date(eventTimeValue(a) || 0).getTime() || 0;
+    const right = new Date(eventTimeValue(b) || 0).getTime() || 0;
+    return right - left;
+  })[0] || null;
+}
+
+function localLedgerFallbackEvents() {
+  if (model.localLedgerEvents.length) return model.localLedgerEvents;
+  const completed = [...completedSteps()];
+  const writeBacks = (model.space?.beacons || []).filter((beacon) => beacon.layer === "time_capsule");
+  const rows = completed.slice(-3).map((stepId, index) => ({
+    kind: "interaction",
+    step_id: stepId,
+    user_id: model.activeUser,
+    timestamp: new Date(Date.now() - (completed.length - index) * 60000).toISOString()
+  }));
+
+  if (writeBacks.length) {
+    const beacon = writeBacks.at(-1);
+    rows.push({
+      kind: "write_back",
+      title: beacon.display_text || beacon.title || "write-back",
+      user_id: beacon.user_id || model.activeUser,
+      timestamp: beacon.created_at || new Date().toISOString()
+    });
+  }
+
+  return rows.slice(-4).reverse();
+}
+
+function normalizedLedgerSummary() {
+  const summary = model.ledgerSummary || {};
+  const apiEvents = arrayFromLedgerEvents(model.ledgerEvents);
+  const hasApiSummary = Boolean(model.ledgerSummary?.ok);
+  const hasApiEvents = Boolean(model.ledgerEvents?.ok);
+  const useApiEvents = hasApiEvents && apiEvents.length > 0;
+  const fallbackEvents = useApiEvents ? apiEvents : localLedgerFallbackEvents();
+  const counts = summary.counts || summary.totals || summary;
+  const writeBacks = (model.space?.beacons || []).filter((beacon) => beacon.layer === "time_capsule").length;
+  const localWriteBacks = Math.max(model.localLedgerCounts.writeBacks, writeBacks);
+  const localInteractions = Math.max(model.localLedgerCounts.interactions, completedSteps().size);
+  const sqliteReady = model.store?.engine === "sqlite" || summary.storage === "sqlite" || summary.engine === "sqlite";
+  const authoritative = Boolean(hasApiSummary && sqliteReady && summary.ok !== false && summary.authoritative !== false && summary.is_authoritative !== false);
+  const latest = summary.latest_event || latestLedgerEvent(fallbackEvents);
+
+  return {
+    serviceActions: firstFiniteNumber(counts.service_actions, counts.service_action_count, summary.service_actions, summary.service_action_count, model.localLedgerCounts.serviceActions),
+    writeBacks: firstFiniteNumber(counts.write_backs, counts.write_back_count, summary.write_backs, summary.write_back_count, localWriteBacks),
+    interactions: firstFiniteNumber(counts.interactions, counts.interaction_events, counts.interaction_count, summary.interactions, localInteractions),
+    latest,
+    events: fallbackEvents.slice(0, 4),
+    sqliteReady,
+    authoritative,
+    online: hasApiSummary || hasApiEvents,
+    eventSource: useApiEvents ? "sqlite_api" : "local_rehearsal_mirror",
+    errors: model.ledgerErrors || {}
+  };
+}
+
+function appendLedgerPill(label, tone = "neutral") {
+  const pill = document.createElement("span");
+  pill.className = ["ledger-pill", tone].filter(Boolean).join(" ");
+  pill.textContent = label;
+  els.ledgerStatus.append(pill);
+}
+
+function renderLedgerAudit() {
+  if (!els.ledgerGrid || !els.ledgerStatus) return;
+  const ledger = normalizedLedgerSummary();
+  const endpointError = ledger.errors.summary || ledger.errors.events;
+  const storageLabel = ledger.sqliteReady ? "SQLite store" : "ledger API pending";
+  const authorityLabel = ledger.authoritative ? "SQLite/API authoritative" : "local rehearsal mirror";
+  const sourceBody = ledger.authoritative ? "Persisted by Space Server SQLite." : "Browser-only rehearsal; not field evidence.";
+  const latestTitle = ledger.latest ? ledgerEventTitle(ledger.latest) : "No event yet";
+  const latestBody = endpointError
+    ? endpointError.message
+    : `${ledger.eventSource === "sqlite_api" ? "SQLite/API" : "local rehearsal"} / ${formatLedgerTime(eventTimeValue(ledger.latest))} / ${ledgerEventActor(ledger.latest)}`;
+
+  els.ledgerStatus.innerHTML = "";
+  appendLedgerPill(ledger.online ? "ledger api online" : "local rehearsal mirror", ledger.online ? "good" : "warn");
+  appendLedgerPill(storageLabel, ledger.sqliteReady ? "good" : "warn");
+  appendLedgerPill(authorityLabel, ledger.authoritative ? "good" : "warn");
+
+  els.ledgerGrid.innerHTML = "";
+  els.ledgerGrid.append(
+    renderInfoCard("ledger-card", "Service Actions", String(ledger.serviceActions), "Calls that ask a service to do work."),
+    renderInfoCard("ledger-card", "Write-backs", String(ledger.writeBacks), "Approved or pending wall memory writes."),
+    renderInfoCard("ledger-card", "Interactions", String(ledger.interactions), "Gaze, tap, voice, and mission step events."),
+    renderInfoCard(ledger.authoritative ? "ledger-card good" : "ledger-card warn", "Evidence Source", authorityLabel, sourceBody),
+    renderInfoCard(endpointError ? "ledger-card warn wide" : "ledger-card good wide", "Latest", latestTitle, latestBody)
+  );
+
+  const list = document.createElement("div");
+  list.className = "ledger-events";
+  ledger.events.forEach((event) => {
+    const row = document.createElement("div");
+    row.className = "ledger-event";
+    const time = document.createElement("time");
+    time.textContent = formatLedgerTime(eventTimeValue(event));
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = ledgerEventTitle(event);
+    const actor = document.createElement("small");
+    actor.textContent = ledgerEventActor(event);
+    copy.append(title, actor);
+    const kind = document.createElement("span");
+    kind.textContent = ledgerEventKind(event);
+    row.append(time, copy, kind);
+    list.append(row);
+  });
+
+  if (!ledger.events.length) {
+    list.append(renderInfoCard("ledger-card wide", "Events", "Waiting", "Ledger endpoint can come online without blocking the console."));
+  }
+
+  els.ledgerGrid.append(list);
+}
+
 function renderRouteMap() {
   if (!els.routeGrid || !model.space) return;
   const completed = completedSteps();
@@ -928,6 +1126,23 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   renderShowcase();
   renderRiskGuardrails();
   renderHardwareRuntime();
+  renderLedgerAudit();
+}
+
+async function refreshLedger() {
+  const [summaryResult, eventsResult] = await Promise.allSettled([
+    api.getLedgerSummary(),
+    api.getLedgerEvents()
+  ]);
+
+  if (summaryResult.status === "fulfilled") model.ledgerSummary = summaryResult.value;
+  if (eventsResult.status === "fulfilled") model.ledgerEvents = eventsResult.value;
+  model.ledgerErrors = {
+    summary: summaryResult.status === "rejected" ? summaryResult.reason : null,
+    events: eventsResult.status === "rejected" ? eventsResult.reason : null
+  };
+  renderLedgerAudit();
+  renderLog();
 }
 
 async function refreshDeviceRuntime() {
@@ -943,6 +1158,7 @@ async function refreshDeviceRuntime() {
   if (storeResult.status === "fulfilled") model.store = storeResult.value;
   if (catalogResult.status === "fulfilled") model.datasetCatalog = catalogResult.value;
   renderHardwareRuntime();
+  renderLedgerAudit();
   renderLog();
 }
 
@@ -963,13 +1179,15 @@ async function sendSimulatedHeartbeat() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
     api.getDeviceSessions(),
     api.getStoreStatus(),
-    api.getDatasetCatalog()
+    api.getDatasetCatalog(),
+    api.getLedgerSummary(),
+    api.getLedgerEvents()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
@@ -978,6 +1196,12 @@ async function refreshOps() {
   model.deviceSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : model.deviceSessions;
   model.store = storeResult.status === "fulfilled" ? storeResult.value : model.store;
   model.datasetCatalog = catalogResult.status === "fulfilled" ? catalogResult.value : model.datasetCatalog;
+  if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
+  if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
+  model.ledgerErrors = {
+    summary: ledgerSummaryResult.status === "rejected" ? ledgerSummaryResult.reason : null,
+    events: ledgerEventsResult.status === "rejected" ? ledgerEventsResult.reason : null
+  };
   renderOps(model.ops, model.bootstrap, {
     ops: opsResult.status === "rejected" ? opsResult.reason : null,
     bootstrap: bootstrapResult.status === "rejected" ? bootstrapResult.reason : null
@@ -1006,7 +1230,17 @@ function renderLog() {
       storage: model.deviceSessions.storage,
       total: model.deviceSessions.total,
       smoke: model.deviceSessions.smoke_test_summary
-    } : null
+    } : null,
+    ledger: {
+      online: Boolean(model.ledgerSummary || model.ledgerEvents),
+      summary: model.ledgerSummary || null,
+      events: arrayFromLedgerEvents(model.ledgerEvents).slice(0, 4),
+      fallback: !model.ledgerSummary && !model.ledgerEvents,
+      errors: {
+        summary: model.ledgerErrors?.summary?.message || null,
+        events: model.ledgerErrors?.events?.message || null
+      }
+    }
   };
   els.log.textContent = JSON.stringify(payload, null, 2);
 }
@@ -1044,6 +1278,7 @@ async function refresh(options = {}) {
   renderDeliveryScript();
   renderRiskGuardrails();
   renderHardwareRuntime();
+  renderLedgerAudit();
   await refreshOps();
   requestAiHud(model.currentAnchor);
 }
@@ -1071,6 +1306,7 @@ async function completeCurrentStep() {
     step_id: step.step_id,
     mission_state: step.step_id === "write_back" ? "writing" : "doing"
   });
+  recordLocalLedgerEvent("interaction", { step_id: step.step_id, title: step.label || step.step_id });
   await refresh({ anchorId: step.anchor_id });
 }
 
@@ -1091,14 +1327,17 @@ async function autoRun() {
     setCurrentAnchor(memoryAnchorId());
     await sleep(650);
     await api.interact({ user_id: "A", step_id: "read", mission_state: "reading" });
+    recordLocalLedgerEvent("interaction", { user_id: "A", step_id: "read", title: "read" });
     await refresh({ anchorId: memoryAnchorId() });
     await sleep(650);
 
     await api.interact({ user_id: "A", step_id: "find_year", mission_state: "doing" });
+    recordLocalLedgerEvent("interaction", { user_id: "A", step_id: "find_year", title: "find_year" });
     await refresh({ anchorId: memoryAnchorId() });
     await sleep(650);
 
     await api.serviceAction({ user_id: "A", action_id: "JOIN_EVENT_1430", label: "加入 14:30 体验活动" });
+    recordLocalLedgerEvent("service_action", { user_id: "A", action_id: "JOIN_EVENT_1430", label: "加入 14:30 体验活动" });
     await refresh({ anchorId: entryAnchorId() });
     await sleep(650);
 
@@ -1108,11 +1347,13 @@ async function autoRun() {
       title: "后来者留言",
       text: els.writeText.value || WRITE_BACK_DEFAULT
     });
+    recordLocalLedgerEvent("write_back", { user_id: "A", anchor_id: writeAnchorId(), title: "后来者留言" });
     await refresh({ anchorId: writeAnchorId() });
     await sleep(650);
 
     model.activeUser = "B";
     await api.interact({ user_id: "B", mission_state: "complete" });
+    recordLocalLedgerEvent("interaction", { user_id: "B", title: "complete" });
     await refresh({ anchorId: writeAnchorId() });
   } finally {
     model.autoRunning = false;
@@ -1129,6 +1370,7 @@ els.anchorLayer?.addEventListener("click", (event) => {
 document.querySelector("#nextBtn")?.addEventListener("click", runAction(completeCurrentStep));
 document.querySelector("#autoBtn")?.addEventListener("click", runAction(autoRun));
 document.querySelector("#opsRefreshBtn")?.addEventListener("click", runAction(refreshOps));
+els.ledgerRefreshBtn?.addEventListener("click", runAction(refreshLedger));
 els.panelToggleBtn?.addEventListener("click", () => {
   const shell = document.querySelector(".app-shell");
   setPanelCollapsed(!shell?.classList.contains("panel-collapsed"));
@@ -1136,6 +1378,7 @@ els.panelToggleBtn?.addEventListener("click", () => {
 
 document.querySelector("#serviceBtn")?.addEventListener("click", runAction(async () => {
   await api.serviceAction({ user_id: model.activeUser, action_id: "JOIN_EVENT_1430", label: "加入 14:30 体验活动" });
+  recordLocalLedgerEvent("service_action", { action_id: "JOIN_EVENT_1430", label: "加入 14:30 体验活动" });
   await refresh({ anchorId: entryAnchorId() });
 }));
 
@@ -1146,18 +1389,22 @@ document.querySelector("#writeBtn")?.addEventListener("click", runAction(async (
     title: "后来者留言",
     text: els.writeText.value || WRITE_BACK_DEFAULT
   });
+  recordLocalLedgerEvent("write_back", { anchor_id: writeAnchorId(), title: "后来者留言" });
   await refresh({ anchorId: writeAnchorId() });
 }));
 
 document.querySelector("#switchUserBtn")?.addEventListener("click", runAction(async () => {
   model.activeUser = model.activeUser === "A" ? "B" : "A";
   await api.interact({ user_id: model.activeUser, mission_state: model.runtime?.mission_state || "entered" });
+  recordLocalLedgerEvent("interaction", { title: "switch user" });
   await refresh({ anchorId: model.currentAnchor, resetHud: true });
 }));
 
 document.querySelector("#resetBtn")?.addEventListener("click", runAction(async () => {
   await api.reset();
   model.activeUser = "A";
+  model.localLedgerCounts = { serviceActions: 0, writeBacks: 0, interactions: 0 };
+  model.localLedgerEvents = [];
   await refresh({ anchorId: entryAnchorId() });
 }));
 

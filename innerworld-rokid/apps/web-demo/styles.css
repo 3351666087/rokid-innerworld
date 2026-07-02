@@ -831,6 +831,7 @@ textarea:focus {
 .product-grid,
 .showcase-grid,
 .lens-grid,
+.ledger-grid,
 .hardware-grid,
 .risk-grid {
   display: grid;
@@ -850,9 +851,84 @@ textarea:focus {
   gap: 7px;
 }
 
+.ledger-status {
+  min-height: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.ledger-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 9px;
+  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.ledger-pill.good {
+  border-color: rgba(110, 231, 183, 0.38);
+  color: var(--green);
+}
+
+.ledger-pill.warn {
+  border-color: rgba(248, 199, 106, 0.42);
+  color: var(--amber);
+}
+
+.ledger-events {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+}
+
+.ledger-event {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.ledger-event time,
+.ledger-event small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ledger-event strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ledger-event span {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 820;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
 .product-card,
 .showcase-card,
 .lens-card,
+.ledger-card,
 .hardware-card,
 .risk-card,
 .agent-row {
@@ -865,6 +941,7 @@ textarea:focus {
 .product-card.wide,
 .showcase-card.wide,
 .lens-card.wide,
+.ledger-card.wide,
 .hardware-card.wide,
 .risk-card.wide {
   grid-column: 1 / -1;
@@ -873,6 +950,7 @@ textarea:focus {
 .product-card span,
 .showcase-card span,
 .lens-card span,
+.ledger-card span,
 .hardware-card span,
 .risk-card span,
 .agent-row span {
@@ -888,6 +966,7 @@ textarea:focus {
 .product-card strong,
 .showcase-card strong,
 .lens-card strong,
+.ledger-card strong,
 .hardware-card strong,
 .risk-card strong,
 .agent-row strong {
@@ -901,6 +980,7 @@ textarea:focus {
 .product-card p,
 .showcase-card p,
 .lens-card p,
+.ledger-card p,
 .hardware-card p,
 .risk-card p,
 .agent-row p {
@@ -924,6 +1004,18 @@ textarea:focus {
 }
 
 .hardware-card.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.ledger-card.good {
+  border-left: 3px solid var(--green);
+}
+
+.ledger-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.ledger-card.bad {
   border-left: 3px solid var(--rose);
 }
 
@@ -1341,6 +1433,7 @@ pre {
   .product-grid,
   .showcase-grid,
   .lens-grid,
+  .ledger-grid,
   .hardware-grid,
   .risk-grid,
   .ops-grid {
@@ -1357,12 +1450,14 @@ pre {
 
   .route-node,
   .agent-row,
+  .ledger-event,
   .evidence-item {
     grid-template-columns: 30px minmax(0, 1fr);
   }
 
   .route-state,
   .agent-state,
+  .ledger-event span,
   .evidence-state {
     grid-column: 2;
   }

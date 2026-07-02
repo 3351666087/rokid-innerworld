@@ -191,6 +191,7 @@ $forbiddenEntries = Get-ChildItem -LiteralPath $staging -Recurse -Force | Where-
   $relative = $_.FullName.Substring($staging.Length + 1)
   $relative -match '(^|\\)(Library|PackageCache|node_modules|\.git|Temp|Obj)(\\|$)' -or
     $relative -match '(^|\\)(runtime_state\.json|innerworld\.sqlite(?:-.+)?)(\\|$)' -or
+    $relative -match '(^|\\)(innerworld-sqlite-\d{8}-\d{6}\.(sqlite|manifest\.json)|innerworld-before-restore-\d{8}-\d{6}\.(sqlite|manifest\.json)|sqlite-backup-latest\.md)$' -or
     $relative -match '(^|\\)RokidCache(\\|$)' -or
     $relative -match '(^|\\)UnityHubDownloads(\\|$)'
 }
@@ -343,6 +344,7 @@ $manifest = [pscustomobject]@{
     "apps/unity-shell/Logs",
     "data/runtime_state.json",
     "data/innerworld.sqlite",
+    "SQLite backup snapshots and manifests",
     "previous output/package zips",
     "node_modules"
   )

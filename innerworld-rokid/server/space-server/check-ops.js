@@ -6,7 +6,8 @@ const homepageModules = [
   "Product System",
   "Agent Runtime",
   "Show Mode",
-  "Hardware Runtime"
+  "Hardware Runtime",
+  "Mission Ledger"
 ];
 
 function assert(condition, message) {
@@ -49,11 +50,13 @@ async function fetchText(route, label) {
 }
 
 async function main() {
-  const [health, ops, htmlRes, appJs] = await Promise.all([
+  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents] = await Promise.all([
     fetchJson("/api/health"),
     fetchJson("/api/ops/status"),
     fetch(`${base}/`),
-    fetchText("/app.js", "web demo app script")
+    fetchText("/app.js", "web demo app script"),
+    fetchJson("/api/ledger/summary"),
+    fetchJson("/api/ledger/events?limit=8")
   ]);
   const html = await htmlRes.text();
   const hud = await postJson("/api/ai/hud", {
@@ -73,12 +76,21 @@ async function main() {
   assert(Array.isArray(ops.hardware?.devices) && ops.hardware.devices.length === 2, "ops hardware devices check failed");
   assert(ops.hardware.devices.some((device) => device.model === "RA202"), "ops hardware RA202 missing");
   assert(ops.hardware.devices.some((device) => device.model === "RAS201"), "ops hardware RAS201 missing");
+  assert(ledgerSummary.ok === true, "ledger summary ok check failed");
+  assert(ledgerSummary.engine === "sqlite", "ledger summary engine check failed");
+  assert(ledgerSummary.dataset_id === "runtime.mission_ledger", "ledger dataset check failed");
+  assert(ledgerSummary.mission?.state, "ledger mission summary check failed");
+  assert(ledgerEvents.ok === true, "ledger events ok check failed");
+  assert(Array.isArray(ledgerEvents.events), "ledger events list check failed");
 
   assert(htmlRes.ok, "homepage status check failed");
   for (const moduleLabel of homepageModules) {
     assert(html.includes(moduleLabel), `homepage module missing: ${moduleLabel}`);
   }
   assert(appJs.includes("/api/ai/hud"), "web demo HUD route missing");
+  assert(appJs.includes("/api/ledger/summary"), "web demo ledger summary route missing");
+  assert(appJs.includes("/api/ledger/events"), "web demo ledger events route missing");
+  assert(appJs.includes("renderLedgerAudit"), "web demo ledger renderer missing");
   assert(typeof hud.mission_state === "string", "AI HUD mission_state check failed");
   assert(typeof hud.display_text === "string" && hud.display_text.length > 0, "AI HUD display_text check failed");
   assert(["none", "weak", "strong"].includes(hud.hint_level), "AI HUD hint_level check failed");
@@ -115,6 +127,8 @@ async function main() {
     deploy_dry_run_ok: ops.deploy_dry_run?.ok ?? null,
     ops_monitor_ok: ops.ops_monitor?.ok ?? null,
     hardware_devices: ops.hardware.devices.map((device) => device.model).join(","),
+    ledger_engine: ledgerSummary.engine,
+    ledger_events: ledgerEvents.events.length,
     homepage_modules: homepageModules,
     ai_hud_ok: true
   }, null, 2));

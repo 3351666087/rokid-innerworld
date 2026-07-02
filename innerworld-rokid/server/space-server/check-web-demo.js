@@ -133,6 +133,18 @@ const requiredModules = [
       "device_manifest",
       "\u786c\u4ef6\u63a5\u5165"
     ]
+  },
+  {
+    name: "Mission Ledger",
+    needles: [
+      "Mission Ledger",
+      "Ledger / Audit",
+      "ledgerGrid",
+      "ledger-grid",
+      "renderLedgerAudit",
+      "/api/ledger/summary",
+      "/api/ledger/events"
+    ]
   }
 ];
 
@@ -159,6 +171,7 @@ const requiredContainers = [
   ".showcase-grid",
   ".route-grid",
   ".lens-grid",
+  ".ledger-grid",
   ".hardware-grid",
   ".evidence-rail",
   ".delivery-timeline",
@@ -200,6 +213,7 @@ const requiredContainerGroups = [
   { name: ".showcase-grid", selectors: [".showcase-grid"] },
   { name: ".route-grid", selectors: [".route-grid"] },
   { name: ".lens-grid", selectors: [".lens-grid"] },
+  { name: ".ledger-grid", selectors: [".ledger-grid"] },
   { name: ".evidence-rail", selectors: [".evidence-rail"] },
   { name: ".delivery-timeline", selectors: [".delivery-timeline"] },
   { name: ".risk-grid", selectors: [".risk-grid"] },
@@ -337,6 +351,9 @@ function checkStaticSources(sources) {
     { name: "dynamic product module rendering", ok: sources.js.includes("renderProductModules") },
     { name: "dynamic route map rendering", ok: sources.js.includes("renderRouteMap") },
     { name: "dynamic lens panel rendering", ok: sources.js.includes("renderLensPanel") },
+    { name: "dynamic ledger audit rendering", ok: sources.js.includes("renderLedgerAudit") },
+    { name: "ledger summary route", ok: sources.js.includes("/api/ledger/summary") },
+    { name: "ledger events route", ok: sources.js.includes("/api/ledger/events") },
     { name: "dynamic evidence chain rendering", ok: sources.js.includes("renderEvidenceChain") },
     { name: "dynamic delivery script rendering", ok: sources.js.includes("renderDeliveryScript") },
     { name: "dynamic risk guardrail rendering", ok: sources.js.includes("renderRiskGuardrails") },

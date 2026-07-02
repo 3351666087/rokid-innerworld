@@ -9,11 +9,51 @@ export function ensureRuntimeArrays(state) {
   state.events = Array.isArray(state.events) ? state.events : [];
 }
 
+const SENSITIVE_EVENT_KEYS = new Set([
+  "access_token",
+  "address",
+  "bssid",
+  "gateway",
+  "ip",
+  "ip_address",
+  "ipv4",
+  "ipv6",
+  "mac",
+  "mac_address",
+  "phone",
+  "recipient",
+  "serial",
+  "serial_number",
+  "ssid",
+  "token"
+]);
+
+export function sanitizeEventPayload(value, depth = 0) {
+  if (depth > 5) return "[max_depth]";
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value.slice(0, 400);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 40).map((item) => sanitizeEventPayload(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const clean = {};
+    for (const [key, nested] of Object.entries(value)) {
+      const normalizedKey = String(key).toLowerCase();
+      if (SENSITIVE_EVENT_KEYS.has(normalizedKey)) continue;
+      if (normalizedKey.includes("token") || normalizedKey.includes("secret")) continue;
+      clean[key] = sanitizeEventPayload(nested, depth + 1);
+    }
+    return clean;
+  }
+  return String(value).slice(0, 160);
+}
+
 export function makeEvent(type, payload, createdAt = new Date().toISOString()) {
   return {
     event_id: `${Date.now()}_${type}`,
     type,
-    payload,
+    payload: sanitizeEventPayload(payload),
     created_at: createdAt
   };
 }

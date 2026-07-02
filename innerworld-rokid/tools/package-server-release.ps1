@@ -198,7 +198,8 @@ $readme | Set-Content -Encoding UTF8 -Path (Join-Path $staging "README-SERVER.tx
 
 $forbiddenEntries = Get-ChildItem -LiteralPath $staging -Recurse -Force | Where-Object {
   $relative = $_.FullName.Substring($staging.Length + 1)
-  $relative -match '(^|\\)(runtime_state\.json|innerworld\.sqlite(?:-.+)?|Library|PackageCache|node_modules|\.git|Temp|Obj|target)(\\|$)'
+  $relative -match '(^|\\)(runtime_state\.json|innerworld\.sqlite(?:-.+)?|Library|PackageCache|node_modules|\.git|Temp|Obj|target)(\\|$)' -or
+    $relative -match '(^|\\)(innerworld-sqlite-\d{8}-\d{6}\.(sqlite|manifest\.json)|innerworld-before-restore-\d{8}-\d{6}\.(sqlite|manifest\.json)|sqlite-backup-latest\.md)$'
 }
 if ($forbiddenEntries) {
   $sample = ($forbiddenEntries | Select-Object -First 10 | ForEach-Object { $_.FullName }) -join "`n"
@@ -238,6 +239,7 @@ $manifest = [pscustomobject]@{
   excludes = @(
     "data/runtime_state.json",
     "data/innerworld.sqlite",
+    "SQLite backup snapshots and manifests",
     "node_modules",
     ".git",
     "Unity build outputs",

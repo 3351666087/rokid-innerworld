@@ -160,7 +160,10 @@ try {
   }
   $latestServerReleaseName = Get-LatestServerReleaseName -Entries $entries
 
-  $forbidden = @($entries | Where-Object { $_ -match '(^|[\\/])(innerworld\.sqlite(?:-.+)?|Library|PackageCache|node_modules|\.git|Temp|Obj|target)([\\/]|$)' })
+  $forbidden = @($entries | Where-Object {
+    $_ -match '(^|[\\/])(innerworld\.sqlite(?:-.+)?|Library|PackageCache|node_modules|\.git|Temp|Obj|target)([\\/]|$)' -or
+      $_ -match '(^|[\\/])(innerworld-sqlite-\d{8}-\d{6}\.(sqlite|manifest\.json)|innerworld-before-restore-\d{8}-\d{6}\.(sqlite|manifest\.json)|sqlite-backup-latest\.md)$'
+  })
   if ($forbidden.Count -gt 0) {
     Add-Failure $failures "Package contains forbidden entries: $($forbidden[0..([Math]::Min(4, $forbidden.Count - 1))] -join ', ')"
   }
@@ -236,7 +239,10 @@ try {
           Add-Failure $failures "Nested server release missing required entry: $item"
         }
       }
-      $nestedForbidden = @($nestedEntries | Where-Object { $_ -match '(^|[\\/])(runtime_state\.json|innerworld\.sqlite(?:-.+)?|output|node_modules|\.git|Unity|Library|Temp|Obj|target)([\\/]|$)' })
+      $nestedForbidden = @($nestedEntries | Where-Object {
+        $_ -match '(^|[\\/])(runtime_state\.json|innerworld\.sqlite(?:-.+)?|output|node_modules|\.git|Unity|Library|Temp|Obj|target)([\\/]|$)' -or
+          $_ -match '(^|[\\/])(innerworld-sqlite-\d{8}-\d{6}\.(sqlite|manifest\.json)|innerworld-before-restore-\d{8}-\d{6}\.(sqlite|manifest\.json)|sqlite-backup-latest\.md)$'
+      })
       if ($nestedForbidden.Count -gt 0) {
         Add-Failure $failures "Nested server release contains forbidden entries: $($nestedForbidden[0..([Math]::Min(4, $nestedForbidden.Count - 1))] -join ', ')"
       }

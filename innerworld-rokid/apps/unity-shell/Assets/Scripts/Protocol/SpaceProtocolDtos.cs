@@ -120,6 +120,8 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint health;
         public SpaceApiEndpoint ops_status;
         public SpaceApiEndpoint evidence_chain;
+        public SpaceApiEndpoint ledger_events;
+        public SpaceApiEndpoint ledger_summary;
         public SpaceApiEndpoint session_plan;
         public SpaceApiEndpoint device_bootstrap;
         public SpaceApiEndpoint ai_schema;
@@ -268,6 +270,74 @@ namespace InnerWorld.Rokid.Protocol
         public string event_id;
         public string type;
         public string created_at;
+    }
+
+    [Serializable]
+    public sealed class LedgerEventsResponse
+    {
+        public bool ok;
+        public string generated_at;
+        public string cursor;
+        public LedgerEvent[] events;
+    }
+
+    [Serializable]
+    public sealed class LedgerEvent
+    {
+        public string event_id;
+        public string ledger;
+        public string type;
+        public string mission_id;
+        public string step_id;
+        public string action_id;
+        public string anchor_id;
+        public string user_id;
+        public string status;
+        public string summary;
+        public string source;
+        public string created_at;
+        public ServiceActionReference service_action;
+    }
+
+    [Serializable]
+    public sealed class LedgerSummaryResponse
+    {
+        public bool ok;
+        public string generated_at;
+        public string mission_id;
+        public LedgerMissionSummary mission;
+        public LedgerServiceActionSummary service_actions;
+        public LedgerAuditSummary audit;
+    }
+
+    [Serializable]
+    public sealed class LedgerMissionSummary
+    {
+        public string state;
+        public int current_step_index;
+        public int completed_step_count;
+        public string[] completed_steps;
+        public string last_event_at;
+    }
+
+    [Serializable]
+    public sealed class LedgerServiceActionSummary
+    {
+        public int total;
+        public int pending;
+        public int completed;
+        public int failed;
+        public string last_action_id;
+        public string last_action_at;
+    }
+
+    [Serializable]
+    public sealed class LedgerAuditSummary
+    {
+        public int event_count;
+        public string first_event_at;
+        public string last_event_at;
+        public string[] sources;
     }
 
     [Serializable]

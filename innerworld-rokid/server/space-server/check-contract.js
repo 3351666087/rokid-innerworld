@@ -48,6 +48,8 @@ function assertEndpointMap(endpoints) {
     store_status: ["GET", "/api/store/status"],
     dataset_catalog: ["GET", "/api/datasets/catalog"],
     dataset_call: ["POST", "/api/datasets/call"],
+    ledger_summary: ["GET", "/api/ledger/summary"],
+    ledger_events: ["GET", "/api/ledger/events"],
     evidence_chain: ["GET", "/api/evidence/chain"],
     session_plan: ["GET", "/api/session/plan"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
@@ -74,7 +76,7 @@ function assertEndpointMap(endpoints) {
     assert(endpoint.path === route, `${key} path mismatch`);
     assert(endpoint.url === `http://localhost:5177${route}`, `${key} url mismatch`);
   }
-  assert(Object.keys(endpoints).length >= 22, "endpoint map count mismatch");
+  assert(Object.keys(endpoints).length >= 24, "endpoint map count mismatch");
 }
 
 function assertSpaceContract(space) {
@@ -492,14 +494,24 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("/api/device/bootstrap"), "Unity bootstrap route missing");
   assert(client.includes("AiHudUrl"), "Unity AI HUD URL property missing");
   assert(client.includes("/api/ai/hud"), "Unity AI HUD route missing");
+  assert(client.includes("LedgerEventsUrl"), "Unity ledger events URL property missing");
+  assert(client.includes("LedgerSummaryUrl"), "Unity ledger summary URL property missing");
+  assert(client.includes("/api/ledger/events"), "Unity ledger events route missing");
+  assert(client.includes("/api/ledger/summary"), "Unity ledger summary route missing");
   assert(client.includes("/api/pins/nearby?radius=20"), "Unity nearby route missing");
   assert(client.includes("ai_hud = Endpoint(cleanBaseUrl, \"POST\", \"/api/ai/hud\")"), "Unity ai_hud endpoint mismatch");
+  assert(client.includes("ledger_events = Endpoint(cleanBaseUrl, \"GET\", \"/api/ledger/events\")"), "Unity ledger events endpoint mismatch");
+  assert(client.includes("ledger_summary = Endpoint(cleanBaseUrl, \"GET\", \"/api/ledger/summary\")"), "Unity ledger summary endpoint mismatch");
   assert(client.includes("service_actions = Endpoint(cleanBaseUrl, \"POST\", \"/api/service-actions\")"), "Unity service_actions endpoint mismatch");
   assert(client.includes("write_back = Endpoint(cleanBaseUrl, \"POST\", writeBackPath)"), "Unity write_back endpoint mismatch");
 
   assert(dtos.includes("public sealed class DeviceBootstrapResponse"), "Unity DeviceBootstrapResponse DTO missing");
   assert(dtos.includes("public SpaceEndpointMap endpoints;"), "Unity endpoint map DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ai_hud;"), "Unity AI HUD endpoint DTO missing");
+  assert(dtos.includes("public SpaceApiEndpoint ledger_events;"), "Unity ledger events endpoint DTO missing");
+  assert(dtos.includes("public SpaceApiEndpoint ledger_summary;"), "Unity ledger summary endpoint DTO missing");
+  assert(dtos.includes("public sealed class LedgerEventsResponse"), "Unity ledger events response DTO missing");
+  assert(dtos.includes("public sealed class LedgerSummaryResponse"), "Unity ledger summary response DTO missing");
   assert(dtos.includes("public ClientHints client_hints;"), "Unity client hints DTO missing");
   assert(dtos.includes("public UnityCompat unity_compat;"), "Unity compatibility DTO missing");
   assert(payloads.includes("public sealed class AiHudRequest"), "Unity AI HUD request missing");
@@ -556,6 +568,8 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
   assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
+  assert(apiRouter.includes("/api/ledger/summary"), "api router ledger summary route missing");
+  assert(apiRouter.includes("/api/ledger/events"), "api router ledger events route missing");
   assert(apiRouter.includes("/api/device/register"), "api router device register route missing");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
   assert(apiRouter.includes("createDeviceRuntimeStore"), "api router device runtime store missing");
@@ -579,6 +593,9 @@ async function assertServerCoreSkeleton() {
   assert(deviceRuntime.includes("device_session_not_found"), "device runtime unknown session guard missing");
   assert(sqliteStore.includes("export async function createSqliteStore"), "SQLite store factory missing");
   assert(sqliteStore.includes("CREATE TABLE IF NOT EXISTS datasets"), "SQLite datasets table missing");
+  assert(sqliteStore.includes("CREATE TABLE IF NOT EXISTS mission_ledger"), "SQLite mission ledger table missing");
+  assert(sqliteStore.includes("appendMissionLedgerEvent"), "SQLite mission ledger append missing");
+  assert(sqliteStore.includes("missionLedgerSummary"), "SQLite mission ledger summary missing");
   assert(sqliteStore.includes("raw_sql_api"), "SQLite raw SQL guard marker missing");
   return "verified";
 }
@@ -608,6 +625,8 @@ async function main() {
   assert(typeof client.getStoreStatus === "function", "client store status method missing");
   assert(typeof client.getDatasetCatalog === "function", "client dataset catalog method missing");
   assert(typeof client.callDataset === "function", "client dataset call method missing");
+  assert(typeof client.getLedgerSummary === "function", "client ledger summary method missing");
+  assert(typeof client.getLedgerEvents === "function", "client ledger events method missing");
   assert(typeof client.getDeviceBootstrap === "function", "client bootstrap method missing");
   assert(typeof client.getDeviceManifest === "function", "client device manifest method missing");
   assert(typeof client.registerDevice === "function", "client device register method missing");
@@ -618,6 +637,8 @@ async function main() {
   assert(client.endpoints().space.path === `/api/spaces/${INNERWORLD_SPACE_ID}`, "client endpoints mismatch");
   assert(client.endpoints().store_status.path === "/api/store/status", "client store endpoint mismatch");
   assert(client.endpoints().dataset_call.path === "/api/datasets/call", "client dataset call endpoint mismatch");
+  assert(client.endpoints().ledger_summary.path === "/api/ledger/summary", "client ledger summary endpoint mismatch");
+  assert(client.endpoints().ledger_events.path === "/api/ledger/events", "client ledger events endpoint mismatch");
   assert(client.endpoints().evidence_chain.path === "/api/evidence/chain", "client evidence endpoint mismatch");
   assert(client.endpoints().session_plan.path === "/api/session/plan", "client session endpoint mismatch");
   assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");

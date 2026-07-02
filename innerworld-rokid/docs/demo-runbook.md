@@ -34,6 +34,14 @@ npm run unity:config -- http://<Windows主控机IP>:5177
 
 外部设备访问 `http://<Windows主控机IP>:5177/`。本机投屏只需要默认 `npm run dev` 和 `http://localhost:5177/`。
 
+## 终局架构规则
+
+- SQLite (`data/innerworld.sqlite`) 现在就是 Windows 主控机的本地权威 store，负责运行态、写回、设备会话、安全数据目录和有界设备事件；它不是临时 demo 存储。
+- `data/space_demo.json` 等公开种子文件只用于初始化和可审计交付，运行期权威状态以 SQLite-backed store 和 Space API 为准。
+- 上传到服务器时保持同一套 Space API、mission state、write-back、device runtime、AI schema/prompt 和 evidence contract。服务器化是部署位置变化，不是换一套数据库契约。
+- 原始私密证据、借用单私人字段、API key、`.env`、`secrets/`、`local-secrets/` 不进入数据库、API、包或 GitHub；只有明确清洗过的字段可以进入公开数据和文档。
+- 文档和交接话术不要再写“以后换数据库”或“临时数据库”。如果后续需要远端备份/复制，只能作为同步层追加，不能改变现有本地权威 store 契约。
+
 ## 彩排检查
 
 ```powershell
@@ -71,11 +79,50 @@ Chrome 插件验收时保留本机标签页，确认页面可见状态为 `User 
 
 网页右侧「现场状态」读取同一组 latest 证据，适合投屏或交付现场快速确认，不必临时翻终端。
 
-`server:package` 会生成 `output/server-release/innerworld-space-server-*.zip`。这是未来上传服务器的轻量包，先在 localhost 解包验证，再放到公网主机后面接 Nginx/Caddy。
+`server:package` 会生成 `output/server-release/innerworld-space-server-*.zip`。这是上传服务器用的轻量包，先在 localhost 解包验证，再放到公网主机后面接 Nginx/Caddy。
 
 `server:deploy-plan` 会为最新 server-only 包生成 `output/server-release/deploy-plan-latest.md`，包含上传命令、Linux 启动、systemd、Caddy 和 Nginx 反代示例；它只生成本地计划，不会上传服务器。
 
 `server:smoke` 会自动解包最新轻量服务器包、临时启动、跑只读检查和自动彩排，再清理临时目录。`package:audit` 会审计主交付包和内嵌 server release 的 SHA、必需文件和禁入目录。
+
+## GitHub 自动同步
+
+自动同步先 dry-run，再进入单次或循环上传：
+
+```powershell
+npm run git:sync:dry
+npm run git:sync -- -Message "ops: sync InnerWorld checkpoint"
+npm run git:sync:loop
+```
+
+常用参数：
+
+- `-DryRun`：只列出将 stage/commit/push 的文件，不改 index、不提交、不上传。
+- `-Message "..."`：指定提交信息；为空时脚本会生成 `Auto-sync InnerWorld checkpoint yyyy-MM-dd HH:mm`。
+- `-SkipPush`：只生成本地 commit，不 push。
+- `-IncludeUntracked`：把未被 `.gitignore` 忽略的新文件纳入候选；package 脚本默认带这个参数。
+- `-Loop -IntervalSeconds 300`：循环同步，最小睡眠 30 秒；适合长期工作台自动上传。
+- `-SkipChecks`：跳过 `npm run check:security`，只在明确需要快速本地试跑时使用。
+
+脚本不会使用 `git add -A`。它会逐文件筛选并拒绝 ignored/runtime/private 路径，包括 `.env`、`*.secret*`、`secrets/`、`local-secrets/`、`output/`、`node_modules/`、`data/runtime_state.json`、`data/innerworld.sqlite*`、Unity `Library`/`Temp`/`Obj`、缓存和构建产物。如果没有合格变更，脚本输出 `No eligible changes to sync.` 并以成功状态退出；如果危险文件已经被手动 staged，脚本会拒绝提交，要求先 unstage。
+
+## SQLite Runtime Backup
+
+SQLite is the field-authoritative runtime store, so create a private backup before release packaging, restore tests, or server handoff:
+
+```powershell
+npm run db:backup
+npm run db:backup:verify
+npm run db:backup:list
+```
+
+Backups are written outside Git by default at `D:\Downloads\RokidCache\sqlite-backups`, with a SHA256 manifest and `sqlite-backup-latest.md`. Restore is explicit:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/sqlite-backup.ps1 -RestoreFrom "D:\Downloads\RokidCache\sqlite-backups\innerworld-sqlite-YYYYMMDD-HHMMSS.sqlite" -Force
+```
+
+The restore path first creates a `innerworld-before-restore-*.sqlite` backup of the current database. These files are private runtime evidence and must not be committed or packaged.
 
 ## Unity Fallback
 
