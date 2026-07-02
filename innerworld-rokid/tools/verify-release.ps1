@@ -25,6 +25,7 @@ Invoke-Step "evidence:rehearsal" { npm run evidence:rehearsal -- --reset-after }
 Invoke-Step "field:preflight" { npm run field:preflight -- -SkipUnityConfig -SkipPdf }
 Invoke-Step "pdf:fieldkit" { npm run pdf:fieldkit }
 Invoke-Step "check:field-markers" { npm run check:field-markers }
+Invoke-Step "check:field-acceptance:api" { npm run check:field-acceptance -- --api }
 Invoke-Step "server:package" { npm run server:package }
 Invoke-Step "server:smoke" { powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke-server-release.ps1 }
 Invoke-Step "server:deploy-plan" { npm run server:deploy-plan }

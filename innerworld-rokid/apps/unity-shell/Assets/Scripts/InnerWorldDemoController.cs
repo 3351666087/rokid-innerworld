@@ -44,6 +44,7 @@ namespace InnerWorld.Rokid
         private InnerWorldSessionPlanResponse sessionPlan;
         private WallCalibrationManifest wallCalibrationManifest;
         private FieldMarkerManifest fieldMarkerManifest;
+        private FieldAcceptanceManifest fieldAcceptanceManifest;
         private RokidPresentationStrategy presentationStrategy;
         private RokidAdapterBoundaryStatus rokidAdapterStatus;
         private EditorRokidInputSource editorRokidInputSource;
@@ -57,6 +58,7 @@ namespace InnerWorld.Rokid
         private string deviceRuntimeLine = "device session pending";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
+        private string fieldAcceptanceLine = "field acceptance pending";
         private WallCalibrationObservationResult lastWallCalibrationObservationResult;
         private WallCalibrationObservation lastWallCalibrationObservation;
         private string wallCalibrationObservationLine = "calibration observation pending";
@@ -113,6 +115,7 @@ namespace InnerWorld.Rokid
             yield return LoadBootstrap();
             yield return LoadWallCalibrationManifest();
             yield return LoadFieldMarkerManifest();
+            yield return LoadFieldAcceptanceManifest();
             yield return RegisterDeviceSession();
             yield return SubmitWallCalibrationObservation("simulator");
             yield return LoadSpace();
@@ -465,6 +468,59 @@ namespace InnerWorld.Rokid
             }
         }
 
+        private IEnumerator LoadFieldAcceptanceManifest()
+        {
+            EnsureApiClient();
+            fieldAcceptanceManifest = null;
+            fieldAcceptanceLine = "field acceptance loading";
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.field_acceptance : null, apiClient.FieldAcceptanceUrl);
+            SetRokidConnection(RokidConnectionStatus.Connecting, fieldAcceptanceLine);
+
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        fieldAcceptanceManifest = JsonUtility.FromJson<FieldAcceptanceManifest>(request.downloadHandler.text);
+                        if (fieldAcceptanceManifest == null || string.IsNullOrWhiteSpace(fieldAcceptanceManifest.schema))
+                        {
+                            fieldAcceptanceLine = "field acceptance invalid";
+                            Debug.LogWarning(fieldAcceptanceLine + ": missing manifest schema | " + url);
+                            SetRokidConnection(RokidConnectionStatus.Error, fieldAcceptanceLine);
+                        }
+                        else
+                        {
+                            fieldAcceptanceLine = BuildFieldAcceptanceStatusLine();
+                            Debug.Log("Field acceptance loaded: " + fieldAcceptanceLine + " | " + url);
+                            SetRokidConnection(RokidConnectionStatus.Connected, fieldAcceptanceLine);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        fieldAcceptanceManifest = null;
+                        fieldAcceptanceLine = "field acceptance parse failed";
+                        Debug.LogWarning(fieldAcceptanceLine + ": " + error.Message + " | " + url);
+                        SetRokidConnection(RokidConnectionStatus.Error, fieldAcceptanceLine);
+                    }
+                }
+                else
+                {
+                    fieldAcceptanceLine = "field acceptance unavailable: " + request.error;
+                    Debug.LogWarning(fieldAcceptanceLine + " | " + url);
+                    SetRokidConnection(RokidConnectionStatus.Error, fieldAcceptanceLine);
+                }
+            }
+
+            if (space != null)
+            {
+                RefreshHud();
+            }
+        }
+
         private IEnumerator SubmitWallCalibrationObservation(string trackingMode)
         {
             EnsureApiClient();
@@ -555,6 +611,7 @@ namespace InnerWorld.Rokid
             }
 
             wallCalibrationObservationInFlight = false;
+            yield return LoadFieldAcceptanceManifest();
             if (space != null)
             {
                 RefreshHud();
@@ -711,7 +768,7 @@ namespace InnerWorld.Rokid
 
             string source = usingFallback ? "fallback" : "space-api";
             string runtime = missionState != null ? missionState.mission_state : "local";
-            SetStatus(space.name, space.space_id + " | " + source + " | " + runtime + " | " + WallCalibrationHudBadge());
+            SetStatus(space.name, space.space_id + " | " + source + " | " + runtime + " | " + WallCalibrationHudBadge() + " | " + FieldAcceptanceHudBadge());
             SetDetail(GetMissionLine() + "\nAnchors: " + SafeAnchors().Length + " / Beacons: " + SafeBeacons().Length + "\n" + BuildRuntimeContractLine());
             RefreshInputStatusLine();
             RefreshTargetHud();
@@ -824,7 +881,7 @@ namespace InnerWorld.Rokid
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(24f, -24f);
-            panelRect.sizeDelta = new Vector2(500f, 390f);
+            panelRect.sizeDelta = new Vector2(500f, 500f);
             Image panelImage = panel.AddComponent<Image>();
             panelImage.color = new Color(0.03f, 0.045f, 0.055f, 0.88f);
 
@@ -838,28 +895,28 @@ namespace InnerWorld.Rokid
             SetRect(stepText.rectTransform, 18f, -116f, 430f, 32f);
 
             detailText = CreateText("Detail", panel.transform, 14, FontStyle.Normal);
-            SetRect(detailText.rectTransform, 18f, -150f, 450f, 78f);
+            SetRect(detailText.rectTransform, 18f, -150f, 450f, 136f);
 
             targetText = CreateText("Target", panel.transform, 13, FontStyle.Bold);
             targetText.color = new Color(0.98f, 0.9f, 0.42f);
-            SetRect(targetText.rectTransform, 18f, -232f, 460f, 54f);
+            SetRect(targetText.rectTransform, 18f, -292f, 460f, 84f);
 
             keyHintText = CreateText("Key Hints", panel.transform, 13, FontStyle.Bold);
             keyHintText.color = new Color(0.76f, 0.93f, 1f);
-            SetRect(keyHintText.rectTransform, 18f, -292f, 460f, 32f);
+            SetRect(keyHintText.rectTransform, 18f, -386f, 460f, 32f);
 
             float x = 18f;
-            CreateButton("Reload", panel.transform, x, -330f, 74f, () => StartCoroutine(BootstrapAndLoadSpace()));
+            CreateButton("Reload", panel.transform, x, -430f, 74f, () => StartCoroutine(BootstrapAndLoadSpace()));
             x += 82f;
-            CreateButton("Next", panel.transform, x, -330f, 64f, CompleteNextStep);
+            CreateButton("Next", panel.transform, x, -430f, 64f, CompleteNextStep);
             x += 72f;
-            CreateButton("Service", panel.transform, x, -330f, 80f, () => StartCoroutine(PostServiceAction()));
+            CreateButton("Service", panel.transform, x, -430f, 80f, () => StartCoroutine(PostServiceAction()));
             x += 88f;
-            CreateButton("Write", panel.transform, x, -330f, 66f, () => StartCoroutine(PostWriteBack()));
+            CreateButton("Write", panel.transform, x, -430f, 66f, () => StartCoroutine(PostWriteBack()));
             x += 74f;
-            CreateButton("User B", panel.transform, x, -330f, 70f, () => StartCoroutine(SwitchUserB()));
+            CreateButton("User B", panel.transform, x, -430f, 70f, () => StartCoroutine(SwitchUserB()));
             x += 78f;
-            CreateButton("Calib", panel.transform, x, -330f, 68f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
+            CreateButton("Calib", panel.transform, x, -430f, 68f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
 
             RefreshTargetHud();
         }
@@ -1178,7 +1235,7 @@ namespace InnerWorld.Rokid
                 ? "Selected: none"
                 : "Selected: " + selectedAnchorId + " " + CurrentAnchorLabel(selectedAnchorId, string.Empty);
 
-            targetText.text = gazeLine + "\n" + selectedLine + "\n" + BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine();
+            targetText.text = gazeLine + "\n" + selectedLine + "\n" + BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine();
         }
 
         private string CurrentAnchorLabel(string anchorId, string fallback)
@@ -1358,7 +1415,7 @@ namespace InnerWorld.Rokid
             string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
             string observation = BuildWallCalibrationObservationLine();
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status + " | " + CurrentDeviceProfile()
-                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + observation + " | " + BuildFieldMarkerReadinessLine();
+                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + observation + " | " + BuildFieldMarkerReadinessLine() + " | " + FieldAcceptanceHudBadge();
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -1528,6 +1585,7 @@ namespace InnerWorld.Rokid
             EnsureApiClient();
             yield return LoadEvidenceChain();
             yield return LoadSessionPlan();
+            yield return LoadFieldAcceptanceManifest();
             RefreshHud();
         }
 
@@ -1583,7 +1641,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -1749,7 +1807,7 @@ namespace InnerWorld.Rokid
                 live_binding_ready = report.LiveBindingReady,
                 candidate_assemblies = report.CandidateAssemblies,
                 candidate_types = report.CandidateTypes,
-                message = BuildWallCalibrationHeartbeatMessage(report.Message)
+                message = BuildFieldAcceptanceHeartbeatMessage(report.Message)
             };
         }
 
@@ -1758,6 +1816,13 @@ namespace InnerWorld.Rokid
             string calibration = BuildWallCalibrationHeartbeatLine();
             if (string.IsNullOrWhiteSpace(sdkMessage)) return calibration;
             return calibration + " | " + sdkMessage.Trim();
+        }
+
+        private string BuildFieldAcceptanceHeartbeatMessage(string sdkMessage)
+        {
+            return BuildWallCalibrationHeartbeatMessage(sdkMessage)
+                + " | " + BuildFieldAcceptanceHeartbeatLine()
+                + " | " + BuildFieldAcceptanceBlockingLine();
         }
 
         private string BuildWallCalibrationHeartbeatLine()
@@ -1953,6 +2018,209 @@ namespace InnerWorld.Rokid
             }
 
             return markerIds.Count == 0 ? "none" : string.Join(",", markerIds.ToArray());
+        }
+
+        private string BuildFieldAcceptanceHeartbeatLine()
+        {
+            if (fieldAcceptanceManifest == null)
+            {
+                return "field acceptance: " + (string.IsNullOrWhiteSpace(fieldAcceptanceLine) ? "pending" : fieldAcceptanceLine) + ", guard simulator/manual not hardware";
+            }
+
+            return "field acceptance: " + FieldAcceptanceSchemaLabel()
+                + ", status " + FieldAcceptanceStatusLabel()
+                + ", ready " + BoolLabel(fieldAcceptanceManifest.ready)
+                + ", gates " + FieldAcceptanceReadyGateCount() + "/" + FieldAcceptanceTotalGateCount() + " ready pending " + FieldAcceptancePendingGateCount()
+                + ", ready_for_hardware " + BoolLabel(FieldAcceptanceReadyForHardwareFlag())
+                + ", hardware evidence " + FieldAcceptanceHardwareEvidenceCount()
+                + ", blockers " + FieldAcceptanceBlockingCount()
+                + ", guard " + FieldAcceptanceTrackingGuardLabel();
+        }
+
+        private string BuildFieldAcceptanceStatusLine()
+        {
+            if (fieldAcceptanceManifest == null)
+            {
+                return string.IsNullOrWhiteSpace(fieldAcceptanceLine) ? "field acceptance pending" : fieldAcceptanceLine;
+            }
+
+            return "field acceptance schema " + FieldAcceptanceSchemaLabel()
+                + " | status " + FieldAcceptanceStatusLabel()
+                + " | ready " + BoolLabel(fieldAcceptanceManifest.ready)
+                + " | gates ready " + FieldAcceptanceReadyGateCount() + "/" + FieldAcceptanceTotalGateCount()
+                + " pending " + FieldAcceptancePendingGateCount()
+                + " blocked " + FieldAcceptanceBlockedGateCount()
+                + " | ready_for_hardware " + BoolLabel(FieldAcceptanceReadyForHardwareFlag())
+                + " | hardware evidence " + FieldAcceptanceHardwareEvidenceCount()
+                + " | blockers " + FieldAcceptanceBlockingCount()
+                + " | guard " + FieldAcceptanceTrackingGuardLabel()
+                + " | " + BuildFieldAcceptanceBlockingLine();
+        }
+
+        private string BuildFieldAcceptanceDebugLine()
+        {
+            return "Acceptance: " + FieldAcceptanceStatusLabel()
+                + " ready " + BoolLabel(fieldAcceptanceManifest != null && fieldAcceptanceManifest.ready)
+                + " | gates " + FieldAcceptanceReadyGateCount() + "/" + FieldAcceptanceTotalGateCount()
+                + " pending " + FieldAcceptancePendingGateCount()
+                + " | hw " + BoolLabel(FieldAcceptanceReadyForHardwareFlag())
+                + " evidence " + FieldAcceptanceHardwareEvidenceCount()
+                + " | blockers " + FieldAcceptanceBlockingCount()
+                + " | " + FieldAcceptanceTrackingGuardLabel()
+                + " | " + BuildFieldAcceptanceBlockingLine();
+        }
+
+        private string BuildFieldAcceptanceBlockingLine()
+        {
+            return "blocking_items " + FieldAcceptanceBlockingCount()
+                + " | next_actions " + FieldAcceptanceNextActionCount()
+                + " | first_blocker " + FieldAcceptanceFirstBlockingTitle()
+                + " | first_action " + FieldAcceptanceFirstNextAction();
+        }
+
+        private string FieldAcceptanceHudBadge()
+        {
+            if (fieldAcceptanceManifest == null) return "acceptance pending";
+            if (string.Equals(FieldAcceptanceStatusLabel(), "hardware_acceptance_ready", StringComparison.OrdinalIgnoreCase))
+            {
+                return "acceptance hardware_acceptance_ready";
+            }
+            if (fieldAcceptanceManifest.ready) return "acceptance ready";
+            return "acceptance " + FieldAcceptanceStatusLabel();
+        }
+
+        private string FieldAcceptanceSchemaLabel()
+        {
+            return fieldAcceptanceManifest != null && !string.IsNullOrWhiteSpace(fieldAcceptanceManifest.schema)
+                ? fieldAcceptanceManifest.schema.Trim()
+                : "schema unknown";
+        }
+
+        private string FieldAcceptanceStatusLabel()
+        {
+            return fieldAcceptanceManifest != null && !string.IsNullOrWhiteSpace(fieldAcceptanceManifest.status)
+                ? fieldAcceptanceManifest.status.Trim()
+                : (string.IsNullOrWhiteSpace(fieldAcceptanceLine) ? "pending" : fieldAcceptanceLine);
+        }
+
+        private bool FieldAcceptanceReadyForHardwareFlag()
+        {
+            return fieldAcceptanceManifest != null
+                && fieldAcceptanceManifest.summary != null
+                && fieldAcceptanceManifest.summary.ready_for_hardware;
+        }
+
+        private int FieldAcceptanceReadyGateCount()
+        {
+            FieldAcceptanceSummary summary = fieldAcceptanceManifest != null ? fieldAcceptanceManifest.summary : null;
+            return summary != null ? summary.ready_gates : CountFieldAcceptanceGates("ready");
+        }
+
+        private int FieldAcceptancePendingGateCount()
+        {
+            FieldAcceptanceSummary summary = fieldAcceptanceManifest != null ? fieldAcceptanceManifest.summary : null;
+            return summary != null ? summary.pending_gates : CountFieldAcceptanceGates("pending");
+        }
+
+        private int FieldAcceptanceBlockedGateCount()
+        {
+            FieldAcceptanceSummary summary = fieldAcceptanceManifest != null ? fieldAcceptanceManifest.summary : null;
+            return summary != null ? summary.blocked_gates : CountFieldAcceptanceGates("blocked");
+        }
+
+        private int FieldAcceptanceTotalGateCount()
+        {
+            if (fieldAcceptanceManifest != null && fieldAcceptanceManifest.gates != null)
+            {
+                return fieldAcceptanceManifest.gates.Length;
+            }
+
+            FieldAcceptanceSummary summary = fieldAcceptanceManifest != null ? fieldAcceptanceManifest.summary : null;
+            return summary != null
+                ? summary.ready_gates + summary.warn_gates + summary.pending_gates + summary.blocked_gates
+                : 0;
+        }
+
+        private int FieldAcceptanceHardwareEvidenceCount()
+        {
+            FieldAcceptanceSummary summary = fieldAcceptanceManifest != null ? fieldAcceptanceManifest.summary : null;
+            return summary != null ? summary.hardware_evidence_count : 0;
+        }
+
+        private int FieldAcceptanceBlockingCount()
+        {
+            return fieldAcceptanceManifest != null && fieldAcceptanceManifest.blocking_items != null
+                ? fieldAcceptanceManifest.blocking_items.Length
+                : 0;
+        }
+
+        private int FieldAcceptanceNextActionCount()
+        {
+            return fieldAcceptanceManifest != null && fieldAcceptanceManifest.next_actions != null
+                ? fieldAcceptanceManifest.next_actions.Length
+                : 0;
+        }
+
+        private string FieldAcceptanceFirstBlockingTitle()
+        {
+            if (fieldAcceptanceManifest == null || fieldAcceptanceManifest.blocking_items == null || fieldAcceptanceManifest.blocking_items.Length == 0)
+            {
+                return "none";
+            }
+
+            FieldAcceptanceBlockingItem item = fieldAcceptanceManifest.blocking_items[0];
+            if (item == null) return "none";
+            if (!string.IsNullOrWhiteSpace(item.title)) return item.title.Trim();
+            if (!string.IsNullOrWhiteSpace(item.gate_id)) return item.gate_id.Trim();
+            return "unknown";
+        }
+
+        private string FieldAcceptanceFirstNextAction()
+        {
+            if (fieldAcceptanceManifest == null || fieldAcceptanceManifest.next_actions == null || fieldAcceptanceManifest.next_actions.Length == 0)
+            {
+                return "none";
+            }
+
+            foreach (string action in fieldAcceptanceManifest.next_actions)
+            {
+                if (!string.IsNullOrWhiteSpace(action)) return action.Trim();
+            }
+
+            return "none";
+        }
+
+        private string FieldAcceptanceTrackingGuardLabel()
+        {
+            FieldAcceptanceSummary summary = fieldAcceptanceManifest != null ? fieldAcceptanceManifest.summary : null;
+            string modes = fieldAcceptanceManifest != null ? TrackingModesLabel(fieldAcceptanceManifest.hardware_modes_required) : "qr,image_tracking,slam";
+            bool guardKnown = summary == null || summary.simulator_rehearsal_is_not_hardware_ready;
+            string guard = guardKnown ? "simulator/manual not hardware" : "guard unknown";
+            return guard + " | hardware modes " + modes;
+        }
+
+        private int CountFieldAcceptanceGates(string status)
+        {
+            if (fieldAcceptanceManifest == null || fieldAcceptanceManifest.gates == null || string.IsNullOrWhiteSpace(status))
+            {
+                return 0;
+            }
+
+            int count = 0;
+            foreach (FieldAcceptanceGate gate in fieldAcceptanceManifest.gates)
+            {
+                if (gate != null && !string.IsNullOrWhiteSpace(gate.status) && string.Equals(gate.status.Trim(), status, StringComparison.OrdinalIgnoreCase))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private string BoolLabel(bool value)
+        {
+            return value ? "true" : "false";
         }
 
         private string TrackingModesLabel(string[] modes)

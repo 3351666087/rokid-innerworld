@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 22:27 Asia/Shanghai
+Updated: 2026-07-02 22:38 Asia/Shanghai
 
 ## Objective
 
@@ -66,6 +66,9 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Checks now require the adapter boundary and SDK binding readiness distinction in `check:mainline`, `check:contract`, `check:unity`, `check:device`, and `check:web`.
 - Checks now also require Web and Unity to actively consume wall calibration and field marker runtime data, Web to display latest-observation evidence/rejected issues and field marker cards, Unity to POST observations, Unity to GET/parse `/api/field/markers`, and `check:store` to prove latest rejected observations block hardware readiness.
 - Checks now also require `/api/field/acceptance`, `innerworld-field-acceptance/v1`, gate separation, top-level hardware tracking modes, Web Field Acceptance rendering, an all-simulator negative guard, and a required-gate-pending negative guard through `npm run check:field-acceptance`.
+- Unity now actively consumes `/api/field/acceptance` as runtime data, not only DTO/endpoint shape: startup, `LoadRuntimeServiceContracts()`, and post-calibration refresh all GET/parse `FieldAcceptanceManifest`, then expose gate status, blockers, next actions, hardware evidence count, and simulator/manual guard through HUD, target debug, input status, and `sdk_binding_status.message`.
+- `check:unity` now requires Unity to consume field acceptance in runtime detail, target, input, and heartbeat; `verify:release` now runs `npm run check:field-acceptance -- --api` after field markers to cover the live localhost endpoint.
+- Kepler reviewed the field acceptance consumption checkpoint and returned OK on direction, with the next required checkpoint set to `trusted_hardware_session` / `sdk_live_binding`: before true hardware acceptance, hardware-mode observations must be tied to a real Rokid SDK live session instead of trusting a script-posted tracking mode.
 - Kepler reviewed the SDK binding readiness checkpoint and returned OK to commit/push after the `sdk_binding_status` redaction blocker was fixed.
 
 ## Confirmed Applied Hardware
