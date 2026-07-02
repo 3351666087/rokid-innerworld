@@ -43,6 +43,7 @@ namespace InnerWorld.Rokid
         private InnerWorldEvidenceChainResponse evidenceChain;
         private InnerWorldSessionPlanResponse sessionPlan;
         private WallCalibrationManifest wallCalibrationManifest;
+        private FieldMarkerManifest fieldMarkerManifest;
         private RokidPresentationStrategy presentationStrategy;
         private RokidAdapterBoundaryStatus rokidAdapterStatus;
         private EditorRokidInputSource editorRokidInputSource;
@@ -55,6 +56,7 @@ namespace InnerWorld.Rokid
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
         private string wallCalibrationLine = "wall calibration pending";
+        private string fieldMarkerLine = "field markers pending";
         private WallCalibrationObservationResult lastWallCalibrationObservationResult;
         private WallCalibrationObservation lastWallCalibrationObservation;
         private string wallCalibrationObservationLine = "calibration observation pending";
@@ -110,6 +112,7 @@ namespace InnerWorld.Rokid
             EnsureApiClient();
             yield return LoadBootstrap();
             yield return LoadWallCalibrationManifest();
+            yield return LoadFieldMarkerManifest();
             yield return RegisterDeviceSession();
             yield return SubmitWallCalibrationObservation("simulator");
             yield return LoadSpace();
@@ -409,6 +412,59 @@ namespace InnerWorld.Rokid
             }
         }
 
+        private IEnumerator LoadFieldMarkerManifest()
+        {
+            EnsureApiClient();
+            fieldMarkerManifest = null;
+            fieldMarkerLine = "field markers loading";
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.field_markers : null, apiClient.FieldMarkersUrl);
+            SetRokidConnection(RokidConnectionStatus.Connecting, fieldMarkerLine);
+
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        fieldMarkerManifest = JsonUtility.FromJson<FieldMarkerManifest>(request.downloadHandler.text);
+                        if (fieldMarkerManifest == null || string.IsNullOrWhiteSpace(fieldMarkerManifest.schema))
+                        {
+                            fieldMarkerLine = "field markers invalid";
+                            Debug.LogWarning(fieldMarkerLine + ": missing manifest schema | " + url);
+                            SetRokidConnection(RokidConnectionStatus.Error, fieldMarkerLine);
+                        }
+                        else
+                        {
+                            fieldMarkerLine = BuildFieldMarkerStatusLine();
+                            Debug.Log("Field marker manifest loaded: " + fieldMarkerLine + " | " + url);
+                            SetRokidConnection(RokidConnectionStatus.Connected, fieldMarkerLine);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        fieldMarkerManifest = null;
+                        fieldMarkerLine = "field markers parse failed";
+                        Debug.LogWarning(fieldMarkerLine + ": " + error.Message + " | " + url);
+                        SetRokidConnection(RokidConnectionStatus.Error, fieldMarkerLine);
+                    }
+                }
+                else
+                {
+                    fieldMarkerLine = "field markers unavailable: " + request.error;
+                    Debug.LogWarning(fieldMarkerLine + " | " + url);
+                    SetRokidConnection(RokidConnectionStatus.Error, request.error);
+                }
+            }
+
+            if (space != null)
+            {
+                RefreshHud();
+            }
+        }
+
         private IEnumerator SubmitWallCalibrationObservation(string trackingMode)
         {
             EnsureApiClient();
@@ -468,11 +524,13 @@ namespace InnerWorld.Rokid
                             if (lastWallCalibrationObservation != null)
                             {
                                 anchor.latest_observation = lastWallCalibrationObservation;
+                                UpdateFieldMarkerObservation(anchor.anchor_id, lastWallCalibrationObservation, lastWallCalibrationObservationResult.summary);
                             }
                         }
 
                         wallCalibrationObservationLine = BuildWallCalibrationObservationLine();
                         wallCalibrationLine = BuildWallCalibrationStatusLine();
+                        fieldMarkerLine = BuildFieldMarkerStatusLine();
                         Debug.Log("Wall calibration observation posted: " + wallCalibrationObservationLine + " | " + url);
                         SetStatus("Calibration observation posted", wallCalibrationObservationLine);
                         SetRokidConnection(RokidConnectionStatus.Connected, wallCalibrationObservationLine);
@@ -1120,7 +1178,7 @@ namespace InnerWorld.Rokid
                 ? "Selected: none"
                 : "Selected: " + selectedAnchorId + " " + CurrentAnchorLabel(selectedAnchorId, string.Empty);
 
-            targetText.text = gazeLine + "\n" + selectedLine + "\n" + BuildWallCalibrationObservationLine();
+            targetText.text = gazeLine + "\n" + selectedLine + "\n" + BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine();
         }
 
         private string CurrentAnchorLabel(string anchorId, string fallback)
@@ -1300,7 +1358,7 @@ namespace InnerWorld.Rokid
             string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
             string observation = BuildWallCalibrationObservationLine();
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status + " | " + CurrentDeviceProfile()
-                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + observation;
+                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + observation + " | " + BuildFieldMarkerReadinessLine();
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -1525,7 +1583,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -1708,7 +1766,7 @@ namespace InnerWorld.Rokid
             string schema = WallCalibrationSchemaLabel();
             int anchorCount = WallCalibrationAnchorCount();
             string ready = summary != null && summary.ready_for_hardware ? "true" : "false";
-            return "wall calibration: " + schema + ", anchors " + anchorCount + ", ready_for_hardware " + ready + ", calibrated " + CalibratedAnchorIdsLabel(summary) + ", " + BuildWallCalibrationObservationLine();
+            return "wall calibration: " + schema + ", anchors " + anchorCount + ", ready_for_hardware " + ready + ", calibrated " + CalibratedAnchorIdsLabel(summary) + ", hardware calibrated " + HardwareCalibratedAnchorIdsLabel(summary) + ", " + BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerHeartbeatLine();
         }
 
         private string BuildWallCalibrationStatusLine()
@@ -1722,6 +1780,7 @@ namespace InnerWorld.Rokid
                 + " | anchors " + WallCalibrationAnchorCount()
                 + " | ready_for_hardware " + WallCalibrationReadyFlag()
                 + " | calibrated " + CalibratedAnchorIdsLabel(CurrentWallCalibrationSummary())
+                + " | hardware " + HardwareCalibratedAnchorIdsLabel(CurrentWallCalibrationSummary())
                 + " | " + BuildWallCalibrationObservationLine();
         }
 
@@ -1742,6 +1801,178 @@ namespace InnerWorld.Rokid
                 + " " + SafeLabel(lastWallCalibrationObservation.status, "unknown")
                 + " | anchor " + SafeLabel(lastWallCalibrationObservation.anchor_id, "unknown")
                 + " | issues " + IssuesLabel(lastWallCalibrationObservation.issues);
+        }
+
+        private string BuildFieldMarkerHeartbeatLine()
+        {
+            return "field markers: " + FieldMarkerSchemaLabel()
+                + ", " + BuildFieldMarkerReadinessLine()
+                + ", markers " + FieldMarkerIdsLabel();
+        }
+
+        private string BuildFieldMarkerStatusLine()
+        {
+            if (fieldMarkerManifest == null)
+            {
+                return string.IsNullOrWhiteSpace(fieldMarkerLine) ? "field markers pending" : fieldMarkerLine;
+            }
+
+            return "field markers schema " + FieldMarkerSchemaLabel()
+                + " | " + BuildFieldMarkerReadinessLine()
+                + " | markers " + FieldMarkerIdsLabel()
+                + " | active " + BuildFieldMarkerActiveLine();
+        }
+
+        private string BuildFieldMarkerReadinessLine()
+        {
+            return (FieldMarkerPrintReadyFlag() ? "print kit ready" : "print kit pending")
+                + " | " + FieldMarkerSimulatorRehearsalLabel()
+                + " | " + FieldMarkerHardwareReadinessLabel();
+        }
+
+        private string BuildFieldMarkerActiveLine()
+        {
+            FieldMarkerAnchor marker = ResolveCurrentFieldMarkerAnchor();
+            if (marker == null)
+            {
+                return "field marker active none";
+            }
+
+            string markerId = marker.marker != null ? SafeLabel(marker.marker.marker_id, marker.anchor_id) : SafeLabel(marker.anchor_id, "unknown");
+            string markerType = marker.marker != null ? SafeLabel(marker.marker.marker_type, "marker") : "marker";
+            return marker.anchor_id
+                + " " + markerId
+                + " " + markerType
+                + " | modes " + TrackingModesLabel(marker.tracking_modes)
+                + " | expected " + PosePositionLabel(marker.expected_pose);
+        }
+
+        private string FieldMarkerSchemaLabel()
+        {
+            return fieldMarkerManifest != null && !string.IsNullOrWhiteSpace(fieldMarkerManifest.schema)
+                ? fieldMarkerManifest.schema.Trim()
+                : "schema unknown";
+        }
+
+        private int FieldMarkerCount()
+        {
+            return fieldMarkerManifest != null && fieldMarkerManifest.markers != null ? fieldMarkerManifest.markers.Length : 0;
+        }
+
+        private bool FieldMarkerPrintReadyFlag()
+        {
+            if (fieldMarkerManifest == null || !fieldMarkerManifest.ok || string.IsNullOrWhiteSpace(fieldMarkerManifest.schema))
+            {
+                return false;
+            }
+
+            int requiredCardCount = fieldMarkerManifest.print_contract != null && fieldMarkerManifest.print_contract.card_count > 0
+                ? fieldMarkerManifest.print_contract.card_count
+                : 3;
+
+            return string.Equals(fieldMarkerManifest.schema.Trim(), "innerworld-field-markers/v1", StringComparison.Ordinal)
+                && FieldMarkerCount() >= requiredCardCount
+                && FieldMarkerRequiredIdsReady();
+        }
+
+        private bool FieldMarkerRequiredIdsReady()
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null)
+            {
+                return false;
+            }
+
+            string[] requiredMarkerIds = fieldMarkerManifest.acceptance != null
+                ? fieldMarkerManifest.acceptance.required_marker_ids
+                : null;
+            if (requiredMarkerIds == null || requiredMarkerIds.Length == 0)
+            {
+                return true;
+            }
+
+            foreach (string requiredMarkerId in requiredMarkerIds)
+            {
+                if (!string.IsNullOrWhiteSpace(requiredMarkerId) && FindFieldMarkerByMarkerId(requiredMarkerId.Trim()) == null)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private string FieldMarkerSimulatorRehearsalLabel()
+        {
+            if (lastWallCalibrationObservation != null && string.Equals(lastWallCalibrationObservation.tracking_mode, "simulator", StringComparison.Ordinal))
+            {
+                return "simulator rehearsal active";
+            }
+
+            if (fieldMarkerManifest != null && fieldMarkerManifest.markers != null)
+            {
+                foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+                {
+                    if (marker != null && marker.latest_observation != null && string.Equals(marker.latest_observation.tracking_mode, "simulator", StringComparison.Ordinal))
+                    {
+                        return "simulator rehearsal active";
+                    }
+                }
+            }
+
+            return "simulator rehearsal pending";
+        }
+
+        private string FieldMarkerHardwareReadinessLabel()
+        {
+            WallCalibrationSummary summary = CurrentWallCalibrationSummary();
+            bool ready = summary != null && summary.ready_for_hardware;
+            if (ready) return "hardware ready";
+            int hardwareCount = summary != null ? summary.hardware_calibrated_anchor_count : 0;
+            return "hardware pending " + hardwareCount + "/3";
+        }
+
+        private string FieldMarkerIdsLabel()
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null || fieldMarkerManifest.markers.Length == 0)
+            {
+                return "none";
+            }
+
+            List<string> markerIds = new List<string>();
+            foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+            {
+                if (marker == null) continue;
+                if (marker.marker != null && !string.IsNullOrWhiteSpace(marker.marker.marker_id))
+                {
+                    markerIds.Add(marker.marker.marker_id.Trim());
+                }
+                else if (!string.IsNullOrWhiteSpace(marker.anchor_id))
+                {
+                    markerIds.Add(marker.anchor_id.Trim());
+                }
+            }
+
+            return markerIds.Count == 0 ? "none" : string.Join(",", markerIds.ToArray());
+        }
+
+        private string TrackingModesLabel(string[] modes)
+        {
+            if (modes == null || modes.Length == 0) return "none";
+            List<string> clean = new List<string>();
+            foreach (string mode in modes)
+            {
+                if (!string.IsNullOrWhiteSpace(mode)) clean.Add(mode.Trim());
+            }
+
+            return clean.Count == 0 ? "none" : string.Join(",", clean.ToArray());
+        }
+
+        private string PosePositionLabel(WallCalibrationPose pose)
+        {
+            if (pose == null || pose.position == null) return "pose pending";
+            return "x " + pose.position.x.ToString("0.00")
+                + " y " + pose.position.y.ToString("0.00")
+                + " z " + pose.position.z.ToString("0.00");
         }
 
         private bool WallCalibrationReadyFlag()
@@ -1778,6 +2009,22 @@ namespace InnerWorld.Rokid
 
             List<string> anchorIds = new List<string>();
             foreach (string anchorId in summary.calibrated_anchor_ids)
+            {
+                if (!string.IsNullOrWhiteSpace(anchorId)) anchorIds.Add(anchorId.Trim());
+            }
+
+            return anchorIds.Count == 0 ? "none" : string.Join(",", anchorIds.ToArray());
+        }
+
+        private string HardwareCalibratedAnchorIdsLabel(WallCalibrationSummary summary)
+        {
+            if (summary == null || summary.hardware_calibrated_anchor_ids == null || summary.hardware_calibrated_anchor_ids.Length == 0)
+            {
+                return "none";
+            }
+
+            List<string> anchorIds = new List<string>();
+            foreach (string anchorId in summary.hardware_calibrated_anchor_ids)
             {
                 if (!string.IsNullOrWhiteSpace(anchorId)) anchorIds.Add(anchorId.Trim());
             }
@@ -1830,6 +2077,87 @@ namespace InnerWorld.Rokid
             }
 
             return null;
+        }
+
+        private FieldMarkerAnchor ResolveCurrentFieldMarkerAnchor()
+        {
+            FieldMarkerAnchor marker = FindFieldMarkerAnchor(CurrentActiveAnchorId());
+            if (marker != null) return marker;
+
+            if (bootstrap != null && bootstrap.mission != null && bootstrap.mission.steps != null && bootstrap.mission.steps.Length > 0)
+            {
+                int stepIndex = Mathf.Clamp(bootstrap.mission.current_step_index, 0, bootstrap.mission.steps.Length - 1);
+                MissionStep step = bootstrap.mission.steps[stepIndex];
+                if (step != null)
+                {
+                    marker = FindFieldMarkerAnchor(step.anchor_id);
+                    if (marker != null) return marker;
+                }
+            }
+
+            string[] preferredAnchors = { "A1", "A2", "A3" };
+            foreach (string anchorId in preferredAnchors)
+            {
+                marker = FindFieldMarkerAnchor(anchorId);
+                if (marker != null) return marker;
+            }
+
+            return fieldMarkerManifest != null && fieldMarkerManifest.markers != null && fieldMarkerManifest.markers.Length > 0
+                ? fieldMarkerManifest.markers[0]
+                : null;
+        }
+
+        private FieldMarkerAnchor FindFieldMarkerAnchor(string anchorId)
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null || string.IsNullOrWhiteSpace(anchorId))
+            {
+                return null;
+            }
+
+            string cleanAnchorId = anchorId.Trim();
+            foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+            {
+                if (marker != null && string.Equals(marker.anchor_id, cleanAnchorId, StringComparison.Ordinal))
+                {
+                    return marker;
+                }
+            }
+
+            return null;
+        }
+
+        private FieldMarkerAnchor FindFieldMarkerByMarkerId(string markerId)
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null || string.IsNullOrWhiteSpace(markerId))
+            {
+                return null;
+            }
+
+            string cleanMarkerId = markerId.Trim();
+            foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+            {
+                if (marker != null && marker.marker != null && string.Equals(marker.marker.marker_id, cleanMarkerId, StringComparison.Ordinal))
+                {
+                    return marker;
+                }
+            }
+
+            return null;
+        }
+
+        private void UpdateFieldMarkerObservation(string anchorId, WallCalibrationObservation observation, WallCalibrationSummary summary)
+        {
+            FieldMarkerAnchor marker = FindFieldMarkerAnchor(anchorId);
+            if (marker != null)
+            {
+                marker.latest_observation = observation;
+            }
+
+            if (fieldMarkerManifest != null && fieldMarkerManifest.calibration_manifest != null && summary != null)
+            {
+                fieldMarkerManifest.calibration_manifest.ready_for_hardware = summary.ready_for_hardware;
+                fieldMarkerManifest.calibration_manifest.calibrated_anchor_ids = summary.calibrated_anchor_ids;
+            }
         }
 
         private float CalibrationObservationConfidence(WallCalibrationAnchor anchor, string trackingMode)

@@ -129,6 +129,41 @@ async function main() {
   assert(acceptedCalibration.ok === true, "accepted calibration ok failed");
   assert(acceptedCalibration.observation?.status === "accepted", "accepted calibration status failed");
   assert(acceptedCalibration.summary?.calibrated_anchor_ids?.includes("A1"), "accepted calibration summary anchor failed");
+  assert(acceptedCalibration.summary?.ready_for_hardware === false, "simulator-only accepted observation must not set hardware readiness");
+
+  const acceptedA2Simulator = await postJson("/api/calibration/observations", "calibration_accept_a2_simulator", {
+    session_id: "store-check-a2-simulator",
+    device_id: "RA202 operator simulator",
+    anchor_id: "A2",
+    tracking_mode: "simulator",
+    observed_pose: {
+      position: { x: 0, y: 1.5, z: 3 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    confidence: 0.94,
+    notes: "A2 simulator rehearsal must not count as hardware ready",
+    client_time: "2026-07-02T10:10:02.000Z"
+  });
+  assert(acceptedA2Simulator.observation?.status === "accepted", "A2 simulator accepted status failed");
+
+  const acceptedA3Simulator = await postJson("/api/calibration/observations", "calibration_accept_a3_simulator", {
+    session_id: "store-check-a3-simulator",
+    device_id: "RA202 operator simulator",
+    anchor_id: "A3",
+    tracking_mode: "simulator",
+    observed_pose: {
+      position: { x: 1.55, y: 1.18, z: 3.2 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    confidence: 0.94,
+    notes: "A3 simulator rehearsal must not count as hardware ready",
+    client_time: "2026-07-02T10:10:03.000Z"
+  });
+  assert(acceptedA3Simulator.observation?.status === "accepted", "A3 simulator accepted status failed");
+  assert(acceptedA3Simulator.summary?.rehearsal_ready === true, "all simulator accepted observations should set rehearsal readiness");
+  assert(acceptedA3Simulator.summary?.ready_for_hardware === false, "all simulator accepted observations must not set hardware readiness");
+  assert(acceptedA3Simulator.summary?.hardware_calibrated_anchor_count === 0, "simulator observations must not count as hardware calibrated anchors");
+  assert(Array.isArray(acceptedA3Simulator.summary?.hardware_calibrated_anchor_ids) && acceptedA3Simulator.summary.hardware_calibrated_anchor_ids.length === 0, "simulator observations must not appear in hardware calibrated ids");
 
   const rejectedCalibration = await postJson("/api/calibration/observations", "calibration_reject_latest", {
     session_id: "store-check-reject",

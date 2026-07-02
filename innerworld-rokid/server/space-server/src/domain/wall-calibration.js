@@ -201,6 +201,11 @@ export function buildWallCalibrationManifest({
         warning: 0,
         rejected: 0,
         calibrated_anchor_count: 0,
+        calibrated_anchor_ids: [],
+        rehearsal_ready: false,
+        hardware_calibrated_anchor_count: 0,
+        hardware_calibrated_anchor_ids: [],
+        hardware_tracking_modes: ["qr", "image_tracking", "slam"],
         ready_for_hardware: false
       }
     },

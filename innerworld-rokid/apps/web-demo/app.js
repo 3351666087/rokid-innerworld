@@ -1,5 +1,8 @@
 const SPACE_ID = "innerworld_campus_wall";
 const WRITE_BACK_DEFAULT = "后来的人，别忘了抬头看这里。";
+const FIELD_MARKER_ANCHOR_IDS = ["A1", "A2", "A3"];
+const FIELD_MARKER_REQUIRED_IDS = ["A1:qr-entry", "A2:image-target", "A3:image-target"];
+const HARDWARE_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
 
 const api = {
   async getSpace() {
@@ -25,6 +28,9 @@ const api = {
   },
   async getWallCalibration() {
     return requestJson("/api/calibration/wall", { cache: "no-store" }, "读取展墙标定失败");
+  },
+  async getFieldMarkers() {
+    return requestJson("/api/field/markers", { cache: "no-store" }, "读取现场 marker 失败");
   },
   async submitWallCalibrationObservation(payload) {
     return requestJson("/api/calibration/observations", jsonPost(payload), "提交展墙标定失败");
@@ -81,6 +87,8 @@ const model = {
   wallCalibration: null,
   wallCalibrationLastResult: null,
   wallCalibrationError: null,
+  fieldMarkers: null,
+  fieldMarkersError: null,
   activeUser: "A",
   currentAnchor: null,
   hudByAnchor: new Map(),
@@ -370,6 +378,109 @@ function wallCalibrationSummary() {
 
 function wallCalibrationAnchors() {
   return listFrom(model.wallCalibration?.anchors);
+}
+
+function fieldMarkerAnchors() {
+  return listFrom(model.fieldMarkers?.markers);
+}
+
+function fieldMarkerRows() {
+  const markersByAnchor = new Map(fieldMarkerAnchors().map((marker) => [marker.anchor_id, marker]));
+  return FIELD_MARKER_ANCHOR_IDS.map((anchorId) => markersByAnchor.get(anchorId) || {
+    anchor_id: anchorId,
+    missing: true
+  });
+}
+
+function fieldMarkerValue(marker, key) {
+  return marker?.marker?.[key] || marker?.[key] || "";
+}
+
+function fieldMarkerId(marker) {
+  return fieldMarkerValue(marker, "marker_id");
+}
+
+function fieldMarkerType(marker) {
+  return fieldMarkerValue(marker, "marker_type");
+}
+
+function trackingModesLabel(marker) {
+  const modes = listFrom(marker?.tracking_modes).map((mode) => String(mode).replace(/_/g, " "));
+  return modes.length ? modes.join(" / ") : "tracking modes pending";
+}
+
+function fieldMarkerReadiness(marker) {
+  if (!marker || marker.missing) {
+    return { ready: false, tone: "warn", title: "manifest pending" };
+  }
+
+  const missing = [];
+  if (!fieldMarkerId(marker)) missing.push("id");
+  if (!fieldMarkerType(marker)) missing.push("type");
+  if (!listFrom(marker.tracking_modes).length) missing.push("modes");
+  if (!marker.expected_pose?.position) missing.push("pose");
+
+  return {
+    ready: missing.length === 0,
+    tone: missing.length ? "warn" : "good",
+    title: missing.length ? `missing ${missing.join("/")}` : "card ready"
+  };
+}
+
+function fieldMarkerRequiredIdSet() {
+  return new Set(fieldMarkerRows().map(fieldMarkerId).filter(Boolean));
+}
+
+function fieldMarkerEndpoint() {
+  return endpointUrl(model.bootstrap?.endpoints?.field_markers || "/api/field/markers");
+}
+
+function latestCalibrationObservationForAnchorId(anchorId) {
+  const anchor = wallCalibrationAnchors().find((item) => item.anchor_id === anchorId)
+    || fieldMarkerAnchors().find((item) => item.anchor_id === anchorId)
+    || { anchor_id: anchorId };
+  return latestCalibrationObservation(anchor);
+}
+
+function acceptedCalibrationCount(predicate) {
+  return FIELD_MARKER_ANCHOR_IDS.filter((anchorId) => {
+    const latest = latestCalibrationObservationForAnchorId(anchorId);
+    return latest?.status === "accepted" && predicate(latest);
+  }).length;
+}
+
+function wallCalibrationReadinessStates() {
+  const fieldEndpoint = fieldMarkerEndpoint();
+  const summary = wallCalibrationSummary();
+  const markerStates = fieldMarkerRows().map(fieldMarkerReadiness);
+  const markerReadyCount = markerStates.filter((state) => state.ready).length;
+  const markerIdSet = fieldMarkerRequiredIdSet();
+  const requiredIdsReady = FIELD_MARKER_REQUIRED_IDS.every((markerId) => markerIdSet.has(markerId));
+  const printReady = Boolean(model.fieldMarkers?.ok && markerReadyCount === FIELD_MARKER_ANCHOR_IDS.length && requiredIdsReady);
+  const simulatorAccepted = acceptedCalibrationCount((latest) => latest.tracking_mode === "simulator");
+  const hardwareAccepted = Number.isFinite(Number(summary?.hardware_calibrated_anchor_count))
+    ? Number(summary.hardware_calibrated_anchor_count)
+    : acceptedCalibrationCount((latest) => HARDWARE_TRACKING_MODES.has(latest.tracking_mode));
+  const hardwareFit = model.ops?.hardware?.fit === "fit";
+  const hardwareReady = Boolean(summary?.ready_for_hardware) && hardwareFit;
+
+  return {
+    print: {
+      tone: printReady ? "good" : "warn",
+      title: printReady ? "print kit ready" : "print kit pending",
+      body: model.fieldMarkersError?.message || `${markerReadyCount}/${FIELD_MARKER_ANCHOR_IDS.length} marker cards bound from ${fieldEndpoint}`
+    },
+    simulator: {
+      tone: simulatorAccepted === FIELD_MARKER_ANCHOR_IDS.length ? "good" : "warn",
+      title: "simulator rehearsal",
+      body: `${simulatorAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} simulator observations accepted through /api/calibration/observations`
+    },
+    hardware: {
+      tone: hardwareReady ? "good" : "warn",
+      title: hardwareReady ? "hardware ready" : "hardware pending",
+      body: `${hardwareAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} QR/image/SLAM observations accepted · ${hardwareFit ? "AR Studio kit fit" : "AR Studio kit pending"}`
+    }
+  };
 }
 
 function calibratedAnchorIds() {
@@ -1388,6 +1499,9 @@ function renderHardwareRuntime() {
   const binding = sdkBindingSummary();
   const calibration = wallCalibrationSummary();
   const calibrationReady = Boolean(calibration?.ready_for_hardware);
+  const hardwareCalibratedCount = Number.isFinite(Number(calibration?.hardware_calibrated_anchor_count))
+    ? Number(calibration.hardware_calibrated_anchor_count)
+    : 0;
 
   els.hardwareGrid.innerHTML = "";
   els.hardwareGrid.append(
@@ -1397,7 +1511,7 @@ function renderHardwareRuntime() {
     renderInfoCard("hardware-card", "Runtime API", `${endpointCount} endpoints`, "bootstrap / AI HUD / evidence / session plan / dataset call / device runtime 同一套契约。"),
     renderInfoCard("hardware-card", "Device Session", sessionStatus, latestSession ? `${latestSession.device_id} · heartbeat ${heartbeatCount}` : "点击注册模拟设备，硬件到场后替换为 RA202/RAS201。"),
     renderInfoCard(`hardware-card ${binding.tone}`, "SDK Binding", binding.title, binding.body),
-    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Wall Lock", calibrationReady ? "A1/A2/A3 ready" : `${calibration?.calibrated_anchor_count || 0}/3 anchors`, endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")),
+    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Hardware Wall Lock", calibrationReady ? "hardware ready" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · ${endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")}`),
     renderInfoCard("hardware-card", "Adapter Slots", `${binding.slots.length || 0} declared`, "ROKID_UXR boundary keeps gaze, pose, network, and overlay swappable without changing the campus wall layer."),
     renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
     renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
@@ -1422,24 +1536,58 @@ function renderHardwareRuntime() {
   els.hardwareGrid.append(actions);
 }
 
+function renderFieldMarkerCards() {
+  const list = document.createElement("div");
+  list.className = "field-marker-list";
+
+  fieldMarkerRows().forEach((marker) => {
+    const readiness = fieldMarkerReadiness(marker);
+    const card = document.createElement("div");
+    card.className = ["field-marker-card", readiness.tone].filter(Boolean).join(" ");
+
+    const badge = document.createElement("span");
+    badge.className = "field-marker-badge";
+    badge.textContent = marker.anchor_id;
+
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = marker.print?.title || marker.label || `${marker.anchor_id} marker card`;
+    const body = document.createElement("p");
+    body.textContent = `${fieldMarkerId(marker) || "marker id pending"} · ${fieldMarkerType(marker) || "type pending"} · tracking ${trackingModesLabel(marker)} · expected ${poseLabel(marker.expected_pose)}`;
+    copy.append(title, body);
+
+    const status = document.createElement("span");
+    status.className = "field-marker-status";
+    status.textContent = readiness.title;
+
+    card.append(badge, copy, status);
+    list.append(card);
+  });
+
+  return list;
+}
+
 function renderWallCalibration() {
   if (!els.calibrationGrid) return;
   const manifest = model.wallCalibration;
   const summary = wallCalibrationSummary();
   const anchors = wallCalibrationAnchors();
-  const ready = Boolean(summary?.ready_for_hardware);
   const endpoint = endpointUrl(manifest?.observation_endpoint || model.bootstrap?.endpoints?.wall_calibration_observations || "/api/calibration/observations");
   const generatedAt = manifest?.generated_at ? new Date(manifest.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "not fetched";
   const latest = listFrom(summary?.latest_anchor_observations);
   const rejectedCount = latest.filter((observation) => observation.status === "rejected").length;
+  const states = wallCalibrationReadinessStates();
 
   els.calibrationGrid.innerHTML = "";
   els.calibrationGrid.append(
-    renderInfoCard(ready ? "calibration-card good" : "calibration-card warn", "Hardware Gate", ready ? "ready_for_hardware" : `${summary?.calibrated_anchor_count || 0}/3 locked`, "A1/A2/A3 must be observed before claiming real-wall alignment."),
+    renderInfoCard(`calibration-card state-card ${states.print.tone}`, "Print Kit", states.print.title, states.print.body),
+    renderInfoCard(`calibration-card state-card ${states.simulator.tone}`, "Simulator", states.simulator.title, states.simulator.body),
+    renderInfoCard(`calibration-card state-card ${states.hardware.tone}`, "Hardware", states.hardware.title, states.hardware.body),
     renderInfoCard("calibration-card", "Evidence Source", calibrationAuthorityLabel(), `${calibrationEvidenceLabel(model.wallCalibrationLastResult?.observation)} / latest rejected ${rejectedCount}`),
-    renderInfoCard("calibration-card", "Schema", manifest?.schema || "waiting", `${manifest?.wall?.coordinate_system || "innerworld-wall-local/v1"} / ${generatedAt}`),
-    renderInfoCard("calibration-card wide", "Observation Route", endpoint, "Rokid QR/image tracking, SLAM, manual field check, and Web simulator all write through this route.")
+    renderInfoCard("calibration-card", "Contracts", `${manifest?.schema || "wall pending"} / ${model.fieldMarkers?.schema || "field kit pending"}`, `${manifest?.wall?.coordinate_system || "innerworld-wall-local/v1"} / ${generatedAt}`),
+    renderInfoCard("calibration-card wide", "Observation Route", endpoint, `Marker cards ${fieldMarkerEndpoint()}`)
   );
+  els.calibrationGrid.append(renderFieldMarkerCards());
 
   const list = document.createElement("div");
   list.className = "calibration-anchor-list";
@@ -1635,11 +1783,22 @@ async function refreshLedger() {
 }
 
 async function refreshWallCalibration() {
-  try {
-    model.wallCalibration = await api.getWallCalibration();
+  const [calibrationResult, markersResult] = await Promise.allSettled([
+    api.getWallCalibration(),
+    api.getFieldMarkers()
+  ]);
+
+  if (calibrationResult.status === "fulfilled") {
+    model.wallCalibration = calibrationResult.value;
     model.wallCalibrationError = null;
-  } catch (error) {
-    model.wallCalibrationError = error;
+  } else {
+    model.wallCalibrationError = calibrationResult.reason;
+  }
+  if (markersResult.status === "fulfilled") {
+    model.fieldMarkers = markersResult.value;
+    model.fieldMarkersError = null;
+  } else {
+    model.fieldMarkersError = markersResult.reason;
   }
   renderWallCalibration();
   renderHardwareRuntime();
@@ -1647,12 +1806,13 @@ async function refreshWallCalibration() {
 }
 
 async function refreshDeviceRuntime() {
-  const [manifestResult, sessionsResult, storeResult, catalogResult, calibrationResult] = await Promise.allSettled([
+  const [manifestResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult] = await Promise.allSettled([
     api.getDeviceManifest(),
     api.getDeviceSessions(),
     api.getStoreStatus(),
     api.getDatasetCatalog(),
-    api.getWallCalibration()
+    api.getWallCalibration(),
+    api.getFieldMarkers()
   ]);
 
   if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
@@ -1664,6 +1824,12 @@ async function refreshDeviceRuntime() {
     model.wallCalibrationError = null;
   } else {
     model.wallCalibrationError = calibrationResult.reason;
+  }
+  if (markersResult.status === "fulfilled") {
+    model.fieldMarkers = markersResult.value;
+    model.fieldMarkersError = null;
+  } else {
+    model.fieldMarkersError = markersResult.reason;
   }
   renderSdkBindingReadiness();
   renderHardwareRuntime();
@@ -1717,7 +1883,7 @@ async function submitAllSimulatedCalibration() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult, markersResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
@@ -1726,7 +1892,8 @@ async function refreshOps() {
     api.getDatasetCatalog(),
     api.getLedgerSummary(),
     api.getLedgerEvents(),
-    api.getWallCalibration()
+    api.getWallCalibration(),
+    api.getFieldMarkers()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
@@ -1740,6 +1907,12 @@ async function refreshOps() {
     model.wallCalibrationError = null;
   } else {
     model.wallCalibrationError = calibrationResult.reason;
+  }
+  if (markersResult.status === "fulfilled") {
+    model.fieldMarkers = markersResult.value;
+    model.fieldMarkersError = null;
+  } else {
+    model.fieldMarkersError = markersResult.reason;
   }
   if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
   if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
@@ -1780,7 +1953,10 @@ function renderLog() {
     wall_calibration: model.wallCalibration ? {
       schema: model.wallCalibration.schema,
       ready_for_hardware: Boolean(wallCalibrationSummary()?.ready_for_hardware),
+      rehearsal_ready: Boolean(wallCalibrationSummary()?.rehearsal_ready),
       calibrated_anchor_ids: wallCalibrationSummary()?.calibrated_anchor_ids || [],
+      hardware_calibrated_anchor_ids: wallCalibrationSummary()?.hardware_calibrated_anchor_ids || [],
+      hardware_tracking_modes: wallCalibrationSummary()?.hardware_tracking_modes || [],
       anchors: wallCalibrationAnchors().map((anchor) => ({
         anchor_id: anchor.anchor_id,
         marker_type: anchor.marker?.marker_type,
@@ -1789,6 +1965,23 @@ function renderLog() {
       error: model.wallCalibrationError?.message || null
     } : {
       error: model.wallCalibrationError?.message || null
+    },
+    field_markers: model.fieldMarkers ? {
+      schema: model.fieldMarkers.schema,
+      endpoint: fieldMarkerEndpoint(),
+      print_kit_ready: wallCalibrationReadinessStates().print.title,
+      markers: fieldMarkerRows().map((marker) => ({
+        anchor_id: marker.anchor_id,
+        marker_id: fieldMarkerId(marker) || null,
+        marker_type: fieldMarkerType(marker) || null,
+        tracking_modes: marker.tracking_modes || [],
+        expected_pose: marker.expected_pose || null,
+        readiness: fieldMarkerReadiness(marker).title
+      })),
+      error: model.fieldMarkersError?.message || null
+    } : {
+      endpoint: fieldMarkerEndpoint(),
+      error: model.fieldMarkersError?.message || null
     },
     sdk_binding: {
       mode: binding.mode,

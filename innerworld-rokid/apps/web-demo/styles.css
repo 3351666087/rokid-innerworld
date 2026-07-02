@@ -1306,11 +1306,77 @@ textarea:focus {
   gap: 8px;
 }
 
+.field-marker-list,
 .calibration-anchor-list,
 .calibration-actions {
   grid-column: 1 / -1;
   display: grid;
   gap: 8px;
+}
+
+.field-marker-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(86px, auto);
+  align-items: center;
+  gap: 9px;
+  min-height: 66px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.046);
+}
+
+.field-marker-card.good {
+  border-left: 3px solid var(--green);
+}
+
+.field-marker-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.field-marker-badge {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #061014;
+  background: linear-gradient(135deg, var(--green), var(--cyan));
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.field-marker-card.warn .field-marker-badge {
+  background: linear-gradient(135deg, var(--amber), rgba(255, 255, 255, 0.68));
+}
+
+.field-marker-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.field-marker-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.field-marker-status {
+  justify-self: end;
+  max-width: 124px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1.2;
+  text-align: right;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .calibration-anchor {
@@ -1860,6 +1926,7 @@ pre {
   .route-node,
   .agent-row,
   .ledger-event,
+  .field-marker-card,
   .calibration-anchor,
   .evidence-item {
     grid-template-columns: 30px minmax(0, 1fr);
@@ -1868,9 +1935,16 @@ pre {
   .route-state,
   .agent-state,
   .ledger-event span,
+  .field-marker-status,
   .calibration-anchor button,
   .evidence-state {
     grid-column: 2;
+  }
+
+  .field-marker-status {
+    justify-self: start;
+    max-width: 100%;
+    text-align: left;
   }
 
   .delivery-step {

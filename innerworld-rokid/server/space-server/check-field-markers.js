@@ -132,6 +132,11 @@ function assertFieldMarkerManifest(manifest, wallCalibration) {
   assert(manifest.schema === "innerworld-field-markers/v1", "field marker schema check failed");
   assert(manifest.source_of_truth?.runtime_manifest === "/api/calibration/wall", "field marker runtime manifest link missing");
   assert(manifest.source_of_truth?.observation_endpoint === "/api/calibration/observations", "field marker observation endpoint link missing");
+  assert(manifest.calibration_manifest?.ready_for_hardware === Boolean(wallCalibration.runtime?.summary?.ready_for_hardware), "field marker hardware readiness must mirror wall calibration summary");
+  assert(Array.isArray(manifest.calibration_manifest?.hardware_tracking_modes), "field marker hardware tracking modes missing");
+  assert(manifest.calibration_manifest.hardware_tracking_modes.includes("qr"), "field marker hardware tracking modes must include qr");
+  assert(manifest.calibration_manifest.hardware_tracking_modes.includes("image_tracking"), "field marker hardware tracking modes must include image_tracking");
+  assert(manifest.calibration_manifest.hardware_tracking_modes.includes("slam"), "field marker hardware tracking modes must include slam");
   assert(Array.isArray(manifest.markers), "field marker list missing");
 
   const markersById = new Map(manifest.markers.map((marker) => [marker.anchor_id, marker]));

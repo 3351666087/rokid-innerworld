@@ -114,6 +114,10 @@ export function buildFieldMarkerManifest({
       endpoint: "/api/calibration/wall",
       observation_endpoint: wallCalibration?.observation_endpoint || null,
       ready_for_hardware: wallCalibration?.runtime?.summary?.ready_for_hardware || false,
+      rehearsal_ready: wallCalibration?.runtime?.summary?.rehearsal_ready || false,
+      hardware_calibrated_anchor_count: wallCalibration?.runtime?.summary?.hardware_calibrated_anchor_count || 0,
+      hardware_calibrated_anchor_ids: wallCalibration?.runtime?.summary?.hardware_calibrated_anchor_ids || [],
+      hardware_tracking_modes: wallCalibration?.runtime?.summary?.hardware_tracking_modes || ["qr", "image_tracking", "slam"],
       calibrated_anchor_ids: wallCalibration?.runtime?.summary?.calibrated_anchor_ids || []
     },
     markers,

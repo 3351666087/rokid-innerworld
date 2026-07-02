@@ -78,6 +78,8 @@ Chrome 插件验收时保留本机标签页，确认页面可见状态为 `User 
 
 `check:field-markers` 会验收 `data/field_markers.json`、`/api/field/markers`、`/api/calibration/wall` 和现场包 PDF/HTML：A1 必须是 `A1:qr-entry`，A2/A3 必须是 `image_target`，三张卡片都要带 expected pose、tracking modes 和 evidence source。
 
+Web 右侧 `Wall Calibration / Field Kit` 面板要同步确认三件事：`print kit ready` 只代表现场包和三张卡片齐备，`simulator rehearsal` 只代表本机演练观测，`hardware ready/pending` 才代表 QR/image tracking/SLAM 等硬件观测是否足够进入真机展示。
+
 `release:index` 会把最新主包、server-only 包、EXE/APK/PDF、环境医生、现场预检和彩排证据汇成 `output/release-index/release-index-latest.md`，现场或上传服务器前先看这一页。
 
 网页右侧「现场状态」读取同一组 latest 证据，适合投屏或交付现场快速确认，不必临时翻终端。

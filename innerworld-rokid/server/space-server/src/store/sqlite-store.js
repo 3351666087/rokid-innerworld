@@ -20,6 +20,8 @@ const LEDGER_DATASET_ID = "runtime.mission_ledger";
 const LEDGER_SCHEMA = "innerworld-mission-ledger/v1";
 const LEDGER_MISSION_ID = "innerworld-campus-wall-mission";
 const LEDGER_TYPES = new Set(["interaction", "service_action", "write_back"]);
+const REQUIRED_WALL_ANCHOR_IDS = ["A1", "A2", "A3"];
+const HARDWARE_CALIBRATION_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
 const SENSITIVE_LEDGER_KEYS = new Set([
   "access_token",
   "address",
@@ -957,6 +959,8 @@ export async function createSqliteStore({
     `).map(wallCalibrationObservationFromRow);
     const readyAnchors = latestAnchorObservations.filter((observation) => ["accepted", "warning"].includes(observation.status));
     const readyAnchorIds = readyAnchors.map((observation) => observation.anchor_id).sort();
+    const hardwareReadyAnchors = readyAnchors.filter((observation) => HARDWARE_CALIBRATION_TRACKING_MODES.has(observation.tracking_mode));
+    const hardwareReadyAnchorIds = hardwareReadyAnchors.map((observation) => observation.anchor_id).sort();
     return {
       ok: true,
       schema: `${WALL_CALIBRATION_SCHEMA}/summary`,
@@ -967,7 +971,11 @@ export async function createSqliteStore({
       rejected: counts.rejected,
       calibrated_anchor_count: readyAnchors.length,
       calibrated_anchor_ids: readyAnchorIds,
-      ready_for_hardware: ["A1", "A2", "A3"].every((anchorId) => readyAnchorIds.includes(anchorId)),
+      rehearsal_ready: REQUIRED_WALL_ANCHOR_IDS.every((anchorId) => readyAnchorIds.includes(anchorId)),
+      hardware_calibrated_anchor_count: hardwareReadyAnchors.length,
+      hardware_calibrated_anchor_ids: hardwareReadyAnchorIds,
+      hardware_tracking_modes: Array.from(HARDWARE_CALIBRATION_TRACKING_MODES),
+      ready_for_hardware: REQUIRED_WALL_ANCHOR_IDS.every((anchorId) => hardwareReadyAnchorIds.includes(anchorId)),
       latest_anchor_observations: latestAnchorObservations,
       latest_by_anchor: latestByAnchor,
       latest,

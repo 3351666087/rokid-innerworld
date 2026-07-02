@@ -130,6 +130,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint device_sessions;
         public SpaceApiEndpoint wall_calibration;
         public SpaceApiEndpoint wall_calibration_observations;
+        public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint ai_schema;
         public SpaceApiEndpoint ai_prompt;
         public SpaceApiEndpoint ai_hud;
@@ -462,6 +463,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint space;
         public SpaceApiEndpoint wall_calibration;
         public SpaceApiEndpoint wall_calibration_observations;
+        public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint ai_hud;
         public SpaceApiEndpoint interactions;
         public SpaceApiEndpoint service_actions;
@@ -619,6 +621,10 @@ namespace InnerWorld.Rokid.Protocol
         public int rejected;
         public int calibrated_anchor_count;
         public string[] calibrated_anchor_ids;
+        public bool rehearsal_ready;
+        public int hardware_calibrated_anchor_count;
+        public string[] hardware_calibrated_anchor_ids;
+        public string[] hardware_tracking_modes;
         public bool ready_for_hardware;
         public WallCalibrationObservation[] latest;
         public string privacy;
@@ -663,6 +669,98 @@ namespace InnerWorld.Rokid.Protocol
         public string created_at;
         public WallCalibrationAcceptance acceptance;
         public string privacy;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerManifest
+    {
+        public bool ok;
+        public string schema;
+        public string generated_at;
+        public string space_id;
+        public FieldMarkerSourceOfTruth source_of_truth;
+        public FieldMarkerPrintContract print_contract;
+        public string public_url;
+        public FieldMarkerCalibrationManifestSummary calibration_manifest;
+        public FieldMarkerAnchor[] markers;
+        public FieldMarkerAcceptance acceptance;
+        public string privacy;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerSourceOfTruth
+    {
+        public string space_seed;
+        public string runtime_manifest;
+        public string observation_endpoint;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerPrintContract
+    {
+        public string paper;
+        public int card_count;
+        public string placement_scope;
+        public bool cut_line_required;
+        public string public_url_env;
+        public string operator_rule;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerCalibrationManifestSummary
+    {
+        public string schema;
+        public string endpoint;
+        public SpaceApiEndpoint observation_endpoint;
+        public bool ready_for_hardware;
+        public bool rehearsal_ready;
+        public int hardware_calibrated_anchor_count;
+        public string[] hardware_calibrated_anchor_ids;
+        public string[] hardware_tracking_modes;
+        public string[] calibrated_anchor_ids;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerAnchor
+    {
+        public string anchor_id;
+        public string label;
+        public string kind;
+        public GridPosition grid_pos;
+        public WallCalibrationMarker marker;
+        public string[] tracking_modes;
+        public WallCalibrationPose expected_pose;
+        public WallCalibrationAcceptance acceptance;
+        public WallCalibrationObservation latest_observation;
+        public FieldMarkerPrint print;
+        public FieldMarkerRole field_role;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerPrint
+    {
+        public string title;
+        public string payload_url;
+        public string placement_note;
+        public bool cut_line_required;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerRole
+    {
+        public string physical_role;
+        public string operator_action;
+        public string evidence_source;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerAcceptance
+    {
+        public string[] required_anchor_ids;
+        public string[] required_marker_ids;
+        public string[] required_runtime_fields;
+        public string[] pdf_tokens;
+        public bool runtime_fields_bound_to_wall_calibration;
     }
 
     [Serializable]
