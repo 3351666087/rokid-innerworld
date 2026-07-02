@@ -43,8 +43,10 @@ namespace InnerWorld.Rokid
         private InnerWorldEvidenceChainResponse evidenceChain;
         private InnerWorldSessionPlanResponse sessionPlan;
         private RokidPresentationStrategy presentationStrategy;
+        private RokidAdapterBoundaryStatus rokidAdapterStatus;
         private EditorRokidInputSource editorRokidInputSource;
         private IRokidInputSource rokidInputSource;
+        private IRokidInputStateSink rokidInputStateSink;
         private IRokidOverlayRenderer rokidOverlayRenderer;
         private string currentGazeAnchorId = string.Empty;
         private string currentGazeAnchorLabel = string.Empty;
@@ -136,14 +138,14 @@ namespace InnerWorld.Rokid
 
         private void UpdateRokidGazeTarget()
         {
-            if (editorRokidInputSource == null || !editorRokidInputSource.IsPoseValid)
+            if (rokidInputSource == null || !rokidInputSource.IsPoseValid)
             {
                 ClearGazeVisualTarget();
                 return;
             }
 
             RokidGazeState gaze;
-            if (!editorRokidInputSource.TryGetGaze(out gaze))
+            if (!rokidInputSource.TryGetGaze(out gaze))
             {
                 ClearGazeVisualTarget();
                 return;
@@ -155,12 +157,18 @@ namespace InnerWorld.Rokid
             {
                 AnchorData anchor = FindAnchor(target.anchorId);
                 string label = anchor != null ? anchor.label : target.anchorId;
-                editorRokidInputSource.State.SetGazeAnchorHit(target.anchorId, label, hit.point, hit.distance);
+                if (rokidInputStateSink != null)
+                {
+                    rokidInputStateSink.SetGazeAnchorHit(target.anchorId, label, hit.point, hit.distance);
+                }
                 SetGazeVisualTarget(target.anchorId, label, hit.point, gaze.IsSelecting);
                 return;
             }
 
-            editorRokidInputSource.State.ClearAnchorTarget();
+            if (rokidInputStateSink != null)
+            {
+                rokidInputStateSink.ClearAnchorTarget();
+            }
             ClearGazeVisualTarget();
         }
 
@@ -948,9 +956,9 @@ namespace InnerWorld.Rokid
             spaceId = apiClient.SpaceId;
             deviceProfile = apiClient.DeviceProfile;
 
-            if (editorRokidInputSource != null)
+            if (rokidInputStateSink != null)
             {
-                editorRokidInputSource.SetBaseUrl(apiClient.BaseUrl);
+                rokidInputStateSink.SetBaseUrl(apiClient.BaseUrl);
                 RefreshInputStatusLine();
             }
         }
@@ -966,18 +974,24 @@ namespace InnerWorld.Rokid
         private void CreateRokidInputSource()
         {
             presentationStrategy = RokidPresentationStrategy.Resolve(presentationMode, CurrentPresentationEnvironment());
-            rokidInputSource = CreateHardwareRokidInputSource(presentationStrategy);
+            RokidAdapterResolution resolution = RokidAdapterResolver.Resolve(presentationStrategy);
+            rokidInputSource = resolution.InputSource;
+            rokidOverlayRenderer = resolution.OverlayRenderer;
+            rokidAdapterStatus = resolution.Status;
+            editorRokidInputSource = rokidInputSource as EditorRokidInputSource;
+            rokidInputStateSink = rokidInputSource as IRokidInputStateSink;
+
             if (rokidInputSource == null)
             {
                 editorRokidInputSource = new EditorRokidInputSource();
                 rokidInputSource = editorRokidInputSource;
+                rokidInputStateSink = editorRokidInputSource;
             }
 
-            rokidOverlayRenderer = CreateHardwareOverlayRenderer(presentationStrategy);
-            if (editorRokidInputSource != null)
+            if (rokidInputStateSink != null)
             {
-                editorRokidInputSource.SetBaseUrl(apiClient != null ? apiClient.BaseUrl : baseUrl);
-                editorRokidInputSource.SetConnection(RokidConnectionStatus.Disconnected, PresentationStatusMessage());
+                rokidInputStateSink.SetBaseUrl(apiClient != null ? apiClient.BaseUrl : baseUrl);
+                rokidInputStateSink.SetConnection(RokidConnectionStatus.Disconnected, PresentationStatusMessage());
             }
 
             RefreshInputStatusLine();
@@ -990,9 +1004,9 @@ namespace InnerWorld.Rokid
 
         private void SetRokidConnection(RokidConnectionStatus status, string message)
         {
-            if (editorRokidInputSource != null)
+            if (rokidInputStateSink != null)
             {
-                editorRokidInputSource.SetConnection(status, message);
+                rokidInputStateSink.SetConnection(status, message);
             }
 
             RefreshInputStatusLine();
@@ -1004,7 +1018,7 @@ namespace InnerWorld.Rokid
 
             RokidConnectionInfo connection = CurrentConnectionInfo();
             string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
-            sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + connection.Status + " | " + CurrentDeviceProfile()
+            sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status + " | " + CurrentDeviceProfile()
                 + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl);
         }
 
@@ -1016,6 +1030,16 @@ namespace InnerWorld.Rokid
         private string CurrentInputSourceName()
         {
             return rokidInputSource != null ? rokidInputSource.SourceName : "keyboard";
+        }
+
+        private string AdapterBoundaryLabel()
+        {
+            if (string.IsNullOrEmpty(rokidAdapterStatus.DefineSymbol))
+            {
+                return "adapter pending";
+            }
+
+            return rokidAdapterStatus.UsesRokidUxr ? rokidAdapterStatus.DefineSymbol : "fallback";
         }
 
         private string CurrentDeviceProfile()
@@ -1233,27 +1257,8 @@ namespace InnerWorld.Rokid
         {
             bool isAndroid = Application.platform == RuntimePlatform.Android;
             bool isEditor = Application.isEditor;
-            return RokidPresentationEnvironment.Create(isAndroid, isEditor, false, false, false, false);
-        }
-
-        private IRokidInputSource CreateHardwareRokidInputSource(RokidPresentationStrategy strategy)
-        {
-            if (strategy == null || strategy.input_adapter != RokidInputAdapterKind.RokidSdk)
-            {
-                return null;
-            }
-
-            return null;
-        }
-
-        private IRokidOverlayRenderer CreateHardwareOverlayRenderer(RokidPresentationStrategy strategy)
-        {
-            if (strategy == null || strategy.display_adapter != RokidDisplayAdapterKind.RokidSdkOverlay)
-            {
-                return null;
-            }
-
-            return null;
+            bool hasRokidSdk = RokidUxrBoundary.IsCompiled;
+            return RokidPresentationEnvironment.Create(isAndroid, isEditor, hasRokidSdk, false, false, false);
         }
 
         private void RenderRokidOverlayFrame()
@@ -1276,6 +1281,11 @@ namespace InnerWorld.Rokid
 
         private string PresentationStatusMessage()
         {
+            if (!string.IsNullOrWhiteSpace(rokidAdapterStatus.Message))
+            {
+                return rokidAdapterStatus.Message;
+            }
+
             if (presentationStrategy == null || string.IsNullOrWhiteSpace(presentationStrategy.fallback_reason))
             {
                 return "Simulator ready";

@@ -39,6 +39,16 @@ Practical implication for this project:
 - Do not vendor Rokid SDK files into Git until the official UPM registry and package version are confirmed on the hardware account.
 - Treat Rokid SDK integration as an adapter swap: `EditorRokidInputSource` and screen-space HUD are replaced by UXR2.0 input/display adapters, while Space API, mission state, evidence chain, AI HUD schema, write-back, and LAN server stay stable.
 
+## Unity Adapter Boundary
+
+The Unity runtime now has a compile-safe SDK boundary:
+
+- `RokidAdapterResolver.Resolve(...)` is the only controller entry point for choosing input/display adapters.
+- `ROKID_UXR` is the only define symbol that may expose future Rokid UXR SDK references.
+- `RokidUxrInputSource.cs` and `RokidUxrOverlayRenderer.cs` are wrapped by `#if ROKID_UXR`; until the official SDK package is installed, they compile out and the resolver returns editor/fallback adapters.
+- `IRokidInputStateSink` keeps connection status, LAN base URL, and anchor-hit state flowing through the same interface for fallback and future hardware adapters.
+- Vendor SDK packages downloaded through Unity Package Manager stay out of Git. Commit only the small adapter code that maps SDK gaze/ray/gesture/voice events into `IRokidInputSource`, `IRokidInputStateSink`, and `IRokidOverlayRenderer`.
+
 ## Hardware Arrival Checklist
 
 1. Power and pair Rokid Max Pro with Rokid Station Pro; confirm YodaOS-Master system build and network access.

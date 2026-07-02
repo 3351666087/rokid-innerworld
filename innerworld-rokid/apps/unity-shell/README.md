@@ -44,7 +44,7 @@ Windows fallback 已做过可视验收：三锚点可见，HUD 显示 localhost 
 - Device bootstrap client hints update request timing, and bootstrap runtime data updates the active user, mission state, completed steps, current step, and device beacon count.
 - Space snapshots are mapped into `InnerWorldMissionState`; gaze focus and anchor selection update the runtime mission state used by the HUD.
 - Evidence chain and session plan contracts are fetched as read-only runtime models for the HUD/debug surface. If the backend is unavailable, fallback behavior is controlled by `offline_fallback_enabled`.
-- Rokid hardware replacement points are explicit: `CreateHardwareRokidInputSource(...)` and `CreateHardwareOverlayRenderer(...)` return null until the Rokid SDK adapter is added. Desktop/editor builds continue through `EditorRokidInputSource` and the existing HUD.
+- Rokid hardware replacement points are explicit: `RokidAdapterResolver.Resolve(...)` selects input/display adapters from `RokidPresentationStrategy`. `ROKID_UXR` is the only compile symbol allowed to expose future SDK references, while desktop/editor builds continue through `EditorRokidInputSource` and the fallback HUD.
 
 ## Unity Ledger Fallback
 

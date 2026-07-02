@@ -478,6 +478,10 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("private SpaceApiClient apiClient;"), "Unity controller SpaceApiClient field missing");
   assert(controller.includes("private DeviceBootstrapResponse bootstrap;"), "Unity controller bootstrap response field missing");
   assert(controller.includes("private EditorRokidInputSource editorRokidInputSource;"), "Unity controller Rokid input source missing");
+  assert(controller.includes("private RokidAdapterBoundaryStatus rokidAdapterStatus;"), "Unity controller adapter boundary status missing");
+  assert(controller.includes("private IRokidInputStateSink rokidInputStateSink;"), "Unity controller input state sink missing");
+  assert(controller.includes("RokidAdapterResolver.Resolve(presentationStrategy)"), "Unity controller adapter resolver missing");
+  assert(controller.includes("RokidUxrBoundary.IsCompiled"), "Unity controller ROKID_UXR environment check missing");
   assert(controller.includes("apiClient.BootstrapUrl"), "Unity controller bootstrap URL not using client");
   assert(controller.includes("apiClient.SpaceUrl"), "Unity controller space URL not using client");
   assert(controller.includes("apiClient.InteractionsUrl"), "Unity controller interactions URL not using client");
@@ -527,12 +531,17 @@ async function assertRokidSimulatorSkeleton() {
     return "not_required";
   }
 
-  const [models, poseProvider, overlayRenderer, simulatorState, editorInput] = await Promise.all([
+  const [models, poseProvider, overlayRenderer, simulatorState, editorInput, boundaryStatus, resolver, fallbackOverlay, uxrInput, uxrOverlay] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidInputModels.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidOverlayRenderer.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidDeviceSimulatorState.cs"),
-    readText("apps/unity-shell/Assets/Scripts/Rokid/EditorRokidInputSource.cs")
+    readText("apps/unity-shell/Assets/Scripts/Rokid/EditorRokidInputSource.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterBoundaryStatus.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterResolver.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/FallbackRokidOverlayRenderer.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/RokidUxrInputSource.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/RokidUxrOverlayRenderer.cs")
   ]);
 
   assert(models.includes("namespace InnerWorld.Rokid"), "Rokid input models namespace missing");
@@ -540,11 +549,29 @@ async function assertRokidSimulatorSkeleton() {
   assert(models.includes("public struct RokidConnectionInfo"), "RokidConnectionInfo model missing");
   assert(poseProvider.includes("interface IRokidPoseProvider"), "IRokidPoseProvider missing");
   assert(poseProvider.includes("interface IRokidInputSource"), "IRokidInputSource missing");
+  assert(poseProvider.includes("interface IRokidInputStateSink"), "IRokidInputStateSink missing");
   assert(overlayRenderer.includes("interface IRokidOverlayRenderer"), "IRokidOverlayRenderer missing");
   assert(simulatorState.includes("public sealed class RokidDeviceSimulatorState"), "RokidDeviceSimulatorState missing");
-  assert(editorInput.includes("public sealed class EditorRokidInputSource"), "EditorRokidInputSource missing");
+  assert(editorInput.includes("public sealed class EditorRokidInputSource : IRokidInputSource, IRokidInputStateSink"), "EditorRokidInputSource state sink missing");
   assert(editorInput.includes("EnqueueVoiceText"), "Editor voice text injection missing");
   assert(editorInput.includes("SetAnchorTarget"), "Editor anchor target setter missing");
+  assert(editorInput.includes("SetGazeAnchorHit"), "Editor gaze anchor hit sink missing");
+  assert(boundaryStatus.includes("public const string DefineSymbol = \"ROKID_UXR\""), "ROKID_UXR define marker missing");
+  assert(boundaryStatus.includes("#if ROKID_UXR"), "ROKID_UXR compile guard missing");
+  assert(boundaryStatus.includes("public struct RokidAdapterBoundaryStatus"), "Rokid adapter boundary status missing");
+  assert(boundaryStatus.includes("public sealed class RokidAdapterResolution"), "Rokid adapter resolution missing");
+  assert(resolver.includes("public static class RokidAdapterResolver"), "Rokid adapter resolver missing");
+  assert(resolver.includes("#if ROKID_UXR"), "Rokid adapter resolver compile guard missing");
+  assert(resolver.includes("new RokidUxrInputSource"), "Rokid UXR input adapter factory missing");
+  assert(resolver.includes("new RokidUxrOverlayRenderer"), "Rokid UXR overlay adapter factory missing");
+  assert(resolver.includes("new EditorRokidInputSource"), "Rokid editor fallback factory missing");
+  assert(resolver.includes("new FallbackRokidOverlayRenderer"), "Rokid overlay fallback factory missing");
+  assert(fallbackOverlay.includes("public sealed class FallbackRokidOverlayRenderer : IRokidOverlayRenderer"), "fallback overlay renderer missing");
+  assert(uxrInput.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR input file must be fully guarded");
+  assert(uxrInput.includes("public sealed class RokidUxrInputSource : IRokidInputSource, IRokidInputStateSink"), "Rokid UXR input state sink missing");
+  assert(uxrInput.includes("SDK input binding pending"), "Rokid UXR input pending message missing");
+  assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
+  assert(uxrOverlay.includes("public sealed class RokidUxrOverlayRenderer : IRokidOverlayRenderer"), "Rokid UXR overlay renderer missing");
   return "verified";
 }
 

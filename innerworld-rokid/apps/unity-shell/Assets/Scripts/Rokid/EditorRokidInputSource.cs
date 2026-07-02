@@ -3,8 +3,10 @@ using UnityEngine;
 
 namespace InnerWorld.Rokid
 {
-    public sealed class EditorRokidInputSource : IRokidInputSource
+    public sealed class EditorRokidInputSource : IRokidInputSource, IRokidInputStateSink
     {
+        public const string AdapterName = "editor-rokid-simulator";
+
         private readonly Queue<RokidVoiceText> voiceQueue = new Queue<RokidVoiceText>();
         private readonly RokidDeviceSimulatorState state;
         private float elapsedSeconds;
@@ -21,7 +23,7 @@ namespace InnerWorld.Rokid
 
         public string SourceName
         {
-            get { return "editor-rokid-simulator"; }
+            get { return AdapterName; }
         }
 
         public bool IsAvailable
@@ -82,6 +84,16 @@ namespace InnerWorld.Rokid
         public void SetAnchorTarget(string anchorId, string label, Vector3 worldPosition)
         {
             state.SetAnchorTarget(anchorId, label, worldPosition);
+        }
+
+        public void SetGazeAnchorHit(string anchorId, string anchorLabel, Vector3 hitPoint, float hitDistanceMeters)
+        {
+            state.SetGazeAnchorHit(anchorId, anchorLabel, hitPoint, hitDistanceMeters);
+        }
+
+        public void ClearAnchorTarget()
+        {
+            state.ClearAnchorTarget();
         }
 
         public void EnqueueVoiceText(string text)

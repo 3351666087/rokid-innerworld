@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 18:26 Asia/Shanghai
+Updated: 2026-07-02 19:10 Asia/Shanghai
 
 ## Objective
 
@@ -35,8 +35,18 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Web device/ops panel.
 - Unity/Rokid protocol client.
 - Rokid simulator and integration checks.
+- Compile-safe Rokid SDK adapter boundary with `ROKID_UXR` as the only future SDK compile symbol.
 - Localhost-first server release and deploy dry-run chain.
 - Printable field kit and release evidence.
+
+## Current Checkpoint
+
+- Latest implementation checkpoint: Rokid SDK conditional adapter boundary.
+- Unity controller now enters hardware/fallback selection through `RokidAdapterResolver.Resolve(...)`.
+- `IRokidInputStateSink` keeps base URL, connection status, and anchor-hit state flowing through both fallback and future hardware adapters.
+- `RokidUxrInputSource.cs` and `RokidUxrOverlayRenderer.cs` are fully wrapped in `#if ROKID_UXR`; no vendor SDK payload is committed.
+- Checks now require the adapter boundary in `check:mainline`, `check:contract`, and `check:unity`.
+- Kepler reviewed this checkpoint and returned OK to commit/push. Non-blocking caveat to carry forward: next hardware checkpoint should distinguish "ROKID_UXR boundary/stub compiled" from "real Rokid SDK package installed and live-bound."
 
 ## Confirmed Applied Hardware
 

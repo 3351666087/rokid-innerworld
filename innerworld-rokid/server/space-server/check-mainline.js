@@ -109,7 +109,11 @@ const requiredUnityTokens = [
   "BootstrapAndLoadSpace",
   "PostWriteBack",
   "RokidInput",
-  "Gaze Anchor Reticle"
+  "Gaze Anchor Reticle",
+  "RokidAdapterResolver.Resolve",
+  "RokidAdapterBoundaryStatus",
+  "IRokidInputStateSink",
+  "RokidUxrBoundary.IsCompiled"
 ];
 
 function assert(condition, message) {
