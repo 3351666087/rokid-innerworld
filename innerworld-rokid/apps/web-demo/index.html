@@ -39,6 +39,14 @@
           <div class="anchor-layer" id="anchorLayer" aria-label="空间锚点"></div>
         </div>
 
+        <section class="stage-telemetry" aria-label="空间镜头状态">
+          <div class="stage-telemetry-head">
+            <span>Rokid Lens</span>
+            <strong id="lensState">Spatial Ready</strong>
+          </div>
+          <div class="stage-metrics" id="stageMetrics"></div>
+        </section>
+
         <section class="hud-surface" aria-label="眼镜端 HUD">
           <div class="hud-topline">
             <span id="hudAnchor">A1 入口海报</span>
@@ -86,6 +94,26 @@
         </div>
       </section>
 
+      <section class="panel-section route-section" aria-label="空间导航">
+        <div class="section-head compact">
+          <div>
+            <p>Spatial Route</p>
+            <h2>空间导航</h2>
+          </div>
+        </div>
+        <div class="route-grid" id="routeGrid"></div>
+      </section>
+
+      <section class="panel-section lens-section" aria-label="镜头与设备状态">
+        <div class="section-head compact">
+          <div>
+            <p>Rokid Lens</p>
+            <h2>镜头状态</h2>
+          </div>
+        </div>
+        <div class="lens-grid" id="lensGrid"></div>
+      </section>
+
       <section class="panel-section workflow-section" aria-label="低噪音任务流">
         <div class="section-head compact">
           <div>
@@ -129,6 +157,16 @@
         <div class="agent-queue" id="agentQueue"></div>
       </section>
 
+      <section class="panel-section evidence-section" aria-label="证据链">
+        <div class="section-head compact">
+          <div>
+            <p>Evidence Chain</p>
+            <h2>证据链</h2>
+          </div>
+        </div>
+        <div class="evidence-rail" id="evidenceRail"></div>
+      </section>
+
       <section class="panel-section showcase-section" aria-label="现场展示模式">
         <div class="section-head compact">
           <div>
@@ -137,6 +175,26 @@
           </div>
         </div>
         <div class="showcase-grid" id="showcaseGrid"></div>
+      </section>
+
+      <section class="panel-section delivery-section" aria-label="交付剧本">
+        <div class="section-head compact">
+          <div>
+            <p>Delivery Script</p>
+            <h2>现场剧本</h2>
+          </div>
+        </div>
+        <div class="delivery-timeline" id="deliveryTimeline"></div>
+      </section>
+
+      <section class="panel-section risk-section" aria-label="风险护栏">
+        <div class="section-head compact">
+          <div>
+            <p>Risk Guardrails</p>
+            <h2>风险护栏</h2>
+          </div>
+        </div>
+        <div class="risk-grid" id="riskGrid"></div>
       </section>
 
       <section class="panel-section ops-section" aria-label="设备和发布状态">

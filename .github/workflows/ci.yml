@@ -1,0 +1,55 @@
+name: InnerWorld CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  node-space-server:
+    name: Node / Space Server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: innerworld-rokid
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Static source checks
+        run: |
+          node --check apps/web-demo/app.js
+          node --check server/space-server/check-web-demo.js
+          npm run check:security
+          npm run check:contract
+          npm run check:web
+
+      - name: Start localhost Space Server
+        run: |
+          HOST=127.0.0.1 PORT=5177 node server/space-server/index.js > /tmp/innerworld-space-server.log 2>&1 &
+          echo $! > /tmp/innerworld-space-server.pid
+          node -e "const started=Date.now(); (async function wait(){ try { const r = await fetch('http://127.0.0.1:5177/api/health'); if (r.ok) return; } catch {} if (Date.now() - started > 15000) throw new Error('Space Server did not become ready'); setTimeout(wait, 300); })().catch((error)=>{ console.error(error); process.exit(1); })"
+
+      - name: Runtime contract checks
+        env:
+          BASE_URL: http://127.0.0.1:5177
+        run: |
+          npm run check:device
+          npm run check:unity
+          npm run check:ops
+          npm run evidence:rehearsal -- --reset-after
+          npm run reset
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: innerworld-space-server-log
+          path: /tmp/innerworld-space-server.log

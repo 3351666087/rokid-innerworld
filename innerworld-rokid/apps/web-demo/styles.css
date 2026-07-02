@@ -423,6 +423,75 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.stage-telemetry {
+  position: absolute;
+  top: clamp(96px, 12vh, 136px);
+  right: clamp(24px, 5vw, 62px);
+  z-index: 5;
+  width: min(380px, 31vw);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(5, 8, 11, 0.66);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.34);
+}
+
+.stage-telemetry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.stage-telemetry-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stage-telemetry-head strong {
+  color: var(--green);
+  font-size: 12px;
+  text-align: right;
+}
+
+.stage-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.stage-metric {
+  min-width: 0;
+  min-height: 74px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.stage-metric span,
+.stage-metric small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stage-metric strong {
+  display: block;
+  margin: 5px 0 3px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
 .hud-topline,
 .hud-meta {
   display: flex;
@@ -638,9 +707,18 @@ textarea:focus {
 }
 
 .product-grid,
-.showcase-grid {
+.showcase-grid,
+.lens-grid,
+.risk-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.route-grid,
+.evidence-rail,
+.delivery-timeline {
+  display: grid;
   gap: 8px;
 }
 
@@ -651,6 +729,8 @@ textarea:focus {
 
 .product-card,
 .showcase-card,
+.lens-card,
+.risk-card,
 .agent-row {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -659,12 +739,16 @@ textarea:focus {
 }
 
 .product-card.wide,
-.showcase-card.wide {
+.showcase-card.wide,
+.lens-card.wide,
+.risk-card.wide {
   grid-column: 1 / -1;
 }
 
 .product-card span,
 .showcase-card span,
+.lens-card span,
+.risk-card span,
 .agent-row span {
   display: block;
   margin-bottom: 6px;
@@ -677,6 +761,8 @@ textarea:focus {
 
 .product-card strong,
 .showcase-card strong,
+.lens-card strong,
+.risk-card strong,
 .agent-row strong {
   display: block;
   color: var(--text);
@@ -687,12 +773,90 @@ textarea:focus {
 
 .product-card p,
 .showcase-card p,
+.lens-card p,
+.risk-card p,
 .agent-row p {
   margin: 6px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.42;
   overflow-wrap: anywhere;
+}
+
+.risk-card.good {
+  border-left: 3px solid var(--green);
+}
+
+.risk-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.risk-card.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.route-node {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 66px;
+  padding: 10px;
+  text-align: left;
+}
+
+.route-node.active {
+  border-color: rgba(84, 214, 255, 0.58);
+  background: rgba(84, 214, 255, 0.09);
+}
+
+.route-node.done .route-marker {
+  color: #07120f;
+  background: var(--green);
+}
+
+.route-marker {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #061014;
+  background: var(--cyan);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.route-copy {
+  min-width: 0;
+}
+
+.route-copy strong,
+.route-copy span,
+.route-state {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.route-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.route-copy span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.route-state {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
 }
 
 .agent-row {
@@ -715,6 +879,87 @@ textarea:focus {
 }
 
 .agent-state {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.evidence-item,
+.delivery-step {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  min-height: 70px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.052);
+  padding: 10px;
+}
+
+.evidence-item {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+
+.delivery-step {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.evidence-item.ready {
+  border-left: 3px solid var(--green);
+}
+
+.evidence-item.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.evidence-item.locked {
+  border-left: 3px solid var(--violet);
+}
+
+.delivery-step.active {
+  border-color: rgba(84, 214, 255, 0.5);
+  background: rgba(84, 214, 255, 0.08);
+}
+
+.evidence-badge,
+.delivery-step > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #061014;
+  background: var(--green);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.delivery-step > span:first-child {
+  width: 52px;
+  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.evidence-item strong,
+.delivery-step strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.evidence-item p,
+.delivery-step p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.evidence-state {
   color: var(--green);
   font-size: 11px;
   font-weight: 820;
@@ -800,11 +1045,17 @@ pre {
   .stage-frame {
     min-height: 690px;
   }
+
+  .stage-telemetry {
+    top: 112px;
+    right: 22px;
+    width: min(360px, calc(100% - 44px));
+  }
 }
 
 @media (max-width: 760px) {
   .spatial-stage {
-    min-height: 760px;
+    min-height: 900px;
     padding: 18px 14px 28px;
   }
 
@@ -822,6 +1073,17 @@ pre {
   .wall-meta {
     top: 24px;
     left: 24px;
+  }
+
+  .stage-telemetry {
+    top: 118px;
+    left: 24px;
+    right: 24px;
+    width: auto;
+  }
+
+  .stage-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .route-rail {
@@ -895,6 +1157,8 @@ pre {
   .control-strip,
   .product-grid,
   .showcase-grid,
+  .lens-grid,
+  .risk-grid,
   .ops-grid {
     grid-template-columns: 1fr;
   }
@@ -905,5 +1169,25 @@ pre {
 
   .step-state {
     grid-column: 2;
+  }
+
+  .route-node,
+  .agent-row,
+  .evidence-item {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .route-state,
+  .agent-state,
+  .evidence-state {
+    grid-column: 2;
+  }
+
+  .delivery-step {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .delivery-step > span:first-child {
+    width: 48px;
   }
 }

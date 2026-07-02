@@ -1,5 +1,12 @@
 const base = process.env.BASE_URL || "http://localhost:5177";
 const requireArtifacts = process.argv.includes("--require-artifacts") || process.env.REQUIRE_OPS_ARTIFACTS === "1";
+const homepageModules = [
+  "Operator Console",
+  "Mission Flow",
+  "Product System",
+  "Agent Runtime",
+  "Show Mode"
+];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -22,13 +29,36 @@ async function fetchJson(route) {
   return body;
 }
 
+async function postJson(route, payload) {
+  const res = await fetch(`${base}${route}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  assertJsonHeaders(res, route);
+  const body = await res.json();
+  assert(res.ok, `${route} status check failed`);
+  return body;
+}
+
+async function fetchText(route, label) {
+  const res = await fetch(`${base}${route}`);
+  assert(res.ok, `${label} status check failed`);
+  return res.text();
+}
+
 async function main() {
-  const [health, ops, htmlRes] = await Promise.all([
+  const [health, ops, htmlRes, appJs] = await Promise.all([
     fetchJson("/api/health"),
     fetchJson("/api/ops/status"),
-    fetch(`${base}/`)
+    fetch(`${base}/`),
+    fetchText("/app.js", "web demo app script")
   ]);
   const html = await htmlRes.text();
+  const hud = await postJson("/api/ai/hud", {
+    anchor_id: "A1",
+    mission_state: health.mission_state
+  });
 
   assert(health.ok === true, "health ok check failed");
   assert(ops.ok === true, "ops ok check failed");
@@ -44,8 +74,13 @@ async function main() {
   assert(ops.hardware.devices.some((device) => device.model === "RAS201"), "ops hardware RAS201 missing");
 
   assert(htmlRes.ok, "homepage status check failed");
-  assert(html.includes("现场状态"), "homepage ops panel text missing");
-  assert(!/[闀锘浼绉]/.test(html), "homepage contains mojibake markers");
+  for (const moduleLabel of homepageModules) {
+    assert(html.includes(moduleLabel), `homepage module missing: ${moduleLabel}`);
+  }
+  assert(appJs.includes("/api/ai/hud"), "web demo HUD route missing");
+  assert(typeof hud.mission_state === "string", "AI HUD mission_state check failed");
+  assert(typeof hud.display_text === "string" && hud.display_text.length > 0, "AI HUD display_text check failed");
+  assert(["none", "weak", "strong"].includes(hud.hint_level), "AI HUD hint_level check failed");
 
   if (ops.packages?.main_package) {
     assert(ops.packages.main_package.exists !== false, "main package exists check failed");
@@ -79,7 +114,8 @@ async function main() {
     deploy_dry_run_ok: ops.deploy_dry_run?.ok ?? null,
     ops_monitor_ok: ops.ops_monitor?.ok ?? null,
     hardware_devices: ops.hardware.devices.map((device) => device.model).join(","),
-    homepage_ops_panel: true
+    homepage_modules: homepageModules,
+    ai_hud_ok: true
   }, null, 2));
 }
 

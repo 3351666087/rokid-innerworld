@@ -51,14 +51,21 @@ const els = {
   hudHintLevel: document.querySelector("#hudHintLevel"),
   hudMeta: document.querySelector("#hudMeta"),
   hudTitle: document.querySelector("#hudTitle"),
+  deliveryTimeline: document.querySelector("#deliveryTimeline"),
+  evidenceRail: document.querySelector("#evidenceRail"),
   agentQueue: document.querySelector("#agentQueue"),
+  lensGrid: document.querySelector("#lensGrid"),
+  lensState: document.querySelector("#lensState"),
   log: document.querySelector("#log"),
   missionState: document.querySelector("#missionState"),
   opsGrid: document.querySelector("#opsGrid"),
   productGrid: document.querySelector("#productGrid"),
   progress: document.querySelector("#progress"),
+  riskGrid: document.querySelector("#riskGrid"),
+  routeGrid: document.querySelector("#routeGrid"),
   showcaseGrid: document.querySelector("#showcaseGrid"),
   spaceName: document.querySelector("#spaceName"),
+  stageMetrics: document.querySelector("#stageMetrics"),
   stepper: document.querySelector("#stepper"),
   userBadge: document.querySelector("#userBadge"),
   writeText: document.querySelector("#writeText")
@@ -161,6 +168,20 @@ function compact(value) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function percent(value, total) {
+  if (!total) return 0;
+  return Math.round(clamp(value / total, 0, 1) * 100);
+}
+
+function missionProgress() {
+  const total = missionSteps().length;
+  return {
+    done: completedSteps().size,
+    total,
+    value: percent(completedSteps().size, total)
+  };
 }
 
 function shortHash(value) {
@@ -336,6 +357,8 @@ function renderHud() {
   renderMetaPill(aiError ? "AI route fallback" : null);
 
   renderAgentQueue();
+  renderStageMetrics();
+  renderDeliveryScript();
   renderLog();
 }
 
@@ -409,6 +432,9 @@ function renderSteps() {
     bar.className = isDone ? "done" : "";
     els.progress.append(bar);
   });
+
+  renderRouteMap();
+  renderDeliveryScript();
 }
 
 function renderOpsItem(label, value, tone = "neutral", options = {}) {
@@ -433,6 +459,180 @@ function renderInfoCard(className, label, title, body, options = {}) {
   bodyNode.textContent = body;
   card.append(labelNode, titleNode, bodyNode);
   return card;
+}
+
+function renderRouteMap() {
+  if (!els.routeGrid || !model.space) return;
+  const completed = completedSteps();
+  els.routeGrid.innerHTML = "";
+
+  anchors().forEach((anchor, index) => {
+    const step = missionSteps().find((item) => item.anchor_id === anchor.anchor_id);
+    const isActive = anchor.anchor_id === model.currentAnchor;
+    const isDone = step ? completed.has(step.step_id) : index === 0;
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = ["route-node", isActive ? "active" : "", isDone ? "done" : ""].filter(Boolean).join(" ");
+    node.dataset.anchor = anchor.anchor_id;
+
+    const marker = document.createElement("span");
+    marker.className = "route-marker";
+    marker.textContent = anchor.anchor_id || String(index + 1);
+
+    const copy = document.createElement("span");
+    copy.className = "route-copy";
+    const title = document.createElement("strong");
+    title.textContent = anchor.label || anchor.anchor_id;
+    const body = document.createElement("span");
+    body.textContent = `${anchor.kind || "anchor"} · ${beaconsForAnchor(anchor.anchor_id).length} beacons`;
+    copy.append(title, body);
+
+    const state = document.createElement("span");
+    state.className = "route-state";
+    state.textContent = isActive ? "live" : isDone ? "seen" : "queued";
+
+    node.append(marker, copy, state);
+    node.addEventListener("click", () => setCurrentAnchor(anchor.anchor_id));
+    els.routeGrid.append(node);
+  });
+}
+
+function renderStageMetrics() {
+  if (!els.stageMetrics) return;
+  const progress = missionProgress();
+  const anchor = anchorById(model.currentAnchor);
+  const hardwareFit = model.ops?.hardware?.fit === "fit";
+  const aiOnline = model.hudByAnchor.has(model.currentAnchor);
+  const baseUrl = model.bootstrap?.base_url || window.location.origin;
+  const metrics = [
+    ["Anchor", model.currentAnchor || "A1", anchor?.kind || "entry"],
+    ["Mission", `${progress.value}%`, `${progress.done}/${progress.total}`],
+    ["AI HUD", aiOnline ? "online" : "fallback", aiOnline ? "schema" : "rules"],
+    ["Device", hardwareFit ? "fit" : "sim", isLoopback(baseUrl) ? "localhost" : "lan"]
+  ];
+
+  els.stageMetrics.innerHTML = "";
+  metrics.forEach(([label, value, meta]) => {
+    const item = document.createElement("div");
+    item.className = "stage-metric";
+    const labelNode = document.createElement("span");
+    labelNode.textContent = label;
+    const valueNode = document.createElement("strong");
+    valueNode.textContent = value;
+    const metaNode = document.createElement("small");
+    metaNode.textContent = meta;
+    item.append(labelNode, valueNode, metaNode);
+    els.stageMetrics.append(item);
+  });
+
+  if (els.lensState) {
+    els.lensState.textContent = hardwareFit ? "AR Studio Ready" : "Localhost Lens";
+  }
+}
+
+function renderLensPanel() {
+  if (!els.lensGrid) return;
+  const baseUrl = model.bootstrap?.base_url || window.location.origin;
+  const anchor = anchorById(model.currentAnchor);
+  const endpoints = model.bootstrap?.endpoints || {};
+  const hardware = summarizeHardware(model.ops?.hardware);
+  const pose = anchor?.pose
+    ? `x ${anchor.pose.x}, y ${anchor.pose.y}, z ${anchor.pose.z}`
+    : "pose pending";
+
+  els.lensGrid.innerHTML = "";
+  els.lensGrid.append(
+    renderInfoCard("lens-card", "View", anchor?.label || "入口海报", pose),
+    renderInfoCard("lens-card", "Runtime", isLoopback(baseUrl) ? "Localhost" : "LAN", baseUrl),
+    renderInfoCard("lens-card", "Hardware", model.ops?.hardware?.fit === "fit" ? "AR Studio Kit" : "Fallback", hardware, { wide: true }),
+    renderInfoCard("lens-card", "HUD Endpoint", endpointUrl(endpoints.ai_hud || "/api/ai/hud"), "AI 输出只换文案与动作建议，不改空间契约。", { wide: true })
+  );
+}
+
+function renderEvidenceChain() {
+  if (!els.evidenceRail) return;
+  const packages = model.ops?.packages || {};
+  const releaseOk = model.ops?.release_index?.ok;
+  const dryRunOk = model.ops?.deploy_dry_run?.ok;
+  const schemaTitle = model.bootstrap?.ai?.output_schema_title || "InnerWorld HUD AI Output";
+  const items = [
+    ["01", "WeChat Evidence", "群聊、PDF、附件和时间线留在本地证据区，不进公开仓库。", "locked"],
+    ["02", "Space Contract", `${anchors().length} anchors · ${model.space?.beacons?.length || 0} beacons · stable JSON`, "ready"],
+    ["03", "AI HUD Schema", schemaTitle, model.bootstrap?.endpoints?.ai_hud ? "ready" : "fallback"],
+    ["04", "Release Package", packages.main_package?.exists ? shortHash(packages.main_package.sha256) : "pending", packages.main_package?.exists ? "ready" : "warn"],
+    ["05", "Deploy Dry Run", dryRunOk ? "server zip verified" : releaseOk ? "release indexed" : "pending", dryRunOk ? "ready" : "warn"]
+  ];
+
+  els.evidenceRail.innerHTML = "";
+  items.forEach(([badge, title, body, state]) => {
+    const item = document.createElement("div");
+    item.className = `evidence-item ${state}`;
+    const badgeNode = document.createElement("span");
+    badgeNode.className = "evidence-badge";
+    badgeNode.textContent = badge;
+    const copy = document.createElement("div");
+    const titleNode = document.createElement("strong");
+    titleNode.textContent = title;
+    const bodyNode = document.createElement("p");
+    bodyNode.textContent = body;
+    copy.append(titleNode, bodyNode);
+    const stateNode = document.createElement("span");
+    stateNode.className = "evidence-state";
+    stateNode.textContent = state;
+    item.append(badgeNode, copy, stateNode);
+    els.evidenceRail.append(item);
+  });
+}
+
+function renderDeliveryScript() {
+  if (!els.deliveryTimeline) return;
+  const progress = missionProgress();
+  const current = activeStep()?.step_id || "read";
+  const rows = [
+    ["00:00", "开场", "观众看到真实展墙，眼镜端叠出第一层记忆。", current === "read"],
+    ["00:20", "读取", "A2 汇总前人留言，HUD 只给低噪音三行摘要。", current === "read" || current === "find_year"],
+    ["00:45", "服务", "加入 14:30 体验活动，证明不是静态导览页。", current === "service_action"],
+    ["01:10", "写回", "A3 写入时间胶囊，下一位用户立即能看到状态变化。", current === "write_back"],
+    ["01:30", "收束", `任务进度 ${progress.done}/${progress.total}，输出包和部署 dry-run 可复验。`, progress.value === 100]
+  ];
+
+  els.deliveryTimeline.innerHTML = "";
+  rows.forEach(([time, title, body, active]) => {
+    const item = document.createElement("div");
+    item.className = `delivery-step${active ? " active" : ""}`;
+    const timeNode = document.createElement("span");
+    timeNode.textContent = time;
+    const copy = document.createElement("div");
+    const titleNode = document.createElement("strong");
+    titleNode.textContent = title;
+    const bodyNode = document.createElement("p");
+    bodyNode.textContent = body;
+    copy.append(titleNode, bodyNode);
+    item.append(timeNode, copy);
+    els.deliveryTimeline.append(item);
+  });
+}
+
+function renderRiskGuardrails() {
+  if (!els.riskGrid) return;
+  const warnings = [
+    ...(model.ops?.release_index?.warnings || []),
+    ...(model.ops?.env_doctor?.warnings || [])
+  ];
+  const cFree = Number(model.ops?.ops_monitor?.c_free_gb_after);
+  const cDriveTone = Number.isFinite(cFree) ? (cFree < 8 ? "bad" : cFree < 25 ? "warn" : "good") : "warn";
+  const rows = [
+    ["Secrets", "Env only", "Qwen/API keys 只读环境变量和 ignored local 文件。", "good"],
+    ["Raw Evidence", "Private", "群聊、截图、导出附件和运行态不推 GitHub。", "good"],
+    ["C Drive", Number.isFinite(cFree) ? `${cFree.toFixed(1)}GB` : "watching", "缓存清理由 ops 脚本频繁执行，低于阈值直接报警。", cDriveTone],
+    ["LAN", isLoopback(model.bootstrap?.base_url || window.location.origin) ? "localhost" : "ready", "硬件到场前本机闭环，现场切 LAN URL。", "good"],
+    ["Warnings", String(warnings.length), warnings.at(0) || "No active release warning.", warnings.length ? "warn" : "good"]
+  ];
+
+  els.riskGrid.innerHTML = "";
+  rows.forEach(([label, title, body, tone]) => {
+    els.riskGrid.append(renderInfoCard(`risk-card ${tone}`, label, title, body));
+  });
 }
 
 function renderProductModules() {
@@ -547,8 +747,12 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   els.opsGrid.append(...cards);
   els.connectionPill.textContent = health.demo_ready ? "Space Server online" : "Local fallback";
   els.connectionPill.className = `status-pill ${health.demo_ready ? "good" : "warn"}`;
+  renderStageMetrics();
+  renderLensPanel();
   renderProductModules();
+  renderEvidenceChain();
   renderShowcase();
+  renderRiskGuardrails();
 }
 
 async function refreshOps() {
@@ -605,9 +809,15 @@ async function refresh(options = {}) {
   renderAnchors();
   renderSteps();
   renderHud();
+  renderRouteMap();
+  renderStageMetrics();
+  renderLensPanel();
   renderProductModules();
   renderAgentQueue();
+  renderEvidenceChain();
   renderShowcase();
+  renderDeliveryScript();
+  renderRiskGuardrails();
   await refreshOps();
   requestAiHud(model.currentAnchor);
 }

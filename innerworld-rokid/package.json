@@ -14,6 +14,7 @@
     "check:security": "node server/space-server/check-security.js",
     "check:readonly": "node server/space-server/check-readonly.js",
     "check:ops": "node server/space-server/check-ops.js",
+    "check:web": "node server/space-server/check-web-demo.js",
     "check:unity": "node server/space-server/check-unity.js",
     "env:doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/env-doctor.ps1",
     "evidence:rehearsal": "node server/space-server/capture-rehearsal.js",
