@@ -1,4 +1,5 @@
 const base = process.env.BASE_URL || "http://localhost:5177";
+const outboxLimit = 200;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -70,7 +71,7 @@ async function main() {
   assertNoSensitiveText(created, "create response");
 
   const recordId = created.record.action_record_id;
-  const pendingOutbox = await fetchJson("/api/service-actions/outbox?status=pending&limit=20", "pending_outbox");
+  const pendingOutbox = await fetchJson(`/api/service-actions/outbox?status=pending&limit=${outboxLimit}`, "pending_outbox");
   assert(pendingOutbox.ok === true, "pending outbox ok failed");
   assert(pendingOutbox.schema === "innerworld-service-action-outbox/v1", "pending outbox schema failed");
   assert(pendingOutbox.outbox.some((record) => record.action_record_id === recordId), "pending outbox record missing");
@@ -90,8 +91,8 @@ async function main() {
   assertNoSensitiveText(acked, "ack response");
 
   const [ackOutbox, allOutbox, ledgerSummary, ledgerEvents, storeStatus] = await Promise.all([
-    fetchJson("/api/service-actions/outbox?status=acknowledged&limit=20", "ack_outbox"),
-    fetchJson("/api/service-actions/outbox?status=all&limit=20", "all_outbox"),
+    fetchJson(`/api/service-actions/outbox?status=acknowledged&limit=${outboxLimit}`, "ack_outbox"),
+    fetchJson(`/api/service-actions/outbox?status=all&limit=${outboxLimit}`, "all_outbox"),
     fetchJson("/api/ledger/summary", "ledger_summary"),
     fetchJson("/api/ledger/events?type=service_action&limit=20", "ledger_events"),
     fetchJson("/api/store/status", "store_status")

@@ -968,6 +968,7 @@ textarea:focus {
 .lens-grid,
 .ledger-grid,
 .hardware-grid,
+.acceptance-grid,
 .calibration-grid,
 .risk-grid {
   position: relative;
@@ -1078,6 +1079,7 @@ textarea:focus {
 .lens-card,
 .ledger-card,
 .hardware-card,
+.acceptance-card,
 .calibration-card,
 .risk-card,
 .binding-current,
@@ -1096,6 +1098,7 @@ textarea:focus {
 .lens-card:hover,
 .ledger-card:hover,
 .hardware-card:hover,
+.acceptance-card:hover,
 .calibration-card:hover,
 .risk-card:hover,
 .binding-current:hover,
@@ -1110,6 +1113,7 @@ textarea:focus {
 .lens-card.wide,
 .ledger-card.wide,
 .hardware-card.wide,
+.acceptance-card.wide,
 .calibration-card.wide,
 .risk-card.wide,
 .binding-current.wide {
@@ -1121,6 +1125,7 @@ textarea:focus {
 .lens-card span,
 .ledger-card span,
 .hardware-card span,
+.acceptance-card span,
 .calibration-card span,
 .risk-card span,
 .binding-current span,
@@ -1140,6 +1145,7 @@ textarea:focus {
 .lens-card strong,
 .ledger-card strong,
 .hardware-card strong,
+.acceptance-card strong,
 .calibration-card strong,
 .risk-card strong,
 .binding-current strong,
@@ -1157,6 +1163,7 @@ textarea:focus {
 .lens-card p,
 .ledger-card p,
 .hardware-card p,
+.acceptance-card p,
 .calibration-card p,
 .risk-card p,
 .binding-current p,
@@ -1177,6 +1184,10 @@ textarea:focus {
   border-left: 3px solid var(--green);
 }
 
+.acceptance-card.good {
+  border-left: 3px solid var(--green);
+}
+
 .calibration-card.good {
   border-left: 3px solid var(--green);
 }
@@ -1191,6 +1202,10 @@ textarea:focus {
   border-left: 3px solid var(--amber);
 }
 
+.acceptance-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
 .calibration-card.warn {
   border-left: 3px solid var(--amber);
 }
@@ -1202,6 +1217,10 @@ textarea:focus {
 }
 
 .hardware-card.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.acceptance-card.bad {
   border-left: 3px solid var(--rose);
 }
 
@@ -1307,11 +1326,86 @@ textarea:focus {
 }
 
 .field-marker-list,
+.acceptance-gate-list,
 .calibration-anchor-list,
 .calibration-actions {
   grid-column: 1 / -1;
   display: grid;
   gap: 8px;
+}
+
+.acceptance-gate {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(74px, auto);
+  align-items: center;
+  gap: 9px;
+  min-height: 66px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.046);
+}
+
+.acceptance-gate.good {
+  border-left: 3px solid var(--green);
+}
+
+.acceptance-gate.warn {
+  border-left: 3px solid var(--amber);
+}
+
+.acceptance-gate.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.acceptance-gate-badge {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #061014;
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  font-size: 10px;
+  font-weight: 900;
+  overflow: hidden;
+}
+
+.acceptance-gate.warn .acceptance-gate-badge {
+  background: linear-gradient(135deg, var(--amber), rgba(255, 255, 255, 0.68));
+}
+
+.acceptance-gate.bad .acceptance-gate-badge {
+  background: linear-gradient(135deg, var(--rose), rgba(255, 255, 255, 0.68));
+}
+
+.acceptance-gate strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-gate p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-gate-status {
+  justify-self: end;
+  max-width: 112px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1.2;
+  text-align: right;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .field-marker-card {
@@ -1909,6 +2003,7 @@ pre {
   .binding-grid,
   .ledger-grid,
   .hardware-grid,
+  .acceptance-grid,
   .calibration-grid,
   .risk-grid,
   .ops-grid {
@@ -1927,6 +2022,7 @@ pre {
   .agent-row,
   .ledger-event,
   .field-marker-card,
+  .acceptance-gate,
   .calibration-anchor,
   .evidence-item {
     grid-template-columns: 30px minmax(0, 1fr);
@@ -1936,12 +2032,14 @@ pre {
   .agent-state,
   .ledger-event span,
   .field-marker-status,
+  .acceptance-gate-status,
   .calibration-anchor button,
   .evidence-state {
     grid-column: 2;
   }
 
-  .field-marker-status {
+  .field-marker-status,
+  .acceptance-gate-status {
     justify-self: start;
     max-width: 100%;
     text-align: left;

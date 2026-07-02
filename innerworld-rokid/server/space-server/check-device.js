@@ -179,6 +179,7 @@ async function main() {
   assertEndpoint(endpoints.wall_calibration, "wall_calibration");
   assertEndpoint(endpoints.wall_calibration_observations, "wall_calibration_observations", "POST");
   assertEndpoint(endpoints.field_markers, "field_markers");
+  assertEndpoint(endpoints.field_acceptance, "field_acceptance");
   assertEndpoint(endpoints.device_bootstrap, "device_bootstrap");
   assertEndpoint(endpoints.device_manifest, "device_manifest");
   assertEndpoint(endpoints.device_register, "device_register", "POST");
@@ -196,9 +197,9 @@ async function main() {
   assertEndpoint(endpoints.service_actions, "service_actions", "POST");
   assertEndpoint(endpoints.write_back, "write_back", "POST");
   assertEndpoint(endpoints.reset, "reset", "POST");
-  assert(Object.keys(endpoints).length >= 29, "endpoint count check failed");
+  assert(Object.keys(endpoints).length >= 30, "endpoint count check failed");
 
-  const [health, space, aiSchema, aiPrompt, evidenceChain, sessionPlan, wallCalibration, fieldMarkers, deviceManifest, storeStatus, datasetCatalog, initialLedgerSummary, initialLedgerEvents] = await Promise.all([
+  const [health, space, aiSchema, aiPrompt, evidenceChain, sessionPlan, wallCalibration, fieldMarkers, fieldAcceptance, deviceManifest, storeStatus, datasetCatalog, initialLedgerSummary, initialLedgerEvents] = await Promise.all([
     fetchJson(endpoints.health.url, "health"),
     fetchJson(endpoints.space.url, "space"),
     fetchJson(endpoints.ai_schema.url, "ai_schema"),
@@ -207,6 +208,7 @@ async function main() {
     fetchJson(endpoints.session_plan.url, "session_plan"),
     fetchJson(endpoints.wall_calibration.url, "wall_calibration"),
     fetchJson(endpoints.field_markers.url, "field_markers"),
+    fetchJson(endpoints.field_acceptance.url, "field_acceptance"),
     fetchJson(endpoints.device_manifest.url, "device_manifest"),
     fetchJson(endpoints.store_status.url, "store_status"),
     fetchJson(endpoints.dataset_catalog.url, "dataset_catalog"),
@@ -259,6 +261,23 @@ async function main() {
   assert(fieldMarkers.markers.some((marker) => marker.anchor_id === "A2" && marker.marker?.marker_id === "A2:image-target"), "field markers A2 target failed");
   assert(fieldMarkers.markers.some((marker) => marker.anchor_id === "A3" && marker.marker?.marker_id === "A3:image-target"), "field markers A3 target failed");
   assert(fieldMarkers.markers.every((marker) => marker.expected_pose?.position && marker.print?.payload_url && marker.field_role?.operator_action), "field markers print/runtime binding failed");
+  assert(fieldAcceptance.ok === true, "field acceptance ok check failed");
+  assert(fieldAcceptance.schema === "innerworld-field-acceptance/v1", "field acceptance schema check failed");
+  assert(fieldAcceptance.endpoint?.path === "/api/field/acceptance", "field acceptance endpoint failed");
+  assert(fieldAcceptance.source_of_truth?.field_markers?.path === "/api/field/markers", "field acceptance marker source failed");
+  assert(fieldAcceptance.source_of_truth?.wall_calibration?.path === "/api/calibration/wall", "field acceptance calibration source failed");
+  assert(Array.isArray(fieldAcceptance.gates) && fieldAcceptance.gates.length >= 7, "field acceptance gate count failed");
+  assert(fieldAcceptance.gates.some((gate) => gate.id === "print_kit"), "field acceptance print kit gate failed");
+  assert(fieldAcceptance.gates.some((gate) => gate.id === "simulator_rehearsal"), "field acceptance rehearsal gate failed");
+  const hardwareGate = fieldAcceptance.gates.find((gate) => gate.id === "hardware_alignment");
+  assert(hardwareGate, "field acceptance hardware gate failed");
+  assert(Array.isArray(hardwareGate.required_tracking_modes), "field acceptance hardware tracking modes failed");
+  assert(hardwareGate.required_tracking_modes.includes("qr"), "field acceptance QR tracking mode failed");
+  assert(hardwareGate.required_tracking_modes.includes("image_tracking"), "field acceptance image tracking mode failed");
+  assert(hardwareGate.required_tracking_modes.includes("slam"), "field acceptance SLAM tracking mode failed");
+  assert(hardwareGate.required_tracking_modes.includes("simulator") === false, "field acceptance simulator hardware tracking leak failed");
+  assert(fieldAcceptance.summary?.all_simulator_ready_for_hardware === false, "field acceptance all-simulator guard failed");
+  assert(fieldAcceptance.summary?.simulator_rehearsal_is_not_hardware_ready === true, "field acceptance simulator separation failed");
   assert(deviceManifest.ok === true, "device manifest ok check failed");
   assert(deviceManifest.schema === "innerworld-device-runtime-manifest/v1", "device manifest schema check failed");
   assert(deviceManifest.expected_kit?.devices?.some((device) => device.model === "RA202"), "device manifest RA202 check failed");
@@ -543,6 +562,9 @@ async function main() {
     wall_calibration_anchors: wallCalibration.anchors.length,
     field_markers_schema: fieldMarkers.schema,
     field_markers: fieldMarkers.markers.map((marker) => marker.marker.marker_id),
+    field_acceptance_schema: fieldAcceptance.schema,
+    field_acceptance_status: fieldAcceptance.status,
+    field_acceptance_gates: fieldAcceptance.gates.map((gate) => gate.id),
     wall_calibration_observation_status: calibrationObservation.observation.status,
     ai_hud_hint_level: hud.hint_level,
     prompt_chars: aiPrompt.prompt.length,

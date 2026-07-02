@@ -855,6 +855,24 @@ async function assertServerCoreSkeleton() {
   return "verified";
 }
 
+async function assertFieldAcceptanceCheckSkeleton() {
+  const [check, packageJson] = await Promise.all([
+    readText("server/space-server/check-field-acceptance.js"),
+    readText("package.json")
+  ]);
+
+  assert(check.includes("innerworld-field-acceptance/v1"), "field acceptance schema check missing");
+  assert(check.includes("/api/field/acceptance"), "field acceptance endpoint check missing");
+  assert(check.includes("print_kit"), "field acceptance print kit gate missing");
+  assert(check.includes("simulator_rehearsal"), "field acceptance simulator rehearsal gate missing");
+  assert(check.includes("hardware_alignment"), "field acceptance hardware alignment gate missing");
+  assert(check.includes("all_simulator_ready_for_hardware"), "field acceptance simulator hardware guard missing");
+  assert(check.includes("ready_for_hardware === false"), "field acceptance hardware-ready negative assertion missing");
+  assert(check.includes("required_tracking_modes") && check.includes("qr") && check.includes("image_tracking") && check.includes("slam"), "field acceptance hardware tracking modes missing");
+  assert(packageJson.includes("\"check:field-acceptance\""), "package field acceptance check script missing");
+  return "verified";
+}
+
 async function main() {
   const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
     readJson("data/space_demo.json"),
@@ -876,6 +894,7 @@ async function main() {
   assertAiHudGenerator(space, aiSchema);
   assertStateMachine(space);
   const server_core = await assertServerCoreSkeleton();
+  const fieldAcceptanceCheck = await assertFieldAcceptanceCheckSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
 
@@ -926,6 +945,7 @@ async function main() {
     session_plan: "server/space-server/src/domain/session-planner.js",
     wall_calibration: WALL_CALIBRATION_SCHEMA,
     field_markers: FIELD_MARKER_SCHEMA,
+    field_acceptance_check: fieldAcceptanceCheck,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,

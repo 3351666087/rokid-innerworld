@@ -78,12 +78,14 @@ Hardware arrival should start with wall calibration, not with ad hoc placement.
 
 - Fetch `GET /api/calibration/wall` from Unity/Rokid to obtain the A1/A2/A3 wall coordinate system, expected poses, marker types, acceptance thresholds, and the observation endpoint.
 - Fetch `GET /api/field/markers` when the device/operator needs the printable marker plan: marker ids, tracking modes, public URLs, operator actions, and evidence sources are derived from the same wall calibration contract.
+- Fetch `GET /api/field/acceptance` when the device/operator needs the authoritative site gate: print kit, simulator rehearsal, hardware alignment, mission/write-back loop, SQLite evidence, release/deploy chain, and applied hardware kit are evaluated together.
 - Submit `POST /api/calibration/observations` with `session_id`, `device_id`, `anchor_id`, `tracking_mode`, `observed_pose`, `confidence`, `notes`, and `client_time`.
 - Accepted observations prove a marker is close enough to the configured wall pose; warning observations are usable but need operator attention; rejected observations block hardware confidence for that anchor.
 - The SQLite store persists sanitized calibration observations and exposes a summary through the same API. Raw network/device identifiers are redacted.
 - Calibration `ready_for_hardware` is latest-hardware-observation based: A1/A2/A3 only count when their latest accepted/warning observation uses `qr`, `image_tracking`, or `slam`; simulator/manual observations can make rehearsal evidence but cannot claim hardware readiness. If a later hardware observation for that anchor is rejected, the anchor is no longer counted ready.
 - Calibration can use QR, image tracking, SLAM, manual, or simulator modes, but field hardware evidence must use QR/image tracking/SLAM for A1/A2/A3 marker lock.
 - The Web operator console has a Wall Calibration / Field Kit panel that reads the same manifests, displays A1/A2/A3 marker id/type/tracking modes/expected pose/latest observation state, shows confidence, position error, rejected issues, and evidence source, separates print-kit readiness from simulator rehearsal and hardware readiness, and can submit simulator observations before hardware arrives.
+- The Web operator console also has a Field Acceptance / Site Gates panel. Use it as the final field decision surface: simulator/manual observations may clear rehearsal gates, but only QR/image tracking/SLAM observations can clear hardware alignment.
 
 ## Unity Adapter Boundary
 
@@ -107,11 +109,11 @@ The Unity runtime now has a compile-safe SDK boundary:
 5. Run `npm run check:field-markers` after `npm run pdf:fieldkit`; do not place cards on the wall if A1/A2/A3 marker ids or expected poses fail this check.
 6. In Unity Package Manager, add the official Rokid UXR/OpenXR registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
 7. Build an Android/Rokid APK from Unity, keeping `Assets/Plugins/Android/InnerWorldNetwork.androidlib` for HTTP LAN access during local demo.
-8. Open the Web Wall Calibration / Field Kit panel, confirm the wall manifest, A1/A2/A3 field marker ids, tracking modes, expected poses, and print-kit readiness, then fetch `/api/calibration/wall` and `/api/field/markers` from Unity/Rokid, rehearse simulator/manual observations, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
+8. Open the Web Wall Calibration / Field Kit panel, confirm the wall manifest, A1/A2/A3 field marker ids, tracking modes, expected poses, and print-kit readiness, then fetch `/api/calibration/wall`, `/api/field/markers`, and `/api/field/acceptance` from Unity/Rokid, rehearse simulator/manual observations, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
 9. Replace only the input/display adapters:
    - Input: gaze/ray/gesture/voice/keyboard events map to `SelectAnchor`, `CompleteNextStep`, `PostServiceAction`, and `PostWriteBack`.
    - Display: UXR binocular/spatial overlay renders the same HUD text, anchor labels, and mission state currently shown by the fallback.
-   - Networking: `SpaceApiClient` keeps using `/api/device/bootstrap`, `/api/calibration/wall`, `/api/field/markers`, `/api/spaces/{id}`, `/api/ai/hud`, `/api/evidence/chain`, and `/api/session/plan`.
+   - Networking: `SpaceApiClient` keeps using `/api/device/bootstrap`, `/api/calibration/wall`, `/api/field/markers`, `/api/field/acceptance`, `/api/spaces/{id}`, `/api/ai/hud`, `/api/evidence/chain`, and `/api/session/plan`.
 10. Run field acceptance:
    - A1 opens the memory layer.
    - A2 shows public memory content.
@@ -158,6 +160,7 @@ The bootstrap response includes:
 - `endpoints.wall_calibration.url`: A1/A2/A3 wall coordinate system, marker plan, and acceptance thresholds.
 - `endpoints.wall_calibration_observations.url`: calibration observation write path for Unity/Rokid.
 - `endpoints.field_markers.url`: printable A1/A2/A3 marker manifest for field setup and device-side marker plan checks.
+- `endpoints.field_acceptance.url`: site gate manifest for print kit, rehearsal, hardware alignment, mission loop, SQLite evidence, release chain, and applied hardware kit.
 - `client_hints`: polling intervals, timeout, cache policy, and write-back anchor.
 - `unity_compat.config`: the same `{ base_url, space_id }` shape used by the Unity fallback.
 
@@ -171,13 +174,15 @@ npm run check:ops -- --require-artifacts
 npm run check:web
 npm run check:unity
 npm run check:field-markers
+npm run check:field-acceptance
 ```
 
-`check:device` verifies `/api/device/bootstrap`, follows the advertised URLs, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
+`check:device` verifies `/api/device/bootstrap`, follows the advertised URLs including `/api/field/acceptance`, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
 `check:web` verifies the operator console keeps the Wall Calibration / Field Kit panel, `/api/field/markers` API hook, marker-card rendering, API read/write hooks, simulator lock actions, readiness separation, and trace fields.
 `check:unity` verifies the controller actively fetches/parses the wall calibration and field marker manifests and POSTs simulator/manual observations instead of only declaring protocol DTOs.
 `check:store` verifies the SQLite summary separates simulator/manual rehearsal from hardware readiness, uses each anchor's latest observation, and blocks `ready_for_hardware` unless A1/A2/A3 have accepted/warning QR/image tracking/SLAM observations.
 `check:field-markers` verifies printable marker cards stay synchronized with wall calibration and the field kit PDF/HTML.
+`check:field-acceptance` verifies the site gate schema, endpoint, all required gate IDs, hardware tracking mode whitelist, and the all-simulator negative guard.
 
 ## Runtime Flow
 
@@ -186,10 +191,11 @@ npm run check:field-markers
 3. Use `endpoints.nearby_pins.url` to map A1/A2/A3 to visible overlays.
 4. Fetch `endpoints.wall_calibration.url`, display the returned readiness summary, and submit marker observations before claiming hardware alignment.
 5. Fetch `endpoints.field_markers.url` to confirm A1:qr-entry, A2:image-target, A3:image-target, tracking modes, and printable payload URLs.
-6. POST task progress to `endpoints.interactions.url`.
-7. POST service intent to `endpoints.service_actions.url`.
-8. POST user write-back text to `endpoints.write_back.url`.
-9. Re-fetch state/space after every POST. API JSON uses `Cache-Control: no-store`.
+6. Fetch `endpoints.field_acceptance.url` and read gate status plus blocking items before claiming site readiness.
+7. POST task progress to `endpoints.interactions.url`.
+8. POST service intent to `endpoints.service_actions.url`.
+9. POST user write-back text to `endpoints.write_back.url`.
+10. Re-fetch state/space/field acceptance after every POST. API JSON uses `Cache-Control: no-store`.
 
 ## LAN Notes
 

@@ -131,6 +131,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint wall_calibration;
         public SpaceApiEndpoint wall_calibration_observations;
         public SpaceApiEndpoint field_markers;
+        public SpaceApiEndpoint field_acceptance;
         public SpaceApiEndpoint ai_schema;
         public SpaceApiEndpoint ai_prompt;
         public SpaceApiEndpoint ai_hud;
@@ -464,6 +465,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint wall_calibration;
         public SpaceApiEndpoint wall_calibration_observations;
         public SpaceApiEndpoint field_markers;
+        public SpaceApiEndpoint field_acceptance;
         public SpaceApiEndpoint ai_hud;
         public SpaceApiEndpoint interactions;
         public SpaceApiEndpoint service_actions;
@@ -761,6 +763,114 @@ namespace InnerWorld.Rokid.Protocol
         public string[] required_runtime_fields;
         public string[] pdf_tokens;
         public bool runtime_fields_bound_to_wall_calibration;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceManifest
+    {
+        public bool ok;
+        public string schema;
+        public string generated_at;
+        public SpaceApiEndpoint endpoint;
+        public string base_url;
+        public string space_id;
+        public string status;
+        public bool ready;
+        public FieldAcceptanceSummary summary;
+        public FieldAcceptanceSourceOfTruth source_of_truth;
+        public FieldAcceptanceGate[] gates;
+        public FieldAcceptanceBlockingItem[] blocking_items;
+        public string[] next_actions;
+        public string[] hardware_modes_required;
+        public string[] required_marker_ids;
+        public string privacy;
+        public FieldAcceptanceDebug debug;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceSummary
+    {
+        public int ready_gates;
+        public int warn_gates;
+        public int pending_gates;
+        public int blocked_gates;
+        public bool ready_for_hardware;
+        public int hardware_evidence_count;
+        public bool all_simulator_ready_for_hardware;
+        public bool simulator_rehearsal_is_not_hardware_ready;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceSourceOfTruth
+    {
+        public SpaceApiEndpoint field_markers;
+        public SpaceApiEndpoint wall_calibration;
+        public SpaceApiEndpoint calibration_observations;
+        public SpaceApiEndpoint mission_state;
+        public SpaceApiEndpoint ledger_summary;
+        public SpaceApiEndpoint ops_status;
+        public SpaceApiEndpoint evidence_chain;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceGate
+    {
+        public string id;
+        public string label;
+        public string title;
+        public string status;
+        public string summary;
+        public string source;
+        public string[] required;
+        public string[] required_tracking_modes;
+        public FieldAcceptanceGateEvidence evidence;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceGateEvidence
+    {
+        public string schema;
+        public string[] marker_ids;
+        public int expected_pose_count;
+        public string[] required_marker_ids;
+        public bool runtime_fields_bound_to_wall_calibration;
+        public bool rehearsal_ready;
+        public int calibrated_anchor_count;
+        public string[] calibrated_anchor_ids;
+        public bool ready_for_hardware;
+        public int hardware_calibrated_anchor_count;
+        public string[] hardware_calibrated_anchor_ids;
+        public string[] hardware_tracking_modes;
+        public string mission_state;
+        public string[] completed_steps;
+        public string[] missing_steps;
+        public int beacon_count;
+        public int write_back_beacons;
+        public string engine;
+        public int event_count;
+        public bool release_index_ok;
+        public bool deploy_dry_run_ok;
+        public string release_generated_at;
+        public string deploy_generated_at;
+        public string fit;
+        public string[] models;
+        public string borrow_deadline;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceBlockingItem
+    {
+        public string gate_id;
+        public string title;
+        public string summary;
+    }
+
+    [Serializable]
+    public sealed class FieldAcceptanceDebug
+    {
+        public string[] gate_ids;
+        public string[] required_anchor_ids;
+        public string[] required_sources;
     }
 
     [Serializable]

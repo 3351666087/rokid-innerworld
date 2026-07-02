@@ -6,6 +6,7 @@ export const DEVICE_RUNTIME_SESSION_PROTOCOL = "innerworld-device-runtime-sessio
 export const WALL_CALIBRATION_SCHEMA = "innerworld-wall-calibration/v1";
 export const WALL_CALIBRATION_OBSERVATION_SCHEMA = "innerworld-wall-calibration-observation/v1";
 export const FIELD_MARKER_SCHEMA = "innerworld-field-markers/v1";
+export const FIELD_ACCEPTANCE_SCHEMA = "innerworld-field-acceptance/v1";
 export const DEFAULT_DEVICE_PROFILE = "rokid-ar";
 export const DEFAULT_PORT = 5177;
 export const EVIDENCE_CHAIN_SCHEMA = "innerworld-evidence-chain/v1";
@@ -80,6 +81,7 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
     wall_calibration: apiEndpoint(baseUrl, "/api/calibration/wall"),
     wall_calibration_observations: apiEndpoint(baseUrl, "/api/calibration/observations", "POST"),
     field_markers: apiEndpoint(baseUrl, "/api/field/markers"),
+    field_acceptance: apiEndpoint(baseUrl, "/api/field/acceptance"),
     device_bootstrap: apiEndpoint(baseUrl, "/api/device/bootstrap"),
     device_manifest: apiEndpoint(baseUrl, "/api/device/manifest"),
     device_register: apiEndpoint(baseUrl, "/api/device/register", "POST"),
@@ -319,6 +321,9 @@ export function createInnerWorldClient({
     },
     getFieldMarkers() {
       return request("/api/field/markers", {}, "field_markers_failed");
+    },
+    getFieldAcceptance() {
+      return request("/api/field/acceptance", {}, "field_acceptance_failed");
     },
     getDeviceBootstrap(profile = DEFAULT_DEVICE_PROFILE) {
       return request(`/api/device/bootstrap?profile=${encodeURIComponent(profile)}`, {}, "device_bootstrap_failed");

@@ -7,6 +7,7 @@ import {
 } from "../../../../shared/innerworld-contract.js";
 import { buildDeviceManifest, createDeviceRuntimeStore } from "../domain/device-runtime.js";
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
+import { buildFieldAcceptance } from "../domain/field-acceptance.js";
 import { buildFieldMarkerManifest } from "../domain/field-markers.js";
 import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
@@ -147,6 +148,39 @@ export function createApiRouter({
     });
   }
 
+  async function loadFieldAcceptance(req, url) {
+    const [space, state, markerConfig, opsStatus] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(fieldMarkersPath),
+      buildOpsStatus()
+    ]);
+    const baseUrl = getRequestBaseUrl(req, url, port);
+    const wallCalibration = buildWallCalibrationManifest({
+      baseUrl,
+      space,
+      state,
+      summary: sqliteStore?.wallCalibrationSummary?.() || null
+    });
+    const fieldMarkers = buildFieldMarkerManifest({
+      baseUrl,
+      space,
+      markerConfig,
+      wallCalibration
+    });
+    const ledgerSummary = sqliteStore?.missionLedgerSummary?.() || null;
+
+    return buildFieldAcceptance({
+      baseUrl,
+      space,
+      state,
+      wallCalibration,
+      fieldMarkers,
+      ledgerSummary,
+      opsStatus
+    });
+  }
+
   return async function routeApi(req, res, url) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       const space = await loadSpace();
@@ -244,6 +278,11 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/field/markers") {
       sendJson(res, 200, await loadFieldMarkers(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/field/acceptance") {
+      sendJson(res, 200, await loadFieldAcceptance(req, url));
       return;
     }
 

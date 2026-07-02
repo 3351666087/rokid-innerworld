@@ -21,7 +21,8 @@ const files = {
   packageAudit: path.join(root, "tools", "audit-demo-package.ps1"),
   spaceData: path.join(root, "data", "space_demo.json"),
   hardwareManifest: path.join(root, "data", "hardware_manifest.json"),
-  fieldMarkers: path.join(root, "data", "field_markers.json")
+  fieldMarkers: path.join(root, "data", "field_markers.json"),
+  fieldAcceptanceCheck: path.join(root, "server", "space-server", "check-field-acceptance.js")
 };
 
 const requiredGoalDirection = [
@@ -46,7 +47,9 @@ const requiredCombinedDirection = [
   "SQLite",
   "dataset",
   "calibration",
-  "field_markers"
+  "field_markers",
+  "/api/field/acceptance",
+  "innerworld-field-acceptance/v1"
 ];
 
 const requiredWebModules = [
@@ -57,6 +60,7 @@ const requiredWebModules = [
   "Risk Guardrails",
   "Hardware Runtime",
   "Wall Calibration",
+  "Field Acceptance",
   "Mission Ledger",
   "Operator Console",
   "Agent Runtime",
@@ -74,6 +78,7 @@ const requiredContractTokens = [
   "wall_calibration",
   "wall_calibration_observations",
   "field_markers",
+  "field_acceptance",
   "service_actions_outbox",
   "service_action_ack_template",
   "ai_hud",
@@ -158,7 +163,7 @@ async function main() {
   const fieldMarkers = JSON.parse(sources.fieldMarkers);
   const directionChecks = includesAll(sources.goal, requiredGoalDirection);
   const reviewerChecks = includesAll(sources.goal, requiredGoalReviewerTokens);
-  const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}`, requiredCombinedDirection);
+  const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}`, requiredCombinedDirection);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
   const unityChecks = includesAll(sources.unityController, requiredUnityTokens);

@@ -12,6 +12,7 @@ const files = {
   css: path.join(webDir, "styles.css"),
   js: path.join(webDir, "app.js")
 };
+const fieldAcceptanceCheckPath = path.join(rootDir, "server", "space-server", "check-field-acceptance.js");
 
 const viewports = [
   { name: "desktop", width: 1440, height: 980 },
@@ -155,6 +156,21 @@ const requiredModules = [
     ]
   },
   {
+    name: "Field Acceptance",
+    needles: [
+      "Field Acceptance",
+      "Site Gates",
+      "acceptanceGrid",
+      "acceptance-grid",
+      "acceptance-gate-list",
+      "renderFieldAcceptance",
+      "getFieldAcceptance",
+      "/api/field/acceptance",
+      "innerworld-field-acceptance/v1",
+      "simulator/manual is not hardware ready"
+    ]
+  },
+  {
     name: "Rokid SDK Binding",
     needles: [
       "Rokid SDK Binding",
@@ -206,6 +222,7 @@ const requiredContainers = [
   ".binding-grid",
   ".ledger-grid",
   ".hardware-grid",
+  ".acceptance-grid",
   ".calibration-grid",
   ".field-marker-list",
   ".evidence-rail",
@@ -251,6 +268,7 @@ const requiredContainerGroups = [
   { name: ".binding-grid", selectors: [".binding-grid"] },
   { name: ".ledger-grid", selectors: [".ledger-grid"] },
   { name: ".hardware-grid", selectors: [".hardware-grid"] },
+  { name: ".acceptance-grid", selectors: [".acceptance-grid"] },
   { name: ".calibration-grid", selectors: [".calibration-grid"] },
   { name: ".field-marker-list", selectors: [".field-marker-list"] },
   { name: ".evidence-rail", selectors: [".evidence-rail"] },
@@ -293,12 +311,13 @@ function asSummary(ok, payload = {}) {
 }
 
 async function readSources() {
-  const [html, css, js] = await Promise.all([
+  const [html, css, js, fieldAcceptanceCheck] = await Promise.all([
     readFile(files.html, "utf8"),
     readFile(files.css, "utf8"),
-    readFile(files.js, "utf8")
+    readFile(files.js, "utf8"),
+    readFile(fieldAcceptanceCheckPath, "utf8")
   ]);
-  return { html, css, js, combined: `${html}\n${css}\n${js}` };
+  return { html, css, js, fieldAcceptanceCheck, combined: `${html}\n${css}\n${js}` };
 }
 
 function checkModules(combined) {
@@ -399,8 +418,10 @@ function checkStaticSources(sources) {
     { name: "dynamic hardware runtime rendering", ok: sources.js.includes("renderHardwareRuntime") },
     { name: "wall calibration API load", ok: sources.js.includes("getWallCalibration") && sources.js.includes("/api/calibration/wall") },
     { name: "field marker API load", ok: sources.js.includes("getFieldMarkers") && sources.js.includes("/api/field/markers") },
+    { name: "field acceptance API load", ok: sources.js.includes("getFieldAcceptance") && sources.js.includes("/api/field/acceptance") },
     { name: "wall calibration observation write", ok: sources.js.includes("submitWallCalibrationObservation") && sources.js.includes("/api/calibration/observations") },
     { name: "dynamic wall calibration rendering", ok: sources.js.includes("renderWallCalibration") && sources.js.includes("calibrationGrid") },
+    { name: "dynamic field acceptance rendering", ok: sources.js.includes("renderFieldAcceptance") && sources.js.includes("acceptanceGrid") && sources.js.includes("fieldAcceptanceOverall") },
     { name: "dynamic field marker rendering", ok: sources.js.includes("renderFieldMarkerCards") && sources.js.includes("field-marker-card") },
     { name: "wall calibration simulated lock", ok: sources.js.includes("submitSimulatedCalibration") && sources.js.includes("submitAllSimulatedCalibration") },
     { name: "wall calibration trace contract", ok: sources.js.includes("ready_for_hardware") && sources.js.includes("calibrated_anchor_ids") },
@@ -409,6 +430,7 @@ function checkStaticSources(sources) {
     { name: "wall calibration rejected issue display", ok: sources.js.includes("calibrationIssueLabel") && sources.js.includes("position_error_m") && sources.js.includes("confidence") },
     { name: "wall calibration rehearsal evidence label", ok: sources.js.includes("simulator rehearsal") && sources.js.includes("hardware evidence candidate") },
     { name: "field kit readiness separation", ok: sources.js.includes("print kit ready") && sources.js.includes("print kit pending") && sources.js.includes("hardware ready") && sources.js.includes("hardware pending") },
+    { name: "field acceptance endpoint contract", ok: sources.fieldAcceptanceCheck.includes("/api/field/acceptance") && sources.fieldAcceptanceCheck.includes("innerworld-field-acceptance/v1") && sources.fieldAcceptanceCheck.includes("hardware_alignment") && sources.fieldAcceptanceCheck.includes("all_simulator_ready_for_hardware") },
     { name: "field marker contract details", ok: sources.js.includes("A1:qr-entry") && sources.js.includes("A2:image-target") && sources.js.includes("A3:image-target") && sources.js.includes("trackingModesLabel") && sources.js.includes("expected_pose") },
     { name: "dynamic SDK binding rendering", ok: sources.js.includes("renderSdkBindingReadiness") },
     { name: "SDK binding status contract", ok: sources.js.includes("sdk_binding_status") && sources.js.includes("ROKID_UXR boundary") },

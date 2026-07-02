@@ -8,6 +8,7 @@ const homepageModules = [
   "Show Mode",
   "Hardware Runtime",
   "Wall Calibration",
+  "Field Acceptance",
   "Mission Ledger"
 ];
 
@@ -51,7 +52,7 @@ async function fetchText(route, label) {
 }
 
 async function main() {
-  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration, fieldMarkers] = await Promise.all([
+  const [health, ops, htmlRes, appJs, ledgerSummary, ledgerEvents, wallCalibration, fieldMarkers, fieldAcceptance] = await Promise.all([
     fetchJson("/api/health"),
     fetchJson("/api/ops/status"),
     fetch(`${base}/`),
@@ -59,7 +60,8 @@ async function main() {
     fetchJson("/api/ledger/summary"),
     fetchJson("/api/ledger/events?limit=8"),
     fetchJson("/api/calibration/wall"),
-    fetchJson("/api/field/markers")
+    fetchJson("/api/field/markers"),
+    fetchJson("/api/field/acceptance")
   ]);
   const html = await htmlRes.text();
   const hud = await postJson("/api/ai/hud", {
@@ -94,6 +96,12 @@ async function main() {
   assert(Array.isArray(fieldMarkers.markers) && fieldMarkers.markers.length === 3, "field markers list check failed");
   assert(fieldMarkers.markers.map((marker) => marker.marker?.marker_id).join(",") === "A1:qr-entry,A2:image-target,A3:image-target", "field markers id check failed");
   assert(fieldMarkers.markers.every((marker) => marker.expected_pose?.position && marker.field_role?.evidence_source), "field markers pose/evidence check failed");
+  assert(fieldAcceptance.ok === true, "field acceptance ok check failed");
+  assert(fieldAcceptance.schema === "innerworld-field-acceptance/v1", "field acceptance schema check failed");
+  assert(fieldAcceptance.endpoint?.path === "/api/field/acceptance", "field acceptance endpoint check failed");
+  assert(Array.isArray(fieldAcceptance.gates) && fieldAcceptance.gates.length >= 7, "field acceptance gates check failed");
+  assert(fieldAcceptance.gates.some((gate) => gate.id === "hardware_alignment"), "field acceptance hardware gate missing");
+  assert(fieldAcceptance.summary?.all_simulator_ready_for_hardware === false, "field acceptance simulator guard failed");
 
   assert(htmlRes.ok, "homepage status check failed");
   for (const moduleLabel of homepageModules) {
@@ -104,8 +112,10 @@ async function main() {
   assert(appJs.includes("/api/ledger/events"), "web demo ledger events route missing");
   assert(appJs.includes("/api/calibration/wall"), "web demo wall calibration route missing");
   assert(appJs.includes("/api/calibration/observations"), "web demo wall calibration observation route missing");
+  assert(appJs.includes("/api/field/acceptance"), "web demo field acceptance route missing");
   assert(appJs.includes("renderLedgerAudit"), "web demo ledger renderer missing");
   assert(appJs.includes("renderWallCalibration"), "web demo wall calibration renderer missing");
+  assert(appJs.includes("renderFieldAcceptance"), "web demo field acceptance renderer missing");
   assert(typeof hud.mission_state === "string", "AI HUD mission_state check failed");
   assert(typeof hud.display_text === "string" && hud.display_text.length > 0, "AI HUD display_text check failed");
   assert(["none", "weak", "strong"].includes(hud.hint_level), "AI HUD hint_level check failed");
@@ -145,6 +155,8 @@ async function main() {
     ledger_engine: ledgerSummary.engine,
     ledger_events: ledgerEvents.events.length,
     field_markers: fieldMarkers.markers.map((marker) => marker.marker.marker_id),
+    field_acceptance_status: fieldAcceptance.status,
+    field_acceptance_gates: fieldAcceptance.gates.map((gate) => gate.id),
     homepage_modules: homepageModules,
     ai_hud_ok: true
   }, null, 2));

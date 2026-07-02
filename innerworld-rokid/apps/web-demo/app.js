@@ -32,6 +32,9 @@ const api = {
   async getFieldMarkers() {
     return requestJson("/api/field/markers", { cache: "no-store" }, "读取现场 marker 失败");
   },
+  async getFieldAcceptance() {
+    return requestJson("/api/field/acceptance", { cache: "no-store" }, "Read field acceptance failed");
+  },
   async submitWallCalibrationObservation(payload) {
     return requestJson("/api/calibration/observations", jsonPost(payload), "提交展墙标定失败");
   },
@@ -89,6 +92,8 @@ const model = {
   wallCalibrationError: null,
   fieldMarkers: null,
   fieldMarkersError: null,
+  fieldAcceptance: null,
+  fieldAcceptanceError: null,
   activeUser: "A",
   currentAnchor: null,
   hudByAnchor: new Map(),
@@ -114,6 +119,7 @@ const els = {
   hudMeta: document.querySelector("#hudMeta"),
   hudTitle: document.querySelector("#hudTitle"),
   hardwareGrid: document.querySelector("#hardwareGrid"),
+  acceptanceGrid: document.querySelector("#acceptanceGrid"),
   calibrationGrid: document.querySelector("#calibrationGrid"),
   deliveryTimeline: document.querySelector("#deliveryTimeline"),
   evidenceRail: document.querySelector("#evidenceRail"),
@@ -481,6 +487,127 @@ function wallCalibrationReadinessStates() {
       body: `${hardwareAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} QR/image/SLAM observations accepted · ${hardwareFit ? "AR Studio kit fit" : "AR Studio kit pending"}`
     }
   };
+}
+
+function fieldAcceptanceEndpoint() {
+  return endpointUrl(model.bootstrap?.endpoints?.field_acceptance || "/api/field/acceptance");
+}
+
+function normalizeGateStatus(value) {
+  const status = String(value || "").toLowerCase();
+  if (["ready", "pass", "passed", "accepted", "complete", "ok", "good"].includes(status)) return "ready";
+  if (["blocked", "failed", "fail", "rejected", "bad", "stop"].includes(status)) return "blocked";
+  if (["warning", "warn", "at_risk"].includes(status)) return "warning";
+  return "pending";
+}
+
+function gateTone(status) {
+  if (status === "ready") return "good";
+  if (status === "blocked") return "bad";
+  return "warn";
+}
+
+function acceptanceTone(status) {
+  const value = String(status || "").toLowerCase();
+  if (["ready", "hardware_acceptance_ready"].includes(value)) return "good";
+  if (["blocked", "failed", "rejected", "bad", "stop"].includes(value)) return "bad";
+  return "warn";
+}
+
+function gateStatusFromReady(ready, blocked = false) {
+  if (blocked) return "blocked";
+  return ready ? "ready" : "pending";
+}
+
+function missionLoopReady() {
+  const progress = missionProgress();
+  const completed = progress.total > 0 && progress.done >= progress.total;
+  return completed || model.runtime?.mission_state === "complete";
+}
+
+function releaseChainReady() {
+  const packages = model.ops?.packages || {};
+  return Boolean(packages.main_package?.exists && packages.server_package?.exists && model.ops?.deploy_dry_run?.ok);
+}
+
+function fallbackAcceptanceGates() {
+  const states = wallCalibrationReadinessStates();
+  const hardwareReady = states.hardware.tone === "good";
+  const loopReady = missionLoopReady();
+  const releaseReady = releaseChainReady();
+
+  return [
+    {
+      id: "print_kit",
+      label: "Print Kit",
+      status: states.print.tone === "good" ? "ready" : "pending",
+      summary: states.print.title,
+      detail: states.print.body
+    },
+    {
+      id: "rehearsal",
+      label: "Rehearsal",
+      status: states.simulator.tone === "good" ? "ready" : "pending",
+      summary: states.simulator.title,
+      detail: `${states.simulator.body}. Simulator/manual is rehearsal evidence, not hardware ready.`
+    },
+    {
+      id: "hardware_alignment",
+      label: "Hardware Alignment",
+      status: gateStatusFromReady(hardwareReady),
+      summary: hardwareReady ? "hardware observations accepted" : "hardware pending",
+      detail: `${states.hardware.body}. Hardware ready requires QR/image/SLAM evidence from the Rokid kit.`
+    },
+    {
+      id: "mission_loop",
+      label: "Mission Loop",
+      status: gateStatusFromReady(loopReady),
+      summary: loopReady ? "closed loop complete" : "loop not complete",
+      detail: `${missionProgress().done}/${missionProgress().total || 0} steps complete; manual console actions only rehearse the flow.`
+    },
+    {
+      id: "release_chain",
+      label: "Release Chain",
+      status: gateStatusFromReady(releaseReady),
+      summary: releaseReady ? "packages and dry run passed" : "release chain pending",
+      detail: "Requires main/server packages and deploy dry run before field release."
+    }
+  ];
+}
+
+function fieldAcceptanceGates() {
+  const gates = listFrom(model.fieldAcceptance?.gates);
+  const source = gates.length ? gates : fallbackAcceptanceGates();
+  return source.map((gate, index) => {
+    const status = normalizeGateStatus(gate.status || gate.state || gate.result || (gate.ready ? "ready" : ""));
+    return {
+      id: gate.id || gate.key || `gate_${index + 1}`,
+      label: gate.label || gate.name || gate.title || `Gate ${index + 1}`,
+      status,
+      tone: gateTone(status),
+      summary: gate.summary || gate.title || status,
+      detail: gate.detail || gate.body || gate.description || textFrom(gate.evidence) || "",
+      blockingItems: listFrom(gate.blocking_items || gate.blockers || gate.issues)
+    };
+  });
+}
+
+function fieldAcceptanceOverall() {
+  const explicit = String(model.fieldAcceptance?.overall?.status || model.fieldAcceptance?.status || "").toLowerCase();
+  if (explicit) return explicit;
+  const gates = fieldAcceptanceGates();
+  if (gates.some((gate) => gate.status === "blocked")) return "blocked";
+  if (gates.length && gates.every((gate) => gate.status === "ready")) return "ready";
+  return "pending";
+}
+
+function fieldAcceptanceBlockingItems() {
+  const explicit = listFrom(model.fieldAcceptance?.blocking_items);
+  if (explicit.length) return explicit;
+  return fieldAcceptanceGates()
+    .filter((gate) => gate.status !== "ready")
+    .flatMap((gate) => gate.blockingItems.length ? gate.blockingItems : [`${gate.label}: ${gate.summary}`])
+    .slice(0, 4);
 }
 
 function calibratedAnchorIds() {
@@ -1637,6 +1764,60 @@ function renderWallCalibration() {
   els.calibrationGrid.append(actions);
 }
 
+function renderFieldAcceptance() {
+  if (!els.acceptanceGrid) return;
+  const gates = fieldAcceptanceGates();
+  const overall = fieldAcceptanceOverall();
+  const blockingItems = fieldAcceptanceBlockingItems();
+  const generatedAt = model.fieldAcceptance?.generated_at
+    ? new Date(model.fieldAcceptance.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "not fetched";
+  const readyCount = gates.filter((gate) => gate.status === "ready").length;
+  const sourceLabel = model.fieldAcceptance ? model.fieldAcceptance.schema || "field-acceptance/v1" : "fallback from local runtime";
+
+  els.acceptanceGrid.innerHTML = "";
+  els.acceptanceGrid.append(
+    renderInfoCard(`acceptance-card ${acceptanceTone(overall)}`, "Overall", overall, `${readyCount}/${gates.length || 0} gates ready · ${fieldAcceptanceEndpoint()}`),
+    renderInfoCard("acceptance-card", "Contract", sourceLabel, generatedAt),
+    renderInfoCard("acceptance-card warn wide", "Hardware Rule", "simulator/manual is not hardware ready", "Only QR/image tracking/SLAM evidence from the Rokid hardware lane can clear hardware alignment.")
+  );
+
+  if (model.fieldAcceptanceError && !model.fieldAcceptance) {
+    els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Endpoint", "acceptance API pending", model.fieldAcceptanceError.message || "Waiting for /api/field/acceptance."));
+  }
+
+  const list = document.createElement("div");
+  list.className = "acceptance-gate-list";
+  gates.forEach((gate) => {
+    const row = document.createElement("div");
+    row.className = ["acceptance-gate", gate.tone].filter(Boolean).join(" ");
+
+    const badge = document.createElement("span");
+    badge.className = "acceptance-gate-badge";
+    badge.textContent = String(gate.label || gate.id).slice(0, 2).toUpperCase();
+
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = gate.label;
+    const body = document.createElement("p");
+    const blockers = gate.blockingItems.length ? ` · blockers: ${gate.blockingItems.join(", ")}` : "";
+    body.textContent = `${gate.summary}${gate.detail ? ` · ${gate.detail}` : ""}${blockers}`;
+    copy.append(title, body);
+
+    const status = document.createElement("span");
+    status.className = "acceptance-gate-status";
+    status.textContent = gate.status;
+
+    row.append(badge, copy, status);
+    list.append(row);
+  });
+  els.acceptanceGrid.append(list);
+
+  if (blockingItems.length) {
+    els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Blocking Items", String(blockingItems.length), blockingItems.join(" · ")));
+  }
+}
+
 function renderProductModules() {
   if (!els.productGrid) return;
   const anchorCount = anchors().length;
@@ -1763,6 +1944,7 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   renderRiskGuardrails();
   renderHardwareRuntime();
   renderWallCalibration();
+  renderFieldAcceptance();
   renderLedgerAudit();
 }
 
@@ -1783,9 +1965,10 @@ async function refreshLedger() {
 }
 
 async function refreshWallCalibration() {
-  const [calibrationResult, markersResult] = await Promise.allSettled([
+  const [calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
     api.getWallCalibration(),
-    api.getFieldMarkers()
+    api.getFieldMarkers(),
+    api.getFieldAcceptance()
   ]);
 
   if (calibrationResult.status === "fulfilled") {
@@ -1800,19 +1983,27 @@ async function refreshWallCalibration() {
   } else {
     model.fieldMarkersError = markersResult.reason;
   }
+  if (acceptanceResult.status === "fulfilled") {
+    model.fieldAcceptance = acceptanceResult.value;
+    model.fieldAcceptanceError = null;
+  } else {
+    model.fieldAcceptanceError = acceptanceResult.reason;
+  }
   renderWallCalibration();
+  renderFieldAcceptance();
   renderHardwareRuntime();
   renderLog();
 }
 
 async function refreshDeviceRuntime() {
-  const [manifestResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult] = await Promise.allSettled([
+  const [manifestResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
     api.getDeviceManifest(),
     api.getDeviceSessions(),
     api.getStoreStatus(),
     api.getDatasetCatalog(),
     api.getWallCalibration(),
-    api.getFieldMarkers()
+    api.getFieldMarkers(),
+    api.getFieldAcceptance()
   ]);
 
   if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
@@ -1831,9 +2022,16 @@ async function refreshDeviceRuntime() {
   } else {
     model.fieldMarkersError = markersResult.reason;
   }
+  if (acceptanceResult.status === "fulfilled") {
+    model.fieldAcceptance = acceptanceResult.value;
+    model.fieldAcceptanceError = null;
+  } else {
+    model.fieldAcceptanceError = acceptanceResult.reason;
+  }
   renderSdkBindingReadiness();
   renderHardwareRuntime();
   renderWallCalibration();
+  renderFieldAcceptance();
   renderLedgerAudit();
   renderLog();
 }
@@ -1883,7 +2081,7 @@ async function submitAllSimulatedCalibration() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult, markersResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
@@ -1893,7 +2091,8 @@ async function refreshOps() {
     api.getLedgerSummary(),
     api.getLedgerEvents(),
     api.getWallCalibration(),
-    api.getFieldMarkers()
+    api.getFieldMarkers(),
+    api.getFieldAcceptance()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
@@ -1913,6 +2112,12 @@ async function refreshOps() {
     model.fieldMarkersError = null;
   } else {
     model.fieldMarkersError = markersResult.reason;
+  }
+  if (acceptanceResult.status === "fulfilled") {
+    model.fieldAcceptance = acceptanceResult.value;
+    model.fieldAcceptanceError = null;
+  } else {
+    model.fieldAcceptanceError = acceptanceResult.reason;
   }
   if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
   if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
@@ -1983,6 +2188,30 @@ function renderLog() {
       endpoint: fieldMarkerEndpoint(),
       error: model.fieldMarkersError?.message || null
     },
+    field_acceptance: model.fieldAcceptance ? {
+      schema: model.fieldAcceptance.schema,
+      endpoint: fieldAcceptanceEndpoint(),
+      overall: fieldAcceptanceOverall(),
+      generated_at: model.fieldAcceptance.generated_at || null,
+      gates: fieldAcceptanceGates().map((gate) => ({
+        id: gate.id,
+        label: gate.label,
+        status: gate.status,
+        summary: gate.summary
+      })),
+      blocking_items: fieldAcceptanceBlockingItems(),
+      error: model.fieldAcceptanceError?.message || null
+    } : {
+      endpoint: fieldAcceptanceEndpoint(),
+      overall: fieldAcceptanceOverall(),
+      gates: fieldAcceptanceGates().map((gate) => ({
+        id: gate.id,
+        label: gate.label,
+        status: gate.status
+      })),
+      blocking_items: fieldAcceptanceBlockingItems(),
+      error: model.fieldAcceptanceError?.message || null
+    },
     sdk_binding: {
       mode: binding.mode,
       title: binding.title,
@@ -2040,6 +2269,7 @@ async function refresh(options = {}) {
   renderRiskGuardrails();
   renderHardwareRuntime();
   renderWallCalibration();
+  renderFieldAcceptance();
   renderLedgerAudit();
   await refreshOps();
   requestAiHud(model.currentAnchor);
@@ -2058,6 +2288,7 @@ function renderOffline(error) {
   els.log.textContent = JSON.stringify({ ok: false, error: message }, null, 2);
   renderOps(null, null, { ops: error, bootstrap: error });
   renderSdkBindingReadiness();
+  renderFieldAcceptance();
 }
 
 async function completeCurrentStep() {

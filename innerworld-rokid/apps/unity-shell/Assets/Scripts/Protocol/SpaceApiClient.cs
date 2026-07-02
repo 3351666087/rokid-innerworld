@@ -80,6 +80,11 @@ namespace InnerWorld.Rokid.Protocol
             get { return BuildFieldMarkersUrl(BaseUrl); }
         }
 
+        public string FieldAcceptanceUrl
+        {
+            get { return BuildFieldAcceptanceUrl(BaseUrl); }
+        }
+
         public string SpaceUrl
         {
             get { return BuildSpaceUrl(BaseUrl, SpaceId); }
@@ -235,6 +240,11 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/field/markers");
         }
 
+        public static string BuildFieldAcceptanceUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/field/acceptance");
+        }
+
         public static string BuildEvidenceChainUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/evidence/chain");
@@ -329,6 +339,7 @@ namespace InnerWorld.Rokid.Protocol
                 wall_calibration = Endpoint(cleanBaseUrl, "GET", "/api/calibration/wall"),
                 wall_calibration_observations = Endpoint(cleanBaseUrl, "POST", "/api/calibration/observations"),
                 field_markers = Endpoint(cleanBaseUrl, "GET", "/api/field/markers"),
+                field_acceptance = Endpoint(cleanBaseUrl, "GET", "/api/field/acceptance"),
                 ai_schema = Endpoint(cleanBaseUrl, "GET", "/api/ai/schema"),
                 ai_prompt = Endpoint(cleanBaseUrl, "GET", "/api/ai/prompt"),
                 ai_hud = Endpoint(cleanBaseUrl, "POST", "/api/ai/hud"),
