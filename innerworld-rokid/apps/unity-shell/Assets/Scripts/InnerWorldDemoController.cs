@@ -20,6 +20,9 @@ namespace InnerWorld.Rokid
         public string presentationMode = "desktop_fallback";
         public string configFileName = "innerworld-config.json";
 
+        [NonSerialized]
+        public string operatorPairingCode = "";
+
         [Header("Scene")]
         public Vector3 cameraPosition = new Vector3(0f, 1.45f, -0.35f);
         public Vector3 wallCenter = new Vector3(0f, 1.35f, 3.2f);
@@ -56,6 +59,7 @@ namespace InnerWorld.Rokid
         private string deviceSessionId = string.Empty;
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
+        private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
         private string fieldAcceptanceLine = "field acceptance pending";
@@ -77,6 +81,8 @@ namespace InnerWorld.Rokid
         private const float GazeHitRadiusMeters = 0.16f;
         private const int GazeReticleSegments = 48;
         private const string UnityClientVersion = "unity-runtime-0.2.0";
+        private const string OperatorPairingCodeEnv = "INNERWORLD_OPERATOR_PAIRING_CODE";
+        private const string OperatorPairingCodeArg = "--innerworld-pairing-code";
 
         private void Awake()
         {
@@ -322,9 +328,11 @@ namespace InnerWorld.Rokid
             if (bootstrap == null)
             {
                 deviceRuntimeLine = "device session skipped: bootstrap unavailable";
+                devicePairingLine = "pairing required-for-hardware";
                 yield break;
             }
 
+            devicePairingLine = HasOperatorPairingCode() ? "pairing submitted" : "pairing required-for-hardware";
             DeviceRegisterRequest payload = BuildDeviceRegisterRequest();
             string json = JsonUtility.ToJson(payload);
             SetRokidConnection(RokidConnectionStatus.Connecting, "Registering device runtime");
@@ -340,11 +348,14 @@ namespace InnerWorld.Rokid
 
                 if (request.result == UnityWebRequest.Result.Success)
                 {
-                    deviceSession = JsonUtility.FromJson<DeviceRuntimeSessionResponse>(request.downloadHandler.text);
+                    string responseJson = request.downloadHandler.text;
+                    deviceSession = JsonUtility.FromJson<DeviceRuntimeSessionResponse>(responseJson);
                     deviceSessionId = deviceSession != null ? deviceSession.session_id : string.Empty;
                     deviceId = deviceSession != null ? deviceSession.device_id : payload.device_id;
                     heartbeatClockSeconds = 0f;
+                    devicePairingLine = BuildDevicePairingLine(responseJson);
                     deviceRuntimeLine = "device session " + ShortId(deviceSessionId) + " registered";
+                    Debug.Log("Device pairing status: " + devicePairingLine);
                     SetRokidConnection(RokidConnectionStatus.Connected, deviceRuntimeLine);
                     StartCoroutine(PostDeviceHeartbeat());
                 }
@@ -352,6 +363,7 @@ namespace InnerWorld.Rokid
                 {
                     deviceSession = null;
                     deviceSessionId = string.Empty;
+                    if (HasOperatorPairingCode()) devicePairingLine = "pairing submitted: register failed";
                     deviceRuntimeLine = "device register failed: " + request.error;
                     Debug.LogWarning(deviceRuntimeLine);
                     SetRokidConnection(RokidConnectionStatus.Error, request.error);
@@ -768,7 +780,7 @@ namespace InnerWorld.Rokid
 
             string source = usingFallback ? "fallback" : "space-api";
             string runtime = missionState != null ? missionState.mission_state : "local";
-            SetStatus(space.name, space.space_id + " | " + source + " | " + runtime + " | " + WallCalibrationHudBadge() + " | " + FieldAcceptanceHudBadge());
+            SetStatus(space.name, space.space_id + " | " + source + " | " + runtime + " | " + PairingHudBadge() + " | " + WallCalibrationHudBadge() + " | " + FieldAcceptanceHudBadge());
             SetDetail(GetMissionLine() + "\nAnchors: " + SafeAnchors().Length + " / Beacons: " + SafeBeacons().Length + "\n" + BuildRuntimeContractLine());
             RefreshInputStatusLine();
             RefreshTargetHud();
@@ -1415,7 +1427,7 @@ namespace InnerWorld.Rokid
             string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
             string observation = BuildWallCalibrationObservationLine();
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status + " | " + CurrentDeviceProfile()
-                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + observation + " | " + BuildFieldMarkerReadinessLine() + " | " + FieldAcceptanceHudBadge();
+                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + PairingHudBadge() + " | " + observation + " | " + BuildFieldMarkerReadinessLine() + " | " + FieldAcceptanceHudBadge();
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -1487,6 +1499,52 @@ namespace InnerWorld.Rokid
             spaceId = runtimeConfig.space_id;
             deviceProfile = runtimeConfig.device_profile;
             presentationMode = runtimeConfig.presentation_mode;
+            if (string.IsNullOrWhiteSpace(operatorPairingCode))
+            {
+                operatorPairingCode = ReadRuntimeOperatorPairingCode();
+            }
+        }
+
+        private static string ReadRuntimeOperatorPairingCode()
+        {
+            string fromEnvironment = Environment.GetEnvironmentVariable(OperatorPairingCodeEnv);
+            if (!string.IsNullOrWhiteSpace(fromEnvironment))
+            {
+                return fromEnvironment.Trim();
+            }
+
+            string fromArgs;
+            return TryReadRuntimeArg(Environment.GetCommandLineArgs(), OperatorPairingCodeArg, out fromArgs) ? fromArgs : string.Empty;
+        }
+
+        private static bool TryReadRuntimeArg(string[] args, string name, out string value)
+        {
+            value = null;
+            if (args == null || string.IsNullOrWhiteSpace(name)) return false;
+
+            for (int index = 0; index < args.Length; index++)
+            {
+                string arg = args[index];
+                if (string.IsNullOrWhiteSpace(arg)) continue;
+
+                string prefix = name + "=";
+                if (arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = arg.Substring(prefix.Length).Trim();
+                    return value.Length > 0;
+                }
+
+                if (string.Equals(arg, name, StringComparison.OrdinalIgnoreCase)
+                    && index + 1 < args.Length
+                    && !string.IsNullOrWhiteSpace(args[index + 1])
+                    && !args[index + 1].StartsWith("--", StringComparison.Ordinal))
+                {
+                    value = args[index + 1].Trim();
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private string LoadRuntimeConfigJson()
@@ -1641,7 +1699,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -1695,10 +1753,66 @@ namespace InnerWorld.Rokid
                 profile = CurrentDeviceProfile(),
                 device_id = CurrentDeviceId(),
                 client_version = UnityClientVersion,
+                pairing_code = CleanOperatorPairingCode(),
                 capabilities = RequiredDeviceCapabilities(),
                 network = BuildDeviceNetworkStatus(),
                 sdk_binding_status = BuildSdkBindingStatusPayload("unity_register")
             };
+        }
+
+        private string CleanOperatorPairingCode()
+        {
+            if (string.IsNullOrWhiteSpace(operatorPairingCode)) return string.Empty;
+
+            string raw = operatorPairingCode.Trim().ToUpperInvariant();
+            string compact = string.Empty;
+            for (int i = 0; i < raw.Length; i++)
+            {
+                char ch = raw[i];
+                if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))
+                {
+                    compact += ch;
+                }
+            }
+
+            return compact.Length == 8 ? compact.Substring(0, 4) + "-" + compact.Substring(4, 4) : string.Empty;
+        }
+
+        private bool HasOperatorPairingCode()
+        {
+            return !string.IsNullOrEmpty(CleanOperatorPairingCode());
+        }
+
+        private string PairingHudBadge()
+        {
+            return string.IsNullOrWhiteSpace(devicePairingLine) ? "pairing required-for-hardware" : devicePairingLine;
+        }
+
+        private string BuildDevicePairingLine(string responseJson)
+        {
+            if (string.IsNullOrWhiteSpace(responseJson))
+            {
+                return HasOperatorPairingCode() ? "pairing submitted" : "pairing required-for-hardware";
+            }
+
+            if (responseJson.IndexOf("operator_paired", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return responseJson.IndexOf("\"hardware_acceptance_eligible\":true", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? "pairing operator_paired | hardware eligible"
+                    : "pairing operator_paired";
+            }
+
+            if (responseJson.IndexOf("expired", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "pairing expired";
+            }
+
+            if (responseJson.IndexOf("unpaired", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return HasOperatorPairingCode() ? "pairing submitted: unpaired" : "pairing required-for-hardware";
+            }
+
+            return HasOperatorPairingCode() ? "pairing submitted" : "pairing required-for-hardware";
         }
 
         private DeviceHeartbeatRequest BuildDeviceHeartbeatRequest()

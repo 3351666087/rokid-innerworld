@@ -2,15 +2,53 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDeviceRuntimeStore } from "./src/domain/device-runtime.js";
+import { authorizeDevicePairingIssue } from "./src/http/api-router.js";
 
 const base = process.env.BASE_URL || "http://localhost:5177";
 const expectedSpaceId = "innerworld_campus_wall";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, "../..");
+const OPERATOR_PIN_ENV = "INNERWORLD_OPERATOR_PIN";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function fakePairingRequest(remoteAddress, operatorPin = "") {
+  return {
+    socket: { remoteAddress },
+    headers: operatorPin ? { "x-innerworld-operator-pin": operatorPin } : {}
+  };
+}
+
+function assertOperatorPairingGate() {
+  const previousPin = process.env[OPERATOR_PIN_ENV];
+  try {
+    delete process.env[OPERATOR_PIN_ENV];
+    const loopback = authorizeDevicePairingIssue(fakePairingRequest("127.0.0.1"), {});
+    assert(loopback.ok === true, "loopback device pairing gate must pass");
+    assert(loopback.operator_gate?.mode === "loopback", "loopback device pairing gate mode failed");
+    assert(loopback.operator_gate?.pin_persisted === false, "loopback device pairing gate PIN persistence failed");
+
+    const noPin = authorizeDevicePairingIssue(fakePairingRequest("192.168.1.42"), {});
+    assert(noPin.ok === false, "non-loopback pairing gate without configured PIN must fail");
+    assert(noPin.error === "device_pairing_operator_gate_failed", "non-loopback no PIN error mismatch");
+    assert(noPin.operator_gate?.issues?.includes("non_loopback_pairing_requires_operator_pin_config"), "non-loopback no PIN issue mismatch");
+
+    process.env[OPERATOR_PIN_ENV] = "field-pin-7421";
+    const badPin = authorizeDevicePairingIssue(fakePairingRequest("192.168.1.42"), { operator_pin: "wrong-pin" });
+    assert(badPin.ok === false, "non-loopback pairing gate with bad PIN must fail");
+    assert(badPin.operator_gate?.issues?.includes("operator_pin_missing_or_invalid"), "non-loopback bad PIN issue mismatch");
+
+    const goodPin = authorizeDevicePairingIssue(fakePairingRequest("192.168.1.42"), { operator_pin: "field-pin-7421" });
+    assert(goodPin.ok === true, "non-loopback pairing gate with good PIN must pass");
+    assert(goodPin.operator_gate?.mode === "operator_pin", "non-loopback pairing gate good PIN mode mismatch");
+    assert(!JSON.stringify({ noPin, badPin, goodPin }).includes("field-pin-7421"), "operator PIN leaked from pairing gate state");
+  } finally {
+    if (previousPin === undefined) delete process.env[OPERATOR_PIN_ENV];
+    else process.env[OPERATOR_PIN_ENV] = previousPin;
+  }
 }
 
 function assertJsonHeaders(res, label) {
@@ -165,6 +203,8 @@ function assertLocalRuntimeSnapshot({ space, aiSchema, requiredCapabilities }) {
 }
 
 async function main() {
+  assertOperatorPairingGate();
+
   const bootstrapUrl = `${base}/api/device/bootstrap?profile=rokid-ar`;
   const bootstrap = await fetchJson(bootstrapUrl, "device bootstrap");
 
@@ -316,6 +356,10 @@ async function main() {
   assert(deviceManifest.pairing_contract?.required_for_hardware_acceptance === true, "device manifest pairing hardware requirement failed");
   assert(deviceManifest.pairing_contract?.rehearsal_allowed_without_pairing === true, "device manifest pairing rehearsal rule failed");
   assert(deviceManifest.pairing_contract?.code_persisted === false, "device manifest pairing persistence rule failed");
+  assert(deviceManifest.pairing_contract?.operator_gate?.default_policy === "loopback_windows_host_only", "device manifest pairing operator gate default failed");
+  assert(deviceManifest.pairing_contract?.operator_gate?.lan_override_env === "INNERWORLD_OPERATOR_PIN", "device manifest pairing operator gate env failed");
+  assert(deviceManifest.pairing_contract?.operator_gate?.pin_persisted === false, "device manifest pairing operator PIN persistence failed");
+  assert(deviceManifest.pairing_contract?.operator_gate?.rejected_error === "device_pairing_operator_gate_failed", "device manifest pairing gate rejection failed");
   assert(Array.isArray(deviceManifest.adapter_slots) && deviceManifest.adapter_slots.length >= 4, "device manifest adapter slots failed");
   assert(deviceManifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema failed");
   assert(deviceManifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define failed");
@@ -355,6 +399,9 @@ async function main() {
   assert(typeof pairing.pairing_code === "string" && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(pairing.pairing_code), "device pairing code format failed");
   assert(pairing.required_for_hardware_acceptance === true, "device pairing hardware requirement failed");
   assert(pairing.code_persisted === false, "device pairing persistence failed");
+  assert(pairing.operator_gate?.schema === "innerworld-device-pairing-operator-gate/v1", "device pairing operator gate schema failed");
+  assert(pairing.operator_gate?.status === "passed", "device pairing operator gate status failed");
+  assert(pairing.operator_gate?.pin_persisted === false, "device pairing operator PIN persistence failed");
   assert(!JSON.stringify({ bootstrap, deviceManifest }).includes(pairing.pairing_code), "pairing code leaked into manifest/bootstrap");
 
   const badPairing = await postJsonStatus(endpoints.device_register.url, "device_register_bad_pairing", {

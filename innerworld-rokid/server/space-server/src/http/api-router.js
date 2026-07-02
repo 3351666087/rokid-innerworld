@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { timingSafeEqual } from "node:crypto";
 import {
   INNERWORLD_SERVICE_NAME,
   buildDemoStatus,
@@ -18,6 +19,7 @@ import { readJson } from "../lib/json-file.js";
 import { readBody, sendError, sendJson } from "./response.js";
 
 const HARDWARE_OBSERVATION_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
+const OPERATOR_PAIRING_PIN_ENV = "INNERWORLD_OPERATOR_PIN";
 
 function getRequestBaseUrl(req, url, port) {
   const explicitBaseUrl = url.searchParams.get("base_url") || url.searchParams.get("public_url");
@@ -25,6 +27,92 @@ function getRequestBaseUrl(req, url, port) {
     return explicitBaseUrl.replace(/\/+$/, "");
   }
   return new URL("/", `http://${req.headers.host || `localhost:${port}`}`).origin;
+}
+
+function normalizeRemoteAddress(value) {
+  return String(value || "").trim().replace(/^::ffff:/i, "");
+}
+
+function isLoopbackAddress(value) {
+  const address = normalizeRemoteAddress(value);
+  return address === "::1" || address === "localhost" || address === "127.0.0.1" || /^127\./.test(address);
+}
+
+function readOperatorPin(req, body) {
+  const headerValue = req.headers["x-innerworld-operator-pin"];
+  const value = body?.operator_pin ?? body?.operatorPin ?? body?.operator?.pin ?? headerValue;
+  return String(Array.isArray(value) ? value[0] : value || "").trim();
+}
+
+function timingSafeTextEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""), "utf8");
+  const rightBuffer = Buffer.from(String(right || ""), "utf8");
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  try {
+    return leftBuffer.length > 0 && timingSafeEqual(leftBuffer, rightBuffer);
+  } catch {
+    return false;
+  }
+}
+
+function buildPairingGateState({ status, mode, remoteAddress, issues = [] }) {
+  return {
+    schema: "innerworld-device-pairing-operator-gate/v1",
+    status,
+    mode,
+    remote: isLoopbackAddress(remoteAddress) ? "loopback" : "non_loopback",
+    issue_endpoint_default: "loopback_windows_host_only",
+    lan_override_env: OPERATOR_PAIRING_PIN_ENV,
+    pin_persisted: false,
+    issues
+  };
+}
+
+export function authorizeDevicePairingIssue(req, body) {
+  const remoteAddress = normalizeRemoteAddress(req.socket?.remoteAddress);
+  if (isLoopbackAddress(remoteAddress)) {
+    return {
+      ok: true,
+      operator_gate: buildPairingGateState({ status: "passed", mode: "loopback", remoteAddress })
+    };
+  }
+
+  const configuredPin = String(process.env[OPERATOR_PAIRING_PIN_ENV] || "").trim();
+  if (!configuredPin) {
+    return {
+      ok: false,
+      status: 403,
+      error: "device_pairing_operator_gate_failed",
+      issues: ["non_loopback_pairing_requires_operator_pin_config"],
+      operator_gate: buildPairingGateState({
+        status: "rejected",
+        mode: "operator_pin_required",
+        remoteAddress,
+        issues: ["non_loopback_pairing_requires_operator_pin_config"]
+      })
+    };
+  }
+
+  const submittedPin = readOperatorPin(req, body);
+  if (!timingSafeTextEqual(submittedPin, configuredPin)) {
+    return {
+      ok: false,
+      status: 403,
+      error: "device_pairing_operator_gate_failed",
+      issues: ["operator_pin_missing_or_invalid"],
+      operator_gate: buildPairingGateState({
+        status: "rejected",
+        mode: "operator_pin_required",
+        remoteAddress,
+        issues: ["operator_pin_missing_or_invalid"]
+      })
+    };
+  }
+
+  return {
+    ok: true,
+    operator_gate: buildPairingGateState({ status: "passed", mode: "operator_pin", remoteAddress })
+  };
 }
 
 function missionResultSummary(type, updated) {
@@ -357,7 +445,18 @@ export function createApiRouter({
 
     if (req.method === "POST" && url.pathname === "/api/device/pairing") {
       const body = await readBody(req);
-      sendJson(res, 201, deviceRuntime.issuePairing({ body }));
+      const operatorGate = authorizeDevicePairingIssue(req, body);
+      if (!operatorGate.ok) {
+        sendJson(res, operatorGate.status || 403, {
+          ok: false,
+          error: operatorGate.error || "device_pairing_operator_gate_failed",
+          issues: operatorGate.issues,
+          operator_gate: operatorGate.operator_gate,
+          privacy: "Operator PINs and pairing codes are never echoed back or persisted."
+        });
+        return;
+      }
+      sendJson(res, 201, deviceRuntime.issuePairing({ body, operatorGate: operatorGate.operator_gate }));
       return;
     }
 

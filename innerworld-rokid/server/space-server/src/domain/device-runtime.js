@@ -879,9 +879,28 @@ export function createDeviceRuntimeStore({
     }
   }
 
-  function issuePairing({ body = {}, createdAt = new Date() } = {}) {
+  function issuePairing({ body = {}, createdAt = new Date(), operatorGate = null } = {}) {
     prunePairings(createdAt);
     const code = createPairingCode();
+    const publicOperatorGate = operatorGate && typeof operatorGate === "object"
+      ? {
+          schema: operatorGate.schema || "innerworld-device-pairing-operator-gate/v1",
+          status: operatorGate.status || "passed",
+          mode: sanitizeEnumText(operatorGate.mode, 40) || "loopback",
+          remote: sanitizeEnumText(operatorGate.remote, 40) || "loopback",
+          issue_endpoint_default: operatorGate.issue_endpoint_default || "loopback_windows_host_only",
+          lan_override_env: operatorGate.lan_override_env || "INNERWORLD_OPERATOR_PIN",
+          pin_persisted: false
+        }
+      : {
+          schema: "innerworld-device-pairing-operator-gate/v1",
+          status: "passed",
+          mode: "in_process_test",
+          remote: "not_applicable",
+          issue_endpoint_default: "loopback_windows_host_only",
+          lan_override_env: "INNERWORLD_OPERATOR_PIN",
+          pin_persisted: false
+        };
     const pairing = {
       pairing_id: `pair-${createdAt.getTime().toString(36)}-${crypto.randomBytes(3).toString("hex")}`,
       code_hash: pairingCodeHash(code),
@@ -902,6 +921,7 @@ export function createDeviceRuntimeStore({
         pairing_id: pairing.pairing_id,
         purpose: pairing.purpose,
         expires_at: pairing.expires_at,
+        operator_gate: publicOperatorGate,
         code_persisted: false
       }
     });
@@ -915,6 +935,7 @@ export function createDeviceRuntimeStore({
       expires_after_ms: DEVICE_PAIRING_TTL_MS,
       consume_on: "/api/device/register",
       required_for_hardware_acceptance: true,
+      operator_gate: publicOperatorGate,
       code_persisted: false,
       runtime: { snapshot },
       privacy: "Show this code to the device operator once. It is stored only as a SHA-256 hash until consumed or expired."
@@ -1491,6 +1512,14 @@ export function buildDeviceManifest({
       required_for_hardware_acceptance: true,
       rehearsal_allowed_without_pairing: true,
       code_persisted: false,
+      operator_gate: {
+        schema: "innerworld-device-pairing-operator-gate/v1",
+        default_policy: "loopback_windows_host_only",
+        lan_override_env: "INNERWORLD_OPERATOR_PIN",
+        pin_persisted: false,
+        pin_echoed: false,
+        rejected_error: "device_pairing_operator_gate_failed"
+      },
       operator_rule: "Issue a one-time pairing code on the Windows host before registering RA202/RAS201 for hardware acceptance. Web/Unity fallback may register unpaired rehearsal sessions, but unpaired sessions cannot satisfy trusted hardware evidence."
     },
     runtime_persistence: {

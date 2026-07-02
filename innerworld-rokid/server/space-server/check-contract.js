@@ -264,6 +264,10 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(manifest.pairing_contract?.consume_on === "/api/device/register", "device manifest pairing consume route mismatch");
   assert(manifest.pairing_contract?.required_for_hardware_acceptance === true, "device manifest pairing hardware requirement mismatch");
   assert(manifest.pairing_contract?.code_persisted === false, "device manifest pairing persistence mismatch");
+  assert(manifest.pairing_contract?.operator_gate?.default_policy === "loopback_windows_host_only", "device manifest pairing operator gate default mismatch");
+  assert(manifest.pairing_contract?.operator_gate?.lan_override_env === "INNERWORLD_OPERATOR_PIN", "device manifest pairing operator gate env mismatch");
+  assert(manifest.pairing_contract?.operator_gate?.pin_persisted === false, "device manifest pairing operator PIN persistence mismatch");
+  assert(manifest.pairing_contract?.operator_gate?.rejected_error === "device_pairing_operator_gate_failed", "device manifest pairing gate rejection mismatch");
   assert(manifest.adapter_slots.length >= 4, "device manifest adapter slots mismatch");
   assert(manifest.sdk_binding_status?.schema === "innerworld-rokid-sdk-binding/v1", "device manifest SDK binding schema mismatch");
   assert(manifest.sdk_binding_status?.define_symbol === "ROKID_UXR", "device manifest SDK binding define mismatch");
@@ -284,6 +288,8 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(pairing.schema === "innerworld-device-pairing/v1", "device pairing schema mismatch");
   assert(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(pairing.pairing_code), "device pairing code format mismatch");
   assert(pairing.code_persisted === false, "device pairing code persistence mismatch");
+  assert(pairing.operator_gate?.schema === "innerworld-device-pairing-operator-gate/v1", "device pairing operator gate schema mismatch");
+  assert(pairing.operator_gate?.pin_persisted === false, "device pairing operator PIN persistence mismatch");
   const register = runtime.register({
     body: {
       profile: "rokid-ar",
@@ -694,6 +700,10 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.DeviceHeartbeatUrl"), "Unity controller device heartbeat URL not using client");
   assert(controller.includes("RegisterDeviceSession"), "Unity controller device register coroutine missing");
   assert(controller.includes("PostDeviceHeartbeat"), "Unity controller device heartbeat coroutine missing");
+  assert(/\[NonSerialized\]\s+public string operatorPairingCode/.test(controller), "Unity controller pairing code must be non-serialized runtime memory");
+  assert(controller.includes("INNERWORLD_OPERATOR_PAIRING_CODE") && controller.includes("--innerworld-pairing-code"), "Unity controller pairing runtime injection missing");
+  assert(/private DeviceRegisterRequest BuildDeviceRegisterRequest\(\)[\s\S]*pairing_code\s*=\s*CleanOperatorPairingCode\(\)/.test(controller), "Unity controller does not submit cleaned pairing_code");
+  assert(controller.includes("devicePairingLine") && controller.includes("PairingHudBadge"), "Unity controller pairing status HUD missing");
   assert(controller.includes("BuildSdkBindingStatusPayload"), "Unity controller SDK binding payload missing");
   assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller device capabilities missing");
   assert(controller.includes("InnerWorldRuntimeConfig.FromCurrentProcess"), "Unity controller runtime config load missing");
@@ -754,6 +764,7 @@ async function assertUnityProtocolSkeleton() {
   assert(payloads.includes("public sealed class ServiceActionRequest"), "Unity service action request missing");
   assert(payloads.includes("public sealed class WriteBackRequest"), "Unity write-back request missing");
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request missing");
+  assert(payloads.includes("public string pairing_code;"), "Unity device register pairing_code missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
@@ -843,6 +854,10 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/ledger/events"), "api router ledger events route missing");
   assert(apiRouter.includes("/api/device/register"), "api router device register route missing");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
+  assert(apiRouter.includes("authorizeDevicePairingIssue"), "api router device pairing operator gate missing");
+  assert(apiRouter.includes("isLoopbackAddress"), "api router device pairing loopback gate missing");
+  assert(apiRouter.includes("INNERWORLD_OPERATOR_PIN"), "api router device pairing LAN PIN env missing");
+  assert(apiRouter.includes("device_pairing_operator_gate_failed"), "api router device pairing gate rejection missing");
   assert(apiRouter.includes("createDeviceRuntimeStore"), "api router device runtime store missing");
   assert(apiRouter.includes("/api/evidence/chain"), "api router evidence chain route missing");
   assert(apiRouter.includes("/api/session/plan"), "api router session plan route missing");

@@ -130,6 +130,20 @@ async function assertUnityAdapterBoundary() {
   assert(/private string BuildFieldAcceptanceHeartbeatMessage\(string sdkMessage\)[\s\S]*BuildWallCalibrationHeartbeatMessage\(sdkMessage\)[\s\S]*BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*BuildFieldAcceptanceBlockingLine\(\)/.test(controller), "Unity controller field acceptance heartbeat message must include wall calibration, acceptance summary, and blockers");
   assert(controller.includes("BuildSdkBindingStatusPayload"), "Unity controller SDK binding heartbeat payload missing");
   assert(controller.includes("BuildDeviceRegisterRequest"), "Unity controller device register payload builder missing");
+  assert(/\[NonSerialized\]\s+public string operatorPairingCode/.test(controller), "Unity controller pairing code must be non-serialized runtime memory");
+  assert(controller.includes("INNERWORLD_OPERATOR_PAIRING_CODE") && controller.includes("--innerworld-pairing-code"), "Unity controller pairing code runtime injection path missing");
+  assert(controller.includes("CleanOperatorPairingCode"), "Unity controller pairing code sanitizer missing");
+  assert(controller.includes("compact.Length == 8") && controller.includes("compact.Substring(0, 4)") && controller.includes("compact.Substring(4, 4)"), "Unity controller pairing code sanitizer must normalize to ABCD-EFGH or empty");
+  assert(controller.includes("devicePairingLine"), "Unity controller pairing status line missing");
+  assert(controller.includes("PairingHudBadge"), "Unity controller pairing HUD badge missing");
+  assert(/private DeviceRegisterRequest BuildDeviceRegisterRequest\(\)[\s\S]*pairing_code\s*=\s*CleanOperatorPairingCode\(\)/.test(controller), "Unity controller must put cleaned pairing_code into DeviceRegisterRequest");
+  assert(/RefreshHud\(\)[\s\S]*PairingHudBadge\(\)/.test(controller), "Unity HUD must expose pairing status without showing the code");
+  assert(/BuildRuntimeContractLine\(\)[\s\S]*devicePairingLine/.test(controller), "Unity runtime detail must expose pairing status");
+  assert(/RefreshInputStatusLine\(\)[\s\S]*PairingHudBadge\(\)/.test(controller), "Unity input status must expose pairing status");
+  assert(/Debug\.Log\([^)]*devicePairingLine/.test(controller), "Unity log must expose pairing status without showing the code");
+  assert(!/Debug\.Log(?:Warning|Error)?\([^)]*(operatorPairingCode|pairing_code|CleanOperatorPairingCode)/.test(controller), "Unity controller must not log plaintext pairing code");
+  assert(!/\[Header\(\"Device Pairing\"\)\]\s+public string operatorPairingCode/.test(controller), "Unity controller must not expose pairing code as serialized Inspector field");
+  assert(!/(PlayerPrefs\.SetString|File\.WriteAllText|File\.AppendAllText|localStorage|sessionStorage)[\s\S]{0,120}(operatorPairingCode|pairing_code|pairing code)/i.test(controller), "Unity controller must not persist plaintext pairing code");
   assert(controller.includes("BuildDeviceHeartbeatRequest"), "Unity controller device heartbeat payload builder missing");
   assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller required capabilities missing");
   assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
@@ -194,6 +208,7 @@ async function assertUnityAdapterBoundary() {
   assert(dtos.includes("public FieldAcceptanceBlockingItem[] blocking_items"), "Unity field acceptance blocking item DTO missing");
   assert(dtos.includes("public bool simulator_rehearsal_is_not_hardware_ready"), "Unity field acceptance simulator guard DTO missing");
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request DTO missing");
+  assert(payloads.includes("public string pairing_code;"), "Unity device register request pairing_code field missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request DTO missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");

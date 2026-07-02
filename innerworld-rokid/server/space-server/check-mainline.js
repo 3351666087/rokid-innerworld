@@ -11,6 +11,8 @@ const files = {
   webHtml: path.join(root, "apps", "web-demo", "index.html"),
   webJs: path.join(root, "apps", "web-demo", "app.js"),
   unityController: path.join(root, "apps", "unity-shell", "Assets", "Scripts", "InnerWorldDemoController.cs"),
+  apiRouter: path.join(root, "server", "space-server", "src", "http", "api-router.js"),
+  deviceRuntime: path.join(root, "server", "space-server", "src", "domain", "device-runtime.js"),
   unityGitignore: path.join(root, "apps", "unity-shell", ".gitignore"),
   sqliteStore: path.join(root, "server", "space-server", "src", "store", "sqlite-store.js"),
   gitAutoSync: path.join(root, "tools", "git-auto-sync.ps1"),
@@ -52,7 +54,9 @@ const requiredCombinedDirection = [
   "innerworld-field-acceptance/v1",
   "trusted_hardware_session",
   "operator_paired_session",
-  "/api/device/pairing"
+  "/api/device/pairing",
+  "INNERWORLD_OPERATOR_PIN",
+  "device_pairing_operator_gate_failed"
 ];
 
 const requiredWebModules = [
@@ -138,6 +142,8 @@ const requiredUnityTokens = [
   "RokidAdapterBoundaryStatus",
   "IRokidInputStateSink",
   "RokidSdkBindingProbe.Detect",
+  "operatorPairingCode",
+  "pairing_code",
   "sdk live"
 ];
 
@@ -167,7 +173,7 @@ async function main() {
   const fieldMarkers = JSON.parse(sources.fieldMarkers);
   const directionChecks = includesAll(sources.goal, requiredGoalDirection);
   const reviewerChecks = includesAll(sources.goal, requiredGoalReviewerTokens);
-  const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}`, requiredCombinedDirection);
+  const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}\n${sources.apiRouter}\n${sources.deviceRuntime}`, requiredCombinedDirection);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
   const unityChecks = includesAll(sources.unityController, requiredUnityTokens);

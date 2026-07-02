@@ -136,6 +136,7 @@ namespace InnerWorld.Rokid.Protocol
         public string profile;
         public string device_id;
         public string client_version;
+        public string pairing_code;
         public string[] capabilities;
         public DeviceNetworkStatus network;
         public RokidSdkBindingStatusPayload sdk_binding_status;

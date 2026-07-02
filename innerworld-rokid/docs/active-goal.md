@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 23:24 Asia/Shanghai
+Updated: 2026-07-02 23:45 Asia/Shanghai
 
 ## Objective
 
@@ -77,6 +77,10 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Device registration consumes a valid pairing code and marks the session as `operator_paired`; bad codes return 403, used codes cannot be reused, unconsumed codes expire on TTL or service restart, and the plain code is never persisted to SQLite, snapshots, manifests, public summaries, or browser storage.
 - Web/Unity fallback sessions may remain unpaired for rehearsal and protocol testing, but trusted hardware proof and `trusted_hardware_session` acceptance now require `operator_paired_session`; otherwise `device_not_operator_paired` blocks hardware readiness.
 - The Unity protocol contract, shared endpoint map, Web operator console, field acceptance gate, SQLite trusted-evidence fallback, and regression checks now all understand device pairing status and hardware acceptance eligibility.
+- Current follow-up checkpoint: `operator_pairing_gate_and_unity_consumption`. Pairing issue is no longer an open LAN action: loopback Windows host can issue codes by default, while non-loopback LAN issue requests must pass `INNERWORLD_OPERATOR_PIN`; failures return `device_pairing_operator_gate_failed`.
+- Operator PINs and pairing codes are never echoed or persisted. Pairing events and manifests expose only the operator gate policy/result, not the secret.
+- Unity now has a real pairing-code consumption path: `operatorPairingCode` is non-serialized runtime memory fed by `INNERWORLD_OPERATOR_PAIRING_CODE`, `--innerworld-pairing-code`, or runtime code, normalized to `ABCD-EFGH`, sent as `DeviceRegisterRequest.pairing_code`, and represented in HUD/runtime/input/log output only as pairing status.
+- Checks now prove the operator gate for loopback/non-loopback/PIN cases and prove Unity submits `pairing_code` without logging or persisting the plaintext code.
 
 ## Confirmed Applied Hardware
 
