@@ -11,6 +11,10 @@ namespace InnerWorld.Rokid.Runtime
         public const string ServiceReady = "service_ready";
         public const string Writing = "writing";
         public const string Complete = "complete";
+        public const string SpatialEntry = "spatial_entry";
+        public const string TargetLock = "target_lock";
+        public const string Discovery = "discovery";
+        public const string WritebackReady = "writeback_ready";
         public const string Unknown = "unknown";
 
         public static string Normalize(string value)
@@ -27,6 +31,10 @@ namespace InnerWorld.Rokid.Runtime
             if (string.Equals(clean, ServiceReady, StringComparison.OrdinalIgnoreCase)) return ServiceReady;
             if (string.Equals(clean, Writing, StringComparison.OrdinalIgnoreCase)) return Writing;
             if (string.Equals(clean, Complete, StringComparison.OrdinalIgnoreCase)) return Complete;
+            if (string.Equals(clean, SpatialEntry, StringComparison.OrdinalIgnoreCase)) return SpatialEntry;
+            if (string.Equals(clean, TargetLock, StringComparison.OrdinalIgnoreCase)) return TargetLock;
+            if (string.Equals(clean, Discovery, StringComparison.OrdinalIgnoreCase)) return Discovery;
+            if (string.Equals(clean, WritebackReady, StringComparison.OrdinalIgnoreCase)) return WritebackReady;
             return clean;
         }
     }
@@ -51,6 +59,7 @@ namespace InnerWorld.Rokid.Runtime
         public string[] completed_steps;
         public InnerWorldMissionStepState[] steps;
         public InnerWorldAnchorSelection anchor_selection;
+        public InnerWorldArShellState ar_shell;
 
         public InnerWorldMissionState()
         {
@@ -60,6 +69,7 @@ namespace InnerWorld.Rokid.Runtime
             completed_steps = new string[0];
             steps = new InnerWorldMissionStepState[0];
             anchor_selection = InnerWorldAnchorSelection.None();
+            ar_shell = InnerWorldArShellState.CreateDefault();
         }
 
         public static InnerWorldMissionState Create(string missionId, string missionTitle, InnerWorldMissionStepState[] missionSteps)
@@ -106,6 +116,21 @@ namespace InnerWorld.Rokid.Runtime
             get { return anchor_selection != null && anchor_selection.HasAnchor; }
         }
 
+        public bool OperatorSafeDeviceMode
+        {
+            get { return ar_shell != null && ar_shell.operator_safe_device_mode; }
+        }
+
+        public string ArShellStatusLabel
+        {
+            get { return ar_shell != null ? ar_shell.status_label : string.Empty; }
+        }
+
+        public float ImageTargetLockQuality
+        {
+            get { return ar_shell != null ? ar_shell.image_target_lock_quality : 0f; }
+        }
+
         public bool IsComplete
         {
             get
@@ -145,6 +170,7 @@ namespace InnerWorld.Rokid.Runtime
             steps = CopySteps(missionSteps);
             current_step_index = ClampStepIndex(current_step_index, steps.Length);
             SyncStepCompletion();
+            RefreshArShellState();
         }
 
         public void ApplyRuntime(string state, int stepIndex, string[] completedSteps, string userId)
@@ -163,6 +189,8 @@ namespace InnerWorld.Rokid.Runtime
                 mission_state = InnerWorldMissionStates.Complete;
                 current_step_index = ClampStepIndex(steps != null ? steps.Length - 1 : current_step_index, steps != null ? steps.Length : 0);
             }
+
+            RefreshArShellState();
         }
 
         public bool MarkStepComplete(string stepId)
@@ -196,6 +224,7 @@ namespace InnerWorld.Rokid.Runtime
                 mission_state = InnerWorldMissionStates.Doing;
             }
 
+            RefreshArShellState();
             return true;
         }
 
@@ -241,21 +270,39 @@ namespace InnerWorld.Rokid.Runtime
         public void FocusAnchor(string anchorId, string label, string kind)
         {
             anchor_selection = InnerWorldAnchorSelection.Create(anchorId, label, kind, InnerWorldAnchorSelectionStates.Gaze);
+            RefreshArShellState();
         }
 
         public void SelectAnchor(string anchorId, string label, string kind)
         {
             anchor_selection = InnerWorldAnchorSelection.Create(anchorId, label, kind, InnerWorldAnchorSelectionStates.Selected);
+            RefreshArShellState();
         }
 
         public void LockAnchor(string anchorId, string label, string kind)
         {
             anchor_selection = InnerWorldAnchorSelection.Create(anchorId, label, kind, InnerWorldAnchorSelectionStates.Locked);
+            RefreshArShellState();
         }
 
         public void ClearAnchorSelection()
         {
             anchor_selection = InnerWorldAnchorSelection.None();
+            RefreshArShellState();
+        }
+
+        public void ApplyPresentationStrategy(RokidPresentationStrategy strategy)
+        {
+            EnsureArShell();
+            ar_shell.ApplyPresentationStrategy(strategy);
+            InnerWorldMissionStepState activeStep = CurrentStep;
+            ar_shell.SetMissionProgress(
+                activeStep != null ? activeStep.step_id : string.Empty,
+                activeStep != null ? activeStep.label : string.Empty,
+                CompletedStepCount,
+                steps != null ? steps.Length : 0,
+                CompletionRatio);
+            ar_shell.RefreshStatusLabel();
         }
 
         public string[] SafeCompletedSteps()
@@ -274,10 +321,171 @@ namespace InnerWorld.Rokid.Runtime
                 current_step_index = current_step_index,
                 completed_steps = CopyStrings(completed_steps),
                 steps = CopySteps(steps),
-                anchor_selection = anchor_selection != null ? anchor_selection.Clone() : InnerWorldAnchorSelection.None()
+                anchor_selection = anchor_selection != null ? anchor_selection.Clone() : InnerWorldAnchorSelection.None(),
+                ar_shell = ar_shell != null ? ar_shell.Clone() : InnerWorldArShellState.CreateDefault()
             };
 
             return clone;
+        }
+
+        private void EnsureArShell()
+        {
+            if (ar_shell == null)
+            {
+                ar_shell = InnerWorldArShellState.CreateDefault();
+            }
+        }
+
+        private void RefreshArShellState()
+        {
+            EnsureArShell();
+
+            InnerWorldMissionStepState activeStep = CurrentStep;
+            string activeStepId = activeStep != null ? activeStep.step_id : string.Empty;
+            string activeStepLabel = activeStep != null ? activeStep.label : string.Empty;
+            int anchorCount = CountAnchoredSteps();
+
+            ar_shell.SetMissionProgress(activeStepId, activeStepLabel, CompletedStepCount, steps != null ? steps.Length : 0, CompletionRatio);
+            ar_shell.SetDiscoveryLayer(
+                RokidDiscoveryLayerStates.Radar,
+                "Discovery/radar layer: " + anchorCount + " anchored targets in sweep",
+                anchorCount);
+
+            RefreshSpatialEntryState(activeStep);
+            RefreshImageTargetState(activeStep);
+            RefreshWritebackReadinessState();
+            ar_shell.RefreshStatusLabel();
+        }
+
+        private void RefreshSpatialEntryState(InnerWorldMissionStepState activeStep)
+        {
+            if (HasSelectedAnchor)
+            {
+                ar_shell.SetSpatialEntry(
+                    RokidSpatialEntryStates.MarkerAssisted,
+                    "Spatial entry: anchored to " + AnchorDisplayLabel(anchor_selection));
+                return;
+            }
+
+            if (string.Equals(mission_state, InnerWorldMissionStates.SpatialEntry, StringComparison.OrdinalIgnoreCase))
+            {
+                ar_shell.SetSpatialEntry(
+                    RokidSpatialEntryStates.MarkerAssisted,
+                    "Spatial entry: aligning exhibit wall");
+                return;
+            }
+
+            if (activeStep != null && !string.IsNullOrWhiteSpace(activeStep.anchor_id))
+            {
+                ar_shell.SetSpatialEntry(
+                    RokidSpatialEntryStates.SimulatedWall,
+                    "Spatial entry: staged for anchor " + activeStep.anchor_id.Trim());
+                return;
+            }
+
+            ar_shell.SetSpatialEntry(
+                RokidSpatialEntryStates.SimulatedWall,
+                "Spatial entry: gallery wall rehearsal");
+        }
+
+        private void RefreshImageTargetState(InnerWorldMissionStepState activeStep)
+        {
+            if (anchor_selection != null && anchor_selection.HasAnchor)
+            {
+                ar_shell.ApplyAnchorSelection(anchor_selection);
+                return;
+            }
+
+            if (string.Equals(mission_state, InnerWorldMissionStates.TargetLock, StringComparison.OrdinalIgnoreCase))
+            {
+                ar_shell.SetImageTargetLock(
+                    RokidImageTargetLockStates.Candidate,
+                    "Image target lock: candidate target acquired",
+                    0.72f);
+                return;
+            }
+
+            if (activeStep != null && !string.IsNullOrWhiteSpace(activeStep.anchor_id))
+            {
+                ar_shell.SetImageTargetLock(
+                    RokidImageTargetLockStates.Searching,
+                    "Image target lock: scanning " + activeStep.anchor_id.Trim(),
+                    0.42f);
+                return;
+            }
+
+            ar_shell.SetImageTargetLock(
+                RokidImageTargetLockStates.Searching,
+                "Image target lock: scanning wall targets",
+                0.35f);
+        }
+
+        private void RefreshWritebackReadinessState()
+        {
+            if (IsComplete)
+            {
+                ar_shell.SetWritebackReadiness(
+                    RokidWritebackReadinessStates.Ready,
+                    "Writeback readiness: synchronized",
+                    true);
+                return;
+            }
+
+            if (string.Equals(mission_state, InnerWorldMissionStates.Writing, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mission_state, InnerWorldMissionStates.WritebackReady, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mission_state, InnerWorldMissionStates.ServiceReady, StringComparison.OrdinalIgnoreCase)
+                || IsStepComplete("service_action"))
+            {
+                ar_shell.SetWritebackReadiness(
+                    RokidWritebackReadinessStates.OperatorReview,
+                    "Writeback readiness: operator review lane armed",
+                    true);
+                return;
+            }
+
+            ar_shell.SetWritebackReadiness(
+                RokidWritebackReadinessStates.DraftOnly,
+                "Writeback readiness: draft lane guarded",
+                false);
+        }
+
+        private int CountAnchoredSteps()
+        {
+            if (steps == null || steps.Length == 0)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int index = 0; index < steps.Length; index++)
+            {
+                if (steps[index] != null && !string.IsNullOrWhiteSpace(steps[index].anchor_id))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static string AnchorDisplayLabel(InnerWorldAnchorSelection selection)
+        {
+            if (selection == null)
+            {
+                return "selected target";
+            }
+
+            if (!string.IsNullOrWhiteSpace(selection.label))
+            {
+                return selection.label.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(selection.anchor_id))
+            {
+                return selection.anchor_id.Trim();
+            }
+
+            return "selected target";
         }
 
         private void SyncStepCompletion()
@@ -360,6 +568,374 @@ namespace InnerWorld.Rokid.Runtime
             }
 
             return false;
+        }
+
+        private static string Clean(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
+    }
+
+    [Serializable]
+    public sealed class InnerWorldArShellState
+    {
+        public string spatial_entry_state;
+        public string spatial_entry_label;
+        public string image_target_lock_state;
+        public string image_target_lock_label;
+        public float image_target_lock_quality;
+        public string discovery_layer_state;
+        public string discovery_layer_label;
+        public int discovery_radar_anchor_count;
+        public string writeback_readiness_state;
+        public string writeback_readiness_label;
+        public bool writeback_ready;
+        public string device_mode_state;
+        public string device_mode_label;
+        public bool operator_safe_device_mode;
+        public string active_step_id;
+        public string active_step_label;
+        public int completed_step_count;
+        public int total_step_count;
+        public float progress_ratio;
+        public string status_label;
+        public string metrics_label;
+        public InnerWorldArShellMetric[] metrics;
+
+        public static InnerWorldArShellState CreateDefault()
+        {
+            InnerWorldArShellState state = new InnerWorldArShellState
+            {
+                spatial_entry_state = RokidSpatialEntryStates.SimulatedWall,
+                spatial_entry_label = "Spatial entry: gallery wall rehearsal",
+                image_target_lock_state = RokidImageTargetLockStates.Searching,
+                image_target_lock_label = "Image target lock: scanning wall targets",
+                image_target_lock_quality = 0.35f,
+                discovery_layer_state = RokidDiscoveryLayerStates.Radar,
+                discovery_layer_label = "Discovery/radar layer: anchors queued",
+                discovery_radar_anchor_count = 0,
+                writeback_readiness_state = RokidWritebackReadinessStates.DraftOnly,
+                writeback_readiness_label = "Writeback readiness: draft lane guarded",
+                writeback_ready = false,
+                device_mode_state = RokidDeviceSafetyModes.SimulatorSafe,
+                device_mode_label = "Device mode: operator-safe simulator",
+                operator_safe_device_mode = true,
+                active_step_id = string.Empty,
+                active_step_label = string.Empty,
+                completed_step_count = 0,
+                total_step_count = 0,
+                progress_ratio = 0f,
+                status_label = string.Empty,
+                metrics_label = string.Empty,
+                metrics = new InnerWorldArShellMetric[0]
+            };
+
+            state.RefreshStatusLabel();
+            return state;
+        }
+
+        public void ApplyPresentationStrategy(RokidPresentationStrategy strategy)
+        {
+            if (strategy == null)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(strategy.spatial_entry_state) || !string.IsNullOrWhiteSpace(strategy.spatial_entry_label))
+            {
+                SetSpatialEntry(strategy.spatial_entry_state, strategy.spatial_entry_label);
+            }
+
+            if (!string.IsNullOrWhiteSpace(strategy.image_target_lock_state) || !string.IsNullOrWhiteSpace(strategy.image_target_lock_label))
+            {
+                SetImageTargetLock(strategy.image_target_lock_state, strategy.image_target_lock_label, strategy.image_target_lock_quality);
+            }
+
+            if (!string.IsNullOrWhiteSpace(strategy.discovery_layer_state) || !string.IsNullOrWhiteSpace(strategy.discovery_layer_label))
+            {
+                SetDiscoveryLayer(strategy.discovery_layer_state, strategy.discovery_layer_label, discovery_radar_anchor_count);
+            }
+
+            if (!string.IsNullOrWhiteSpace(strategy.writeback_readiness_state) || !string.IsNullOrWhiteSpace(strategy.writeback_readiness_label))
+            {
+                SetWritebackReadiness(
+                    strategy.writeback_readiness_state,
+                    strategy.writeback_readiness_label,
+                    string.Equals(strategy.writeback_readiness_state, RokidWritebackReadinessStates.Ready, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(strategy.writeback_readiness_state, RokidWritebackReadinessStates.OperatorReview, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(strategy.device_safety_mode) || !string.IsNullOrWhiteSpace(strategy.device_safety_label))
+            {
+                SetDeviceMode(strategy.device_safety_mode, strategy.device_safety_label, strategy.operator_safe_device_mode);
+            }
+
+            RefreshStatusLabel();
+        }
+
+        public void ApplyAnchorSelection(InnerWorldAnchorSelection selection)
+        {
+            if (selection == null || !selection.HasAnchor)
+            {
+                SetImageTargetLock(
+                    RokidImageTargetLockStates.Searching,
+                    "Image target lock: scanning wall targets",
+                    0.35f);
+                return;
+            }
+
+            string target = AnchorDisplayLabel(selection);
+            if (string.Equals(selection.selection_state, InnerWorldAnchorSelectionStates.Locked, StringComparison.OrdinalIgnoreCase))
+            {
+                SetImageTargetLock(
+                    RokidImageTargetLockStates.Locked,
+                    "Image target lock: locked to " + target,
+                    0.9f);
+            }
+            else if (string.Equals(selection.selection_state, InnerWorldAnchorSelectionStates.Selected, StringComparison.OrdinalIgnoreCase))
+            {
+                SetImageTargetLock(
+                    RokidImageTargetLockStates.Candidate,
+                    "Image target lock: candidate " + target,
+                    0.72f);
+            }
+            else
+            {
+                SetImageTargetLock(
+                    RokidImageTargetLockStates.Searching,
+                    "Image target lock: gaze sweep over " + target,
+                    0.56f);
+            }
+        }
+
+        public void SetSpatialEntry(string state, string label)
+        {
+            spatial_entry_state = CleanOrDefault(state, RokidSpatialEntryStates.SimulatedWall);
+            spatial_entry_label = CleanOrDefault(label, "Spatial entry: gallery wall rehearsal");
+        }
+
+        public void SetImageTargetLock(string state, string label, float quality)
+        {
+            image_target_lock_state = CleanOrDefault(state, RokidImageTargetLockStates.Searching);
+            image_target_lock_label = CleanOrDefault(label, "Image target lock: scanning wall targets");
+            image_target_lock_quality = Clamp01(quality);
+        }
+
+        public void SetDiscoveryLayer(string state, string label, int anchorCount)
+        {
+            discovery_layer_state = CleanOrDefault(state, RokidDiscoveryLayerStates.Radar);
+            discovery_layer_label = CleanOrDefault(label, "Discovery/radar layer: anchors queued");
+            discovery_radar_anchor_count = anchorCount < 0 ? 0 : anchorCount;
+        }
+
+        public void SetWritebackReadiness(string state, string label, bool ready)
+        {
+            writeback_readiness_state = CleanOrDefault(state, RokidWritebackReadinessStates.DraftOnly);
+            writeback_readiness_label = CleanOrDefault(label, "Writeback readiness: draft lane guarded");
+            writeback_ready = ready;
+        }
+
+        public void SetDeviceMode(string state, string label, bool operatorSafe)
+        {
+            device_mode_state = CleanOrDefault(state, RokidDeviceSafetyModes.SimulatorSafe);
+            device_mode_label = CleanOrDefault(label, "Device mode: operator-safe simulator");
+            operator_safe_device_mode = operatorSafe;
+        }
+
+        public void SetMissionProgress(string stepId, string stepLabel, int completedCount, int totalCount, float ratio)
+        {
+            active_step_id = Clean(stepId);
+            active_step_label = Clean(stepLabel);
+            completed_step_count = completedCount < 0 ? 0 : completedCount;
+            total_step_count = totalCount < 0 ? 0 : totalCount;
+            progress_ratio = Clamp01(ratio);
+        }
+
+        public void RefreshStatusLabel()
+        {
+            status_label = "AR shell | " + ShortLabel(spatial_entry_label) + " | " + ShortLabel(image_target_lock_label) + " | " + ShortLabel(writeback_readiness_label);
+            metrics_label = "progress " + PercentLabel(progress_ratio)
+                + " | target " + PercentLabel(image_target_lock_quality)
+                + " | radar " + discovery_radar_anchor_count.ToString();
+            metrics = BuildMetrics();
+        }
+
+        public InnerWorldArShellState Clone()
+        {
+            return new InnerWorldArShellState
+            {
+                spatial_entry_state = spatial_entry_state,
+                spatial_entry_label = spatial_entry_label,
+                image_target_lock_state = image_target_lock_state,
+                image_target_lock_label = image_target_lock_label,
+                image_target_lock_quality = image_target_lock_quality,
+                discovery_layer_state = discovery_layer_state,
+                discovery_layer_label = discovery_layer_label,
+                discovery_radar_anchor_count = discovery_radar_anchor_count,
+                writeback_readiness_state = writeback_readiness_state,
+                writeback_readiness_label = writeback_readiness_label,
+                writeback_ready = writeback_ready,
+                device_mode_state = device_mode_state,
+                device_mode_label = device_mode_label,
+                operator_safe_device_mode = operator_safe_device_mode,
+                active_step_id = active_step_id,
+                active_step_label = active_step_label,
+                completed_step_count = completed_step_count,
+                total_step_count = total_step_count,
+                progress_ratio = progress_ratio,
+                status_label = status_label,
+                metrics_label = metrics_label,
+                metrics = CopyMetrics(metrics)
+            };
+        }
+
+        private InnerWorldArShellMetric[] BuildMetrics()
+        {
+            return new[]
+            {
+                InnerWorldArShellMetric.Create("mission_progress", "Mission progress", "percent", progress_ratio, active_step_id),
+                InnerWorldArShellMetric.Create("spatial_entry", "Spatial entry", "quality", SpatialEntryScore(spatial_entry_state), spatial_entry_state),
+                InnerWorldArShellMetric.Create("image_target_lock", "Image target lock", "quality", image_target_lock_quality, image_target_lock_state),
+                InnerWorldArShellMetric.Create("discovery_radar", "Discovery/radar layer", "anchors", discovery_radar_anchor_count, discovery_layer_state),
+                InnerWorldArShellMetric.Create("writeback_readiness", "Writeback readiness", "readiness", writeback_ready ? 1f : 0.42f, writeback_readiness_state),
+                InnerWorldArShellMetric.Create("operator_safety", "Operator-safe device mode", "guard", operator_safe_device_mode ? 1f : 0f, device_mode_state)
+            };
+        }
+
+        private static InnerWorldArShellMetric[] CopyMetrics(InnerWorldArShellMetric[] values)
+        {
+            if (values == null || values.Length == 0)
+            {
+                return new InnerWorldArShellMetric[0];
+            }
+
+            InnerWorldArShellMetric[] copy = new InnerWorldArShellMetric[values.Length];
+            for (int index = 0; index < values.Length; index++)
+            {
+                copy[index] = values[index] != null ? values[index].Clone() : new InnerWorldArShellMetric();
+            }
+
+            return copy;
+        }
+
+        private static float SpatialEntryScore(string state)
+        {
+            if (string.Equals(state, RokidSpatialEntryStates.HardwareAnchored, StringComparison.OrdinalIgnoreCase)) return 1f;
+            if (string.Equals(state, RokidSpatialEntryStates.MarkerAssisted, StringComparison.OrdinalIgnoreCase)) return 0.78f;
+            if (string.Equals(state, RokidSpatialEntryStates.SimulatedWall, StringComparison.OrdinalIgnoreCase)) return 0.58f;
+            return 0f;
+        }
+
+        private static string AnchorDisplayLabel(InnerWorldAnchorSelection selection)
+        {
+            if (selection == null)
+            {
+                return "selected target";
+            }
+
+            if (!string.IsNullOrWhiteSpace(selection.label))
+            {
+                return selection.label.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(selection.anchor_id))
+            {
+                return selection.anchor_id.Trim();
+            }
+
+            return "selected target";
+        }
+
+        private static string ShortLabel(string value)
+        {
+            string clean = Clean(value);
+            int colon = clean.IndexOf(':');
+            if (colon >= 0 && colon + 1 < clean.Length)
+            {
+                return clean.Substring(colon + 1).Trim();
+            }
+
+            return clean;
+        }
+
+        private static float Clamp01(float value)
+        {
+            if (value < 0f) return 0f;
+            if (value > 1f) return 1f;
+            return value;
+        }
+
+        private static string PercentLabel(float value)
+        {
+            return ((int)(Clamp01(value) * 100f + 0.5f)).ToString() + "%";
+        }
+
+        private static string CleanOrDefault(string value, string fallback)
+        {
+            string clean = Clean(value);
+            return clean.Length > 0 ? clean : fallback;
+        }
+
+        private static string Clean(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
+    }
+
+    [Serializable]
+    public sealed class InnerWorldArShellMetric
+    {
+        public string metric_id;
+        public string label;
+        public string unit;
+        public float value;
+        public string state;
+        public string display_value;
+
+        public static InnerWorldArShellMetric Create(string metricId, string metricLabel, string metricUnit, float metricValue, string metricState)
+        {
+            string unit = Clean(metricUnit);
+            bool countMetric = string.Equals(unit, "anchors", StringComparison.OrdinalIgnoreCase) || string.Equals(unit, "count", StringComparison.OrdinalIgnoreCase);
+            float cleanValue = countMetric ? NonNegative(metricValue) : Clamp01(metricValue);
+            return new InnerWorldArShellMetric
+            {
+                metric_id = Clean(metricId),
+                label = Clean(metricLabel),
+                unit = unit,
+                value = cleanValue,
+                state = Clean(metricState),
+                display_value = countMetric ? ((int)(cleanValue + 0.5f)).ToString() : PercentLabel(cleanValue)
+            };
+        }
+
+        public InnerWorldArShellMetric Clone()
+        {
+            return new InnerWorldArShellMetric
+            {
+                metric_id = metric_id,
+                label = label,
+                unit = unit,
+                value = value,
+                state = state,
+                display_value = display_value
+            };
+        }
+
+        private static float NonNegative(float value)
+        {
+            return value < 0f ? 0f : value;
+        }
+
+        private static float Clamp01(float value)
+        {
+            if (value < 0f) return 0f;
+            if (value > 1f) return 1f;
+            return value;
+        }
+
+        private static string PercentLabel(float value)
+        {
+            return ((int)(Clamp01(value) * 100f + 0.5f)).ToString() + "%";
         }
 
         private static string Clean(string value)

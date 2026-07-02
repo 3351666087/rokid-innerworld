@@ -39,8 +39,10 @@ async function readText(relativePath) {
 }
 
 async function assertUnityAdapterBoundary() {
-  const [controller, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
+  const [controller, presentationMode, missionState, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/InnerWorldDemoController.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Runtime/RokidPresentationMode.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Runtime/InnerWorldMissionState.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidSdkBindingProbe.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/RokidAdapterBoundaryStatus.cs"),
@@ -83,6 +85,16 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("BuildFieldMarkerStatusLine"), "Unity controller field marker HUD/log status missing");
   assert(controller.includes("BuildFieldAcceptanceStatusLine"), "Unity controller field acceptance HUD/log status missing");
   assert(controller.includes("BuildFieldMarkerHeartbeatLine"), "Unity controller field marker heartbeat status missing");
+  assert(controller.includes("BuildFieldMarkerImageTargetAssetLine"), "Unity controller image target asset active line missing");
+  assert(controller.includes("FieldMarkerImageTargetAssetReadinessLabel"), "Unity controller image target asset readiness line missing");
+  assert(controller.includes("FieldMarkerImageTargetAssetsLabel"), "Unity controller image target asset status summary missing");
+  assert(controller.includes("CreateHudPanel") && controller.includes("Target Card") && controller.includes("Radar Strip"), "Unity controller premium HUD panels missing");
+  assert(controller.includes("CreateAnchorHalo") && controller.includes("BuildSpatialRouteLine") && controller.includes("TickPremiumSpatialSurfaces"), "Unity controller premium spatial anchor surfaces missing");
+  assert(controller.includes("BuildPremiumTargetCardLine") && controller.includes("ImageTargetAssetCardLine") && controller.includes("ArShellStatusCompactLabel"), "Unity controller premium target card / AR shell status missing");
+  assert(controller.includes("ApplyPresentationStrategyToMissionState"), "Unity controller must apply presentation strategy to mission state");
+  assert(controller.includes("marker.image_target_asset"), "Unity controller must consume marker image_target_asset");
+  assert(controller.includes("unity_target_library_status"), "Unity controller must expose Unity target library status");
+  assert(controller.includes("rokid_import_status"), "Unity controller must expose Rokid import status");
   assert(controller.includes("BuildFieldAcceptanceHeartbeatLine"), "Unity controller field acceptance heartbeat status missing");
   assert(controller.includes("BuildFieldAcceptanceHeartbeatMessage"), "Unity controller field acceptance heartbeat message missing");
   assert(controller.includes("BuildFieldAcceptanceBlockingLine"), "Unity controller field acceptance blocking status missing");
@@ -120,12 +132,19 @@ async function assertUnityAdapterBoundary() {
   assert(/new WallCalibrationObservationPayload[\s\S]*session_id[\s\S]*device_id[\s\S]*anchor_id[\s\S]*tracking_mode[\s\S]*observed_pose[\s\S]*confidence[\s\S]*notes[\s\S]*client_time/.test(controller), "Unity controller wall calibration observation payload must include required fields");
   assert(/BuildWallCalibrationObservationPayload[\s\S]*BuildObservedPoseFromExpectedPose\(anchor != null \? anchor\.expected_pose/.test(controller), "Unity controller must rehearse observations from manifest expected_pose");
   assert(/BuildFieldAcceptanceStatusLine\(\)[\s\S]*FieldAcceptanceSchemaLabel[\s\S]*FieldAcceptanceStatusLabel[\s\S]*FieldAcceptanceReadyForHardwareFlag[\s\S]*FieldAcceptanceBlockingCount/.test(controller), "Unity controller field acceptance status must summarize schema, status, hardware readiness, and blockers");
+  assert(/BuildFieldMarkerStatusLine\(\)[\s\S]*BuildFieldMarkerReadinessLine[\s\S]*FieldMarkerImageTargetAssetsLabel[\s\S]*BuildFieldMarkerActiveLine/.test(controller), "Unity controller field marker status must summarize image target asset import state");
+  assert(/BuildFieldMarkerHeartbeatLine\(\)[\s\S]*BuildFieldMarkerReadinessLine[\s\S]*FieldMarkerImageTargetAssetsLabel/.test(controller), "Unity controller field marker heartbeat must include image target asset status");
+  assert(/BuildFieldMarkerActiveLine\(\)[\s\S]*BuildFieldMarkerImageTargetAssetLine\(marker\)/.test(controller), "Unity controller active marker line must consume image target asset details");
+  assert(/BuildFieldMarkerImageTargetAssetLine\(FieldMarkerAnchor marker\)[\s\S]*marker\.image_target_asset[\s\S]*asset\.asset_id[\s\S]*asset\.unity_target_library_status[\s\S]*asset\.rokid_import_status[\s\S]*ImageTargetPhysicalSizeLabel\(asset\)[\s\S]*asset\.dpi[\s\S]*asset\.print_version[\s\S]*ShortSha\(asset\.sha256\)[\s\S]*asset\.asset_path/.test(controller), "Unity controller image target asset line must consume required asset fields");
+  assert(/ImageTargetPhysicalSizeLabel\(FieldMarkerImageTargetAsset asset\)[\s\S]*asset\.physical_width_mm[\s\S]*asset\.physical_height_mm/.test(controller), "Unity controller image target asset line must consume physical target dimensions");
   assert(/BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*FieldAcceptanceReadyForHardwareFlag[\s\S]*FieldAcceptanceHardwareEvidenceCount[\s\S]*FieldAcceptanceTrackingGuardLabel[\s\S]*simulator_rehearsal_is_not_hardware_ready/.test(controller), "Unity controller field acceptance heartbeat must include hardware evidence and simulator guard flags");
   assert(/private string BuildRuntimeContractLine\(\)[\s\S]*BuildWallCalibrationStatusLine[\s\S]*BuildFieldMarkerStatusLine[\s\S]*BuildFieldAcceptanceStatusLine/.test(controller), "Unity controller HUD runtime line must expose wall calibration, field marker, and field acceptance status");
   assert(/private string BuildWallCalibrationHeartbeatLine\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerHeartbeatLine[\s\S]*BuildFieldAcceptanceHeartbeatLine/.test(controller), "Unity controller heartbeat payload must expose last calibration observation, field marker status, and field acceptance status");
   assert(/private void RefreshHud\(\)[\s\S]*FieldAcceptanceHudBadge/.test(controller), "Unity controller main HUD must expose field acceptance status");
   assert(/private void RefreshTargetHud\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerActiveLine[\s\S]*BuildFieldAcceptanceDebugLine/.test(controller), "Unity controller target HUD must expose last calibration observation, active field marker, and field acceptance details");
   assert(/private void RefreshInputStatusLine\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerReadinessLine[\s\S]*FieldAcceptanceHudBadge/.test(controller), "Unity controller device/input status must expose calibration observation, field marker readiness, and field acceptance status");
+  assert(/BuildPremiumTargetCardLine\(string debugLine\)[\s\S]*SpatialFocusLine[\s\S]*FieldMarkerTargetSummary[\s\S]*ImageTargetAssetCardLine[\s\S]*CalibrationCompactLine[\s\S]*AcceptanceCompactLine/.test(controller), "Unity controller premium target card must summarize focus, marker, image asset, calibration, and acceptance");
+  assert(/BuildRadarHudLine\(\)[\s\S]*RadarAnchorSegment\("A1"[\s\S]*RadarAnchorSegment\("A2"[\s\S]*RadarAnchorSegment\("A3"[\s\S]*ArShellStatusCompactLabel/.test(controller), "Unity controller radar HUD must expose A1/A2/A3 route and AR shell status");
   assert(/BuildSdkBindingStatusPayload[\s\S]*message = BuildFieldAcceptanceHeartbeatMessage\(report.Message\)/.test(controller), "Unity controller SDK heartbeat payload must include field acceptance status");
   assert(/private string BuildFieldAcceptanceHeartbeatMessage\(string sdkMessage\)[\s\S]*BuildWallCalibrationHeartbeatMessage\(sdkMessage\)[\s\S]*BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*BuildFieldAcceptanceBlockingLine\(\)/.test(controller), "Unity controller field acceptance heartbeat message must include wall calibration, acceptance summary, and blockers");
   assert(controller.includes("BuildSdkBindingStatusPayload"), "Unity controller SDK binding heartbeat payload missing");
@@ -168,6 +187,15 @@ async function assertUnityAdapterBoundary() {
   assert(uxrInput.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR input file must be fully guarded");
   assert(uxrInput.includes("SDK input binding pending"), "Rokid UXR input stub message missing");
   assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
+  assert(presentationMode.includes("RokidSpatialEntryStates"), "Unity presentation strategy spatial entry states missing");
+  assert(presentationMode.includes("RokidImageTargetLockStates"), "Unity presentation strategy image target lock states missing");
+  assert(presentationMode.includes("RokidDiscoveryLayerStates"), "Unity presentation strategy discovery/radar states missing");
+  assert(presentationMode.includes("RokidWritebackReadinessStates"), "Unity presentation strategy writeback readiness states missing");
+  assert(presentationMode.includes("RokidDeviceSafetyModes"), "Unity presentation strategy operator-safe device states missing");
+  assert(presentationMode.includes("premium_metrics"), "Unity presentation strategy premium metrics missing");
+  assert(missionState.includes("public InnerWorldArShellState ar_shell"), "Unity mission state AR shell aggregate missing");
+  assert(missionState.includes("ApplyPresentationStrategy") && missionState.includes("RefreshArShellState"), "Unity mission state must consume presentation strategy and refresh AR shell state");
+  assert(missionState.includes("image_target_lock_quality") && missionState.includes("discovery_radar_anchor_count") && missionState.includes("operator_safe_device_mode"), "Unity mission state AR shell metrics missing");
   assert(docs.includes("RokidAdapterResolver.Resolve"), "Rokid adapter boundary docs missing");
   assert(docs.includes("ROKID_UXR"), "Rokid UXR docs missing");
 
@@ -202,6 +230,17 @@ async function assertUnityAdapterBoundary() {
   assert(dtos.includes("public bool rehearsal_ready"), "Unity wall calibration rehearsal readiness DTO missing");
   assert(dtos.includes("public sealed class FieldMarkerManifest"), "Unity field marker manifest DTO missing");
   assert(dtos.includes("public sealed class FieldMarkerAnchor"), "Unity field marker anchor DTO missing");
+  assert(dtos.includes("public FieldMarkerImageTargetAsset image_target_asset;"), "Unity field marker image_target_asset DTO field missing");
+  assert(dtos.includes("public sealed class FieldMarkerImageTargetAsset"), "Unity field marker image target asset DTO missing");
+  assert(dtos.includes("public string asset_id;"), "Unity image target asset_id DTO missing");
+  assert(dtos.includes("public string asset_path;"), "Unity image target asset_path DTO missing");
+  assert(dtos.includes("public string sha256;"), "Unity image target sha256 DTO missing");
+  assert(dtos.includes("public float physical_width_mm;"), "Unity image target physical_width_mm DTO missing");
+  assert(dtos.includes("public float physical_height_mm;"), "Unity image target physical_height_mm DTO missing");
+  assert(dtos.includes("public int dpi;"), "Unity image target dpi DTO missing");
+  assert(dtos.includes("public string print_version;"), "Unity image target print_version DTO missing");
+  assert(dtos.includes("public string unity_target_library_status;"), "Unity image target Unity import status DTO missing");
+  assert(dtos.includes("public string rokid_import_status;"), "Unity image target Rokid import status DTO missing");
   assert(dtos.includes("public sealed class FieldAcceptanceManifest"), "Unity field acceptance manifest DTO missing");
   assert(dtos.includes("public FieldAcceptanceSummary summary"), "Unity field acceptance summary DTO missing");
   assert(dtos.includes("public FieldAcceptanceGate[] gates"), "Unity field acceptance gates DTO missing");

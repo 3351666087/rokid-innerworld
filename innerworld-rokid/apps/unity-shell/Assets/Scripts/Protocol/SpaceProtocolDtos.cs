@@ -737,6 +737,7 @@ namespace InnerWorld.Rokid.Protocol
         public WallCalibrationObservation latest_observation;
         public FieldMarkerPrint print;
         public FieldMarkerRole field_role;
+        public FieldMarkerImageTargetAsset image_target_asset;
     }
 
     [Serializable]
@@ -754,6 +755,20 @@ namespace InnerWorld.Rokid.Protocol
         public string physical_role;
         public string operator_action;
         public string evidence_source;
+    }
+
+    [Serializable]
+    public sealed class FieldMarkerImageTargetAsset
+    {
+        public string asset_id;
+        public string asset_path;
+        public string sha256;
+        public float physical_width_mm;
+        public float physical_height_mm;
+        public int dpi;
+        public string print_version;
+        public string unity_target_library_status;
+        public string rokid_import_status;
     }
 
     [Serializable]

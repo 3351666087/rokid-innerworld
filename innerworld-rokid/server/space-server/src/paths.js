@@ -16,5 +16,6 @@ export const statePath = path.join(dataDir, "runtime_state.json");
 export const databasePath = path.join(dataDir, "innerworld.sqlite");
 export const hardwareManifestPath = path.join(dataDir, "hardware_manifest.json");
 export const fieldMarkersPath = path.join(dataDir, "field_markers.json");
+export const fieldTargetAssetsDir = path.join(dataDir, "field-targets");
 export const aiSchemaPath = path.join(aiDir, "schema.json");
 export const aiPromptPath = path.join(aiDir, "prompt.md");

@@ -1,5 +1,15 @@
 # Rokid InnerWorld / 镜见
 
+## Latest Checkpoint
+
+2026-07-03 00:08 Asia/Shanghai:
+
+- Kepler reviewed the teammate files again. P0 remains the real Rokid campus wall mainline: A1 spatial entry, A2/A3 image target lock, wall calibration, writeback, User B readback, and hardware-safe evidence gates. Open UGC, institution dashboards, broad route maps, and generic social features stay P2.
+- A2/A3 image target assets are now first-class field marker data. `data/field_markers.json` records asset ids, source paths, SHA256 hashes, physical dimensions, DPI, print version, Unity import status, and Rokid XR Extension import status. The source SVGs live under `innerworld-rokid/data/field-targets`, and `/api/field/markers` exposes `/api/field/assets/<file>` URLs.
+- Unity fallback was upgraded from a cramped debug HUD into a premium spatial shell: operator rail, active target card, radar strip, A1/A2/A3 route line, animated anchor halos/stems, compact image-target asset state, and `ar_shell` metrics for spatial entry, target lock, radar, writeback readiness, and operator-safe device mode.
+- `docs/rokid-device-integration.md` now has the P0 live-adapter checklist for RKCameraRig, RKInput 3DoF ray, PointableUI/PointableUICurve, A2/A3 image target library import, SLAM/head-tracking heartbeat, and hardware evidence gates. Hardware arrival should attach to the existing Space API/SQLite contracts instead of creating a parallel runtime.
+- `check:unity` and `check:field-markers` now enforce these contracts so future commits cannot quietly regress back to missing target assets, broken asset URLs, unsafe asset paths, or a toy-like Unity shell.
+
 Rokid InnerWorld 是一个面向真实校园展墙的空间记忆层：观众戴上 Rokid 眼镜后，对准物理展墙上的入口锚点，现实墙面会叠加出 A1/A2/A3 三个空间记忆点、任务推进、TimeMark 写回、后来者读取和现场状态反馈。
 
 这不是普通校园导览、静态网页或 PPT。当前仓库的目标是先在 Windows 主控机上把完整闭环跑通，再把 Rokid Max Pro / Station Pro 的输入与显示层接入同一套 Space API、SQLite 数据层和 Unity 协议客户端。

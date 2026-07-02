@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -52,16 +53,24 @@ async function fetchWallCalibrationManifest() {
   return res.json();
 }
 
+async function fetchFieldMarkerManifest() {
+  const res = await fetch(`${base}/api/field/markers`);
+  const contentType = res.headers.get("content-type") || "";
+  assert(res.ok, "/api/field/markers status check failed");
+  assert(contentType.includes("application/json"), "/api/field/markers content-type check failed");
+  return res.json();
+}
+
 async function loadWallCalibrationManifest() {
   const space = await readJson("data/space_demo.json");
 
   if (useApi) {
     const wallCalibration = await fetchWallCalibrationManifest();
     return {
-      source: `${base}/api/calibration/wall`,
+      source: `${base}/api/calibration/wall + ${base}/api/field/markers`,
       space,
       wallCalibration,
-      fieldMarkers: await tryBuildFieldMarkerManifest({ space, wallCalibration })
+      fieldMarkers: await fetchFieldMarkerManifest()
     };
   }
 
@@ -94,6 +103,10 @@ function assertFiniteRotation(rotation, label) {
   for (const axis of ["x", "y", "z", "w"]) {
     assert(Number.isFinite(Number(rotation[axis])), `${label}.${axis} must be numeric`);
   }
+}
+
+function sha256File(filePath) {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
 function assertCalibrationManifest(manifest) {
@@ -154,12 +167,70 @@ function assertFieldMarkerManifest(manifest, wallCalibration) {
     assertFiniteVector(marker.expected_pose.position, `${anchorId} field marker expected_pose.position`);
     assertFiniteRotation(marker.expected_pose.rotation, `${anchorId} field marker expected_pose.rotation`);
     assert(JSON.stringify(marker.expected_pose) === JSON.stringify(wallAnchor.expected_pose), `${anchorId} expected pose must bind to wall calibration`);
+
+    if (marker.marker?.marker_type === "image_target") {
+      assertImageTargetAsset(marker, anchorId);
+    }
   }
 
   const requiredMarkerIds = manifest.acceptance?.required_marker_ids || [];
   assert(requiredMarkerIds.includes("A1:qr-entry"), "A1 required marker id missing");
   assert(requiredMarkerIds.includes("A2:image-target"), "A2 required marker id missing");
   assert(requiredMarkerIds.includes("A3:image-target"), "A3 required marker id missing");
+}
+
+function assertImageTargetAsset(marker, anchorId) {
+  const asset = marker.image_target_asset;
+  assert(asset, `${anchorId} image target asset metadata missing`);
+  assert(asset.asset_id, `${anchorId} image target asset_id missing`);
+  assert(asset.asset_path, `${anchorId} image target asset_path missing`);
+  assert(asset.asset_url && asset.asset_url.includes("/api/field/assets/"), `${anchorId} image target asset_url must use /api/field/assets`);
+  assert(asset.sha256 && /^[a-f0-9]{64}$/i.test(asset.sha256), `${anchorId} image target sha256 missing or invalid`);
+  assert(Number(asset.physical_width_mm) > 0, `${anchorId} image target physical_width_mm missing`);
+  assert(Number(asset.physical_height_mm) > 0, `${anchorId} image target physical_height_mm missing`);
+  assert(Number(asset.dpi) >= 150, `${anchorId} image target dpi too low`);
+  assert(asset.print_version, `${anchorId} image target print_version missing`);
+  assert(asset.unity_target_library_status, `${anchorId} Unity target library status missing`);
+  assert(asset.rokid_import_status, `${anchorId} Rokid import status missing`);
+
+  const assetPath = path.join(root, String(asset.asset_path).replace(/\//g, path.sep));
+  assert(fs.existsSync(assetPath), `${anchorId} image target asset file missing: ${asset.asset_path}`);
+  assert(sha256File(assetPath).toLowerCase() === String(asset.sha256).toLowerCase(), `${anchorId} image target asset sha256 mismatch`);
+}
+
+async function assertFieldTargetAssetRoutes(fieldMarkers) {
+  if (!useApi || !fieldMarkers?.markers) return null;
+
+  const checked = [];
+  for (const marker of fieldMarkers.markers) {
+    if (marker?.marker?.marker_type !== "image_target") continue;
+    const asset = marker.image_target_asset;
+    assert(asset?.asset_url, `${marker.anchor_id} image target asset_url missing for API route check`);
+
+    const res = await fetch(asset.asset_url);
+    const contentType = res.headers.get("content-type") || "";
+    const body = await res.text();
+    assert(res.status === 200, `${marker.anchor_id} image target asset route status must be 200`);
+    assert(contentType.includes("image/svg+xml"), `${marker.anchor_id} image target asset route content-type must be image/svg+xml`);
+    assert(body.length > 256, `${marker.anchor_id} image target asset route body too small`);
+    checked.push({
+      anchor_id: marker.anchor_id,
+      asset_id: asset.asset_id,
+      status: res.status,
+      content_type: contentType.split(";")[0],
+      bytes: body.length
+    });
+  }
+
+  assert(checked.length >= 2, "A2/A3 image target asset routes must be checked in API mode");
+
+  const traversal = await fetch(`${base}/api/field/assets/%2e%2e%2Fspace_demo.json`);
+  assert(traversal.status === 400, "field target asset route must reject path traversal with 400");
+
+  return {
+    checked,
+    traversal_status: traversal.status
+  };
 }
 
 function tryExtractPdfText(filePath) {
@@ -210,6 +281,7 @@ async function main() {
   if (fieldMarkers) {
     assertFieldMarkerManifest(fieldMarkers, wallCalibration);
   }
+  const assetRoutes = await assertFieldTargetAssetRoutes(fieldMarkers);
   const pdf = assertPrintableFieldKit(fieldMarkers);
 
   console.log(JSON.stringify({
@@ -230,6 +302,7 @@ async function main() {
       };
     }),
     observation_endpoint: wallCalibration.observation_endpoint.path,
+    field_target_asset_routes: assetRoutes,
     field_kit_pdf: pdf
   }, null, 2));
 }

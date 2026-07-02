@@ -100,6 +100,21 @@ The Unity runtime now has a compile-safe SDK boundary:
 - The Unity controller actively fetches `endpoints.wall_calibration.url` and `endpoints.field_markers.url` during startup after bootstrap and before device registration, then posts a simulator calibration observation through `endpoints.wall_calibration_observations.url`. The `C` key / `Calib` button posts a manual rehearsal observation through the same endpoint. The HUD/log/heartbeat show schema, anchor count, `ready_for_hardware`, calibrated anchor IDs, field marker ids/tracking modes, active marker expected pose, and latest observation status/issues without claiming real hardware readiness.
 - Vendor SDK packages downloaded through Unity Package Manager stay out of Git. Commit only the small adapter code that maps SDK gaze/ray/gesture/voice events into `IRokidInputSource`, `IRokidInputStateSink`, and `IRokidOverlayRenderer`.
 
+## Live Rokid Adapter Checklist
+
+This checklist is the P0 implementation contract for the first real hardware pass. Do not claim Rokid hardware readiness until every item below has a passing local proof or a clearly marked hardware-blocked note.
+
+- `RKCameraRig`: replace the scene `Main Camera` only inside the `ROKID_UXR` lane. The adapter must keep the fallback scene runnable without vendor packages and must report the rig status through `RokidSdkBindingProbe`.
+- `RKInput` / 3DoF ray: bind the default controller ray to `IRokidInputSource`. Ray hover maps to A1/A2/A3 focus, confirm maps to `CompleteNextStep`, and long-confirm or explicit command maps to write-back/service actions. The fallback mouse/keyboard path stays unchanged.
+- `PointableUI` / `PointableUICurve`: A1 entry confirmation, A2 memory panel, and A3 write-back confirmation must be selectable through Rokid pointable UI. These controls reuse the existing mission/write-back endpoints and must not introduce a second UI state model.
+- Image target library: import the A2/A3 target assets from `data/field-targets` using the metadata exposed by `/api/field/markers`. The Unity target library must match `asset_id`, `sha256`, `physical_width_mm`, `physical_height_mm`, `dpi`, and `print_version`; mismatches block field acceptance.
+- A1 entry lock: QR/logo recognition opens the spatial layer only after a deliberate confirmation near the configured 0.4m-0.5m entry interaction distance. This is the start of the demo, not a passive web page reveal.
+- A2/A3 lock proof: image tracking or SLAM observations submit `POST /api/calibration/observations` with sanitized `session_id`, `device_id`, `anchor_id`, `tracking_mode`, `observed_pose`, `confidence`, and `client_time`.
+- SLAM/head tracking heartbeat: headset pose quality, tracking mode, active anchor, and SDK binding status flow into `/api/device/heartbeat` and `InnerWorldArShellState`. Raw camera frames, serial numbers, SSID, MAC, IP, and token-like identifiers never enter public logs or Git.
+- Overlay renderer: UXR binocular/spatial overlay renders the same mission state, radar, anchor halo, route line, write-back status, and evidence messages as the fallback shell. The Web console remains operator/debug, not the audience-facing runtime.
+- Hardware evidence gate: `ready_for_hardware` requires latest accepted or warning observations for A1/A2/A3 using `qr`, `image_tracking`, or `slam`. Simulator/manual observations can clear rehearsal gates only.
+- Performance gate: hold 60 FPS target behavior, avoid large black/white slabs, keep panels readable at near/far field sizes, and keep audio/voice triggers user-initiated.
+
 ## Hardware Arrival Checklist
 
 1. Power and pair Rokid Max Pro with Rokid Station Pro; confirm YodaOS-Master system build and network access.

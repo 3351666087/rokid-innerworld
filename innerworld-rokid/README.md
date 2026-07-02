@@ -40,6 +40,14 @@ Field acceptance is the current site-readiness bus: `/api/field/acceptance` aggr
 
 Operator-issued device pairing is now part of the hardware acceptance boundary. `/api/device/pairing` issues a short-lived one-time code for the operator, `/api/device/register` consumes it, and only `operator_paired` live SDK sessions may satisfy trusted hardware evidence. The issue route is operator-gated: loopback on the Windows host is allowed, while non-loopback LAN issue requests require `INNERWORLD_OPERATOR_PIN`. Unconsumed codes expire on TTL or service restart and are never persisted. Unity can now submit a normalized `pairing_code` during device registration from non-serialized runtime memory, `INNERWORLD_OPERATOR_PAIRING_CODE`, or `--innerworld-pairing-code`; HUD/log surfaces only pairing status, not the code. Unpaired Web/Unity sessions still work for rehearsal, but they cannot make `trusted_hardware_session`, `ready_for_hardware`, or `hardware_acceptance_ready` pass.
 
+Image target assets are now part of the field marker contract. A2/A3 source targets live in `data/field-targets`, `data/field_markers.json` records their SHA256, physical size, DPI, print version, Unity import status, and Rokid XR Extension import status, and `/api/field/markers` exposes `/api/field/assets/<file>` URLs for the same assets. `npm run check:field-markers` verifies the asset files and hashes so Unity/Rokid cannot silently drift from the printable field kit.
+
+`npm run check:field-markers -- --api` also fetches the live `/api/field/markers` manifest, downloads the A2/A3 asset URLs, verifies `image/svg+xml` responses, and confirms path traversal is rejected with 400.
+
+Unity fallback now uses a premium spatial shell instead of one crowded debug panel: operator rail, active target card, radar strip, A1/A2/A3 spatial route, animated anchor halos/stems, compact image-target status, and `ar_shell` metrics for spatial entry, image-target lock, discovery/radar, writeback readiness, and operator-safe device mode. Debug contract lines still feed checks and heartbeat payloads, but the visible experience is shaped like an AR exhibition wall.
+
+The Rokid hardware lane now has a live-adapter checklist in `docs/rokid-device-integration.md`: RKCameraRig, RKInput 3DoF ray, PointableUI/PointableUICurve, A2/A3 image target library import, SLAM/head-tracking heartbeat, overlay rendering, and hardware evidence gates all attach to the current Space API, SQLite, calibration, and mission contracts.
+
 ## SQLite Backup
 
 The runtime database is private and git-ignored, but it is not disposable. Create a verified field backup before release packaging, restore tests, or server handoff:

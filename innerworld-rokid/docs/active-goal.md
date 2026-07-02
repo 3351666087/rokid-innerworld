@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-02 23:45 Asia/Shanghai
+Updated: 2026-07-03 00:08 Asia/Shanghai
 
 ## Objective
 
@@ -81,6 +81,14 @@ Move from "environment and demo loop are runnable" to "main project framework an
 - Operator PINs and pairing codes are never echoed or persisted. Pairing events and manifests expose only the operator gate policy/result, not the secret.
 - Unity now has a real pairing-code consumption path: `operatorPairingCode` is non-serialized runtime memory fed by `INNERWORLD_OPERATOR_PAIRING_CODE`, `--innerworld-pairing-code`, or runtime code, normalized to `ABCD-EFGH`, sent as `DeviceRegisterRequest.pairing_code`, and represented in HUD/runtime/input/log output only as pairing status.
 - Checks now prove the operator gate for loopback/non-loopback/PIN cases and prove Unity submits `pairing_code` without logging or persisting the plaintext code.
+- Current implementation checkpoint completed: `image_target_assets_and_premium_unity_shell`. Kepler reviewed the teammate files and confirmed the immediate P0 gap was the A2/A3 image target asset chain plus a less debug-like Unity spatial shell.
+- `data/field_markers.json` now declares A2/A3 `image_target_asset` metadata with asset id, source path, SHA256, physical print size, DPI, print version, Unity target-library status, and Rokid XR Extension import status.
+- `data/field-targets/a2-memory-beacon-target.svg` and `data/field-targets/a3-writeback-target.svg` are public, hash-checked source assets for the future Rokid image target library. `/api/field/markers` exposes them with `/api/field/assets/<file>` URLs.
+- `check:field-markers` now verifies image target asset presence, file existence, SHA256, physical dimensions, DPI, print version, and Unity/Rokid import status for A2/A3. API mode also fetches live A2/A3 asset URLs and verifies `image/svg+xml` responses plus path-traversal rejection.
+- Unity fallback now has a premium spatial shell layer: operator rail, active target card, radar strip, A1/A2/A3 spatial route, animated anchor halos/stems, compact image target asset status, and AR shell state/metrics. The old long debug lines remain in heartbeat/runtime contract paths, but the visible shell no longer depends on one crowded panel.
+- The Unity runtime state now carries `ar_shell` state for spatial entry, image target lock quality, discovery/radar layer, writeback readiness, and operator-safe device mode. `InnerWorldDemoController` applies `RokidPresentationStrategy` to this state so desktop fallback, on-site display, and future Rokid hardware share the same status language.
+- The default localhost server on `http://localhost:5177/` was restarted onto the current code after a stale node process exposed an old bootstrap without `device_pairing`.
+- Kepler's next recommended P0 is now recorded as an executable real Rokid adapter checklist in `docs/rokid-device-integration.md`: bind RKCameraRig, RKInput 3DoF ray, image tracking target library, SLAM/head tracking heartbeat, PointableUI handoff, overlay rendering, and hardware proof to the existing adapter boundary without changing Space API or SQLite contracts.
 
 ## Confirmed Applied Hardware
 

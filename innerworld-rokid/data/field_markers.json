@@ -31,6 +31,17 @@
       "anchor_id": "A2",
       "marker_id": "A2:image-target",
       "marker_type": "image_target",
+      "image_target_asset": {
+        "asset_id": "field-target-a2-memory-beacon-v1",
+        "asset_path": "data/field-targets/a2-memory-beacon-target.svg",
+        "sha256": "fdf75b938db413487eca0810141f6bc494723fd164704a2f812c72ca78bfb447",
+        "physical_width_mm": 150,
+        "physical_height_mm": 100,
+        "dpi": 300,
+        "print_version": "field-kit-2026-07-02-v1",
+        "unity_target_library_status": "source_asset_ready_for_unity_import",
+        "rokid_import_status": "source_asset_ready_for_rokid_xr_extension_import"
+      },
       "tracking_modes": ["image_tracking", "slam", "manual", "simulator"],
       "print_title": "A2 记忆信标",
       "physical_role": "承载公共记忆摘要、隐藏年份任务和低干扰提示。",
@@ -42,6 +53,17 @@
       "anchor_id": "A3",
       "marker_id": "A3:image-target",
       "marker_type": "image_target",
+      "image_target_asset": {
+        "asset_id": "field-target-a3-writeback-v1",
+        "asset_path": "data/field-targets/a3-writeback-target.svg",
+        "sha256": "db053a3bddb388b1fcae97770e7c6cd4cdbb31a132d09460eedc7dcf6b53d517",
+        "physical_width_mm": 150,
+        "physical_height_mm": 100,
+        "dpi": 300,
+        "print_version": "field-kit-2026-07-02-v1",
+        "unity_target_library_status": "source_asset_ready_for_unity_import",
+        "rokid_import_status": "source_asset_ready_for_rokid_xr_extension_import"
+      },
       "tracking_modes": ["image_tracking", "slam", "manual", "simulator"],
       "print_title": "A3 写回点",
       "physical_role": "写回时间胶囊，并让第二用户看到刚生成的新信标。",
@@ -53,7 +75,7 @@
   "acceptance": {
     "required_anchor_ids": ["A1", "A2", "A3"],
     "required_marker_ids": ["A1:qr-entry", "A2:image-target", "A3:image-target"],
-    "required_runtime_fields": ["expected_pose", "marker", "acceptance", "latest_observation"],
+    "required_runtime_fields": ["expected_pose", "marker", "image_target_asset", "acceptance", "latest_observation"],
     "pdf_tokens": ["A1:qr-entry", "A2:image-target", "A3:image-target", "innerworld-field-markers/v1"]
   }
 }

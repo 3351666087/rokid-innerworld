@@ -1,4 +1,6 @@
+import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import {
   INNERWORLD_SERVICE_NAME,
@@ -132,6 +134,7 @@ export function createApiRouter({
   aiSchemaPath,
   buildOpsStatus,
   fieldMarkersPath,
+  fieldTargetAssetsDir,
   loadSpace,
   loadState,
   port,
@@ -271,6 +274,46 @@ export function createApiRouter({
     });
   }
 
+  function serveFieldTargetAsset(res, fileName) {
+    if (!fieldTargetAssetsDir || !fileName) {
+      sendError(res, 404, "field_target_asset_not_found");
+      return;
+    }
+
+    const decoded = decodeURIComponent(fileName);
+    if (decoded.includes("/") || decoded.includes("\\") || decoded.includes("..")) {
+      sendError(res, 400, "field_target_asset_invalid");
+      return;
+    }
+
+    const target = path.resolve(fieldTargetAssetsDir, decoded);
+    const root = path.resolve(fieldTargetAssetsDir);
+    if (!target.startsWith(root + path.sep) || !existsSync(target)) {
+      sendError(res, 404, "field_target_asset_not_found");
+      return;
+    }
+
+    const ext = path.extname(target).toLowerCase();
+    const contentType = ext === ".svg"
+      ? "image/svg+xml; charset=utf-8"
+      : ext === ".png"
+        ? "image/png"
+        : ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : "";
+    if (!contentType) {
+      sendError(res, 415, "field_target_asset_unsupported_type");
+      return;
+    }
+
+    res.writeHead(200, {
+      "content-type": contentType,
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*"
+    });
+    createReadStream(target).pipe(res);
+  }
+
   return async function routeApi(req, res, url) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       const space = await loadSpace();
@@ -368,6 +411,12 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/field/markers") {
       sendJson(res, 200, await loadFieldMarkers(req, url));
+      return;
+    }
+
+    const fieldAssetMatch = url.pathname.match(/^\/api\/field\/assets\/([^/]+)$/);
+    if (req.method === "GET" && fieldAssetMatch) {
+      serveFieldTargetAsset(res, fieldAssetMatch[1]);
       return;
     }
 

@@ -48,6 +48,25 @@ function markerPayloadUrl({ baseUrl, anchorId, markerType }) {
   return `${baseUrl}/api/field/markers#${encodeURIComponent(anchorId)}`;
 }
 
+function imageTargetAsset(config, baseUrl) {
+  if (!config?.image_target_asset) return null;
+  const asset = config.image_target_asset;
+  const assetPath = String(asset.asset_path || "").replace(/\\/g, "/");
+  const assetFile = assetPath.split("/").filter(Boolean).pop() || "";
+  return {
+    asset_id: asset.asset_id || "",
+    asset_path: assetPath,
+    asset_url: assetFile ? `${baseUrl}/api/field/assets/${encodeURIComponent(assetFile)}` : "",
+    sha256: asset.sha256 || "",
+    physical_width_mm: Number(asset.physical_width_mm || 0),
+    physical_height_mm: Number(asset.physical_height_mm || 0),
+    dpi: Number(asset.dpi || 0),
+    print_version: asset.print_version || "",
+    unity_target_library_status: asset.unity_target_library_status || "",
+    rokid_import_status: asset.rokid_import_status || ""
+  };
+}
+
 export function buildFieldMarkerManifest({
   baseUrl,
   space,
@@ -89,6 +108,7 @@ export function buildFieldMarkerManifest({
         placement_note: config.placement_note || "Place on the same physical exhibition wall.",
         cut_line_required: markerConfig?.print_contract?.cut_line_required !== false
       },
+      image_target_asset: marker.marker_type === "image_target" ? imageTargetAsset(config, publicBaseUrl) : null,
       field_role: {
         physical_role: config.physical_role || "Physical wall marker for the InnerWorld spatial layer.",
         operator_action: config.operator_action || "Align the device and submit a calibration observation.",

@@ -36,6 +36,8 @@ namespace InnerWorld.Rokid
         private Text sourceText;
         private Text targetText;
         private Text keyHintText;
+        private Text systemText;
+        private Text radarText;
         private int localStepIndex;
         private bool usingFallback;
         private Font uiFont;
@@ -77,6 +79,7 @@ namespace InnerWorld.Rokid
         private GameObject gazeReticle;
         private LineRenderer gazeReticleLine;
         private Material gazeReticleMaterial;
+        private float visualClockSeconds;
 
         private const float GazeHitRadiusMeters = 0.16f;
         private const int GazeReticleSegments = 48;
@@ -104,8 +107,10 @@ namespace InnerWorld.Rokid
 
         private void Update()
         {
+            visualClockSeconds += Time.deltaTime;
             TickRokidInput();
             TickDeviceHeartbeat();
+            TickPremiumSpatialSurfaces();
 
             if (Input.GetKeyDown(KeyCode.R)) StartCoroutine(BootstrapAndLoadSpace());
             if (!IsRokidInputActive() && Input.GetKeyDown(KeyCode.Space)) CompleteNextStep();
@@ -780,11 +785,13 @@ namespace InnerWorld.Rokid
 
             string source = usingFallback ? "fallback" : "space-api";
             string runtime = missionState != null ? missionState.mission_state : "local";
-            SetStatus(space.name, space.space_id + " | " + source + " | " + runtime + " | " + PairingHudBadge() + " | " + WallCalibrationHudBadge() + " | " + FieldAcceptanceHudBadge());
-            SetDetail(GetMissionLine() + "\nAnchors: " + SafeAnchors().Length + " / Beacons: " + SafeBeacons().Length + "\n" + BuildRuntimeContractLine());
+            SetStatus("InnerWorld Spatial Layer", space.name + " | " + source + " | " + runtime);
+            SetDetail(BuildExecutiveRuntimeLine());
+            GetMissionLine();
             RefreshInputStatusLine();
             RefreshTargetHud();
-            if (keyHintText != null) keyHintText.text = "Keys: R Reload | Space/Enter Confirm | Esc Back | Mouse Gaze | C Calib | S/W/B";
+            RefreshRadarHud();
+            if (keyHintText != null) keyHintText.text = "R reload | Space/Enter confirm | C calibrate | S service | W write | B user";
         }
 
         private string GetMissionLine()
@@ -798,10 +805,33 @@ namespace InnerWorld.Rokid
             MissionStepData step = space.mission.steps[index];
             if (stepText != null)
             {
-                string progress = missionState != null ? " | done " + missionState.CompletedStepCount : string.Empty;
-                stepText.text = "Step " + (index + 1) + "/" + space.mission.steps.Length + ": " + step.label + progress;
+                string progress = missionState != null ? " | " + MissionProgressLabel() : string.Empty;
+                stepText.text = "NOW " + (index + 1) + "/" + space.mission.steps.Length + "  " + step.label + progress;
             }
             return step.label + " - " + step.hint;
+        }
+
+        private string BuildExecutiveRuntimeLine()
+        {
+            string missionLine = GetMissionLine();
+            return missionLine
+                + "\n" + MissionProgressLabel() + " | anchors " + SafeAnchors().Length + " | beacons " + SafeBeacons().Length
+                + "\nDevice " + ShortId(deviceSessionId) + " | " + PairingHudBadge() + " | " + AdapterBoundaryLabel()
+                + "\nWall " + WallCalibrationHudBadge() + " | " + BuildFieldMarkerReadinessLine()
+                + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
+                + "\nShell " + ArShellStatusCompactLabel()
+                + "\nTarget " + ActiveAnchorSummaryLabel();
+        }
+
+        private string MissionProgressLabel()
+        {
+            if (space == null || space.mission == null || space.mission.steps == null || space.mission.steps.Length == 0)
+            {
+                return "progress 0/0";
+            }
+
+            int done = missionState != null ? missionState.CompletedStepCount : Mathf.Clamp(localStepIndex, 0, space.mission.steps.Length);
+            return "progress " + done + "/" + space.mission.steps.Length;
         }
 
         private void EnsureCameraAndLight()
@@ -887,48 +917,80 @@ namespace InnerWorld.Rokid
             scaler.referenceResolution = new Vector2(1280f, 720f);
             canvasObject.AddComponent<GraphicRaycaster>();
 
-            GameObject panel = CreateUiObject("Panel", canvasObject.transform);
-            RectTransform panelRect = panel.GetComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(0f, 1f);
-            panelRect.anchorMax = new Vector2(0f, 1f);
-            panelRect.pivot = new Vector2(0f, 1f);
-            panelRect.anchoredPosition = new Vector2(24f, -24f);
-            panelRect.sizeDelta = new Vector2(500f, 500f);
-            Image panelImage = panel.AddComponent<Image>();
-            panelImage.color = new Color(0.03f, 0.045f, 0.055f, 0.88f);
+            GameObject panel = CreateHudPanel(
+                "Operator Rail",
+                canvasObject.transform,
+                new Vector2(0f, 1f),
+                new Vector2(0f, 1f),
+                new Vector2(24f, -24f),
+                new Vector2(440f, 318f),
+                new Color(0.02f, 0.03f, 0.038f, 0.82f));
+            CreateAccentBar("Operator Accent", panel.transform, new Color(0.36f, 0.92f, 1f, 0.92f), 3f, true);
 
             sourceText = CreateText("Source", panel.transform, 13, FontStyle.Bold);
-            SetRect(sourceText.rectTransform, 18f, -14f, 460f, 42f);
+            sourceText.color = new Color(0.72f, 0.88f, 0.95f);
+            SetRect(sourceText.rectTransform, 18f, -14f, 400f, 42f);
 
             statusText = CreateText("Status", panel.transform, 18, FontStyle.Bold);
-            SetRect(statusText.rectTransform, 18f, -62f, 430f, 48f);
+            statusText.color = new Color(0.94f, 0.98f, 1f);
+            SetRect(statusText.rectTransform, 18f, -62f, 400f, 52f);
 
             stepText = CreateText("Step", panel.transform, 15, FontStyle.Bold);
-            SetRect(stepText.rectTransform, 18f, -116f, 430f, 32f);
+            stepText.color = new Color(0.96f, 0.9f, 0.55f);
+            SetRect(stepText.rectTransform, 18f, -120f, 400f, 30f);
 
-            detailText = CreateText("Detail", panel.transform, 14, FontStyle.Normal);
-            SetRect(detailText.rectTransform, 18f, -150f, 450f, 136f);
+            detailText = CreateText("Detail", panel.transform, 12, FontStyle.Normal);
+            detailText.color = new Color(0.78f, 0.88f, 0.92f);
+            SetRect(detailText.rectTransform, 18f, -154f, 400f, 142f);
 
-            targetText = CreateText("Target", panel.transform, 13, FontStyle.Bold);
+            GameObject targetPanel = CreateHudPanel(
+                "Target Card",
+                canvasObject.transform,
+                new Vector2(1f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(-24f, -24f),
+                new Vector2(420f, 252f),
+                new Color(0.025f, 0.034f, 0.042f, 0.8f));
+            CreateAccentBar("Target Accent", targetPanel.transform, new Color(1f, 0.82f, 0.26f, 0.92f), 3f, true);
+
+            systemText = CreateText("System", targetPanel.transform, 12, FontStyle.Bold);
+            systemText.color = new Color(0.7f, 0.86f, 0.94f);
+            SetRect(systemText.rectTransform, 18f, -14f, 382f, 34f);
+
+            targetText = CreateText("Target", targetPanel.transform, 13, FontStyle.Bold);
             targetText.color = new Color(0.98f, 0.9f, 0.42f);
-            SetRect(targetText.rectTransform, 18f, -292f, 460f, 84f);
+            SetRect(targetText.rectTransform, 18f, -54f, 382f, 178f);
 
-            keyHintText = CreateText("Key Hints", panel.transform, 13, FontStyle.Bold);
+            GameObject radarPanel = CreateHudPanel(
+                "Radar Strip",
+                canvasObject.transform,
+                new Vector2(0.5f, 0f),
+                new Vector2(0.5f, 0f),
+                new Vector2(0f, 22f),
+                new Vector2(820f, 96f),
+                new Color(0.018f, 0.026f, 0.032f, 0.82f));
+            CreateAccentBar("Radar Accent", radarPanel.transform, new Color(0.42f, 1f, 0.74f, 0.86f), 2f, false);
+
+            radarText = CreateText("Radar", radarPanel.transform, 13, FontStyle.Bold);
+            radarText.color = new Color(0.72f, 1f, 0.88f);
+            SetRect(radarText.rectTransform, 18f, -12f, 520f, 42f);
+
+            keyHintText = CreateText("Key Hints", radarPanel.transform, 12, FontStyle.Bold);
             keyHintText.color = new Color(0.76f, 0.93f, 1f);
-            SetRect(keyHintText.rectTransform, 18f, -386f, 460f, 32f);
+            SetRect(keyHintText.rectTransform, 18f, -56f, 520f, 24f);
 
-            float x = 18f;
-            CreateButton("Reload", panel.transform, x, -430f, 74f, () => StartCoroutine(BootstrapAndLoadSpace()));
-            x += 82f;
-            CreateButton("Next", panel.transform, x, -430f, 64f, CompleteNextStep);
-            x += 72f;
-            CreateButton("Service", panel.transform, x, -430f, 80f, () => StartCoroutine(PostServiceAction()));
-            x += 88f;
-            CreateButton("Write", panel.transform, x, -430f, 66f, () => StartCoroutine(PostWriteBack()));
-            x += 74f;
-            CreateButton("User B", panel.transform, x, -430f, 70f, () => StartCoroutine(SwitchUserB()));
+            float x = 552f;
+            CreateButton("Reload", radarPanel.transform, x, -14f, 72f, () => StartCoroutine(BootstrapAndLoadSpace()));
             x += 78f;
-            CreateButton("Calib", panel.transform, x, -430f, 68f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
+            CreateButton("Next", radarPanel.transform, x, -14f, 58f, CompleteNextStep);
+            x += 64f;
+            CreateButton("Svc", radarPanel.transform, x, -14f, 50f, () => StartCoroutine(PostServiceAction()));
+            x += 56f;
+            CreateButton("Write", radarPanel.transform, x, -14f, 58f, () => StartCoroutine(PostWriteBack()));
+            x = 552f;
+            CreateButton("User B", radarPanel.transform, x, -52f, 72f, () => StartCoroutine(SwitchUserB()));
+            x += 78f;
+            CreateButton("Calib", radarPanel.transform, x, -52f, 58f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
 
             RefreshTargetHud();
         }
@@ -949,10 +1011,11 @@ namespace InnerWorld.Rokid
                     : wallCenter;
                 Vector3 displayPosition = AnchorDisplayPosition(anchor, position);
 
-                GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 marker.name = "Anchor " + anchor.anchor_id + " - " + anchor.label;
                 marker.transform.position = displayPosition;
-                Vector3 baseScale = anchor.kind == "write_back" ? Vector3.one * 0.28f : Vector3.one * 0.24f;
+                marker.transform.rotation = Quaternion.LookRotation((cameraPosition - displayPosition).normalized, Vector3.up);
+                Vector3 baseScale = AnchorBaseScale(anchor);
                 Color baseColor = ColorForAnchor(anchor.kind);
                 marker.transform.localScale = baseScale;
                 Renderer markerRenderer = marker.GetComponent<Renderer>();
@@ -963,7 +1026,7 @@ namespace InnerWorld.Rokid
                 spawnedObjects.Add(marker);
 
                 GameObject label = new GameObject("Label " + anchor.anchor_id);
-                label.transform.position = displayPosition + new Vector3(-0.22f, 0.26f, -0.03f);
+                label.transform.position = displayPosition + new Vector3(-0.26f, 0.28f, -0.03f);
                 label.transform.rotation = Quaternion.LookRotation((label.transform.position - cameraPosition).normalized, Vector3.up);
                 TextMesh mesh = label.AddComponent<TextMesh>();
                 mesh.text = anchor.anchor_id + "  " + anchor.label + "\n" + AnchorBeaconLine(anchor.anchor_id);
@@ -976,8 +1039,12 @@ namespace InnerWorld.Rokid
                 if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
                 spawnedObjects.Add(label);
 
-                anchorVisuals[anchor.anchor_id] = new AnchorVisualState(anchor, marker.transform, markerRenderer, mesh, baseScale, baseColor);
+                LineRenderer haloLine = CreateAnchorHalo(anchor.anchor_id, displayPosition, baseColor);
+                LineRenderer stemLine = CreateAnchorStem(anchor.anchor_id, displayPosition, baseColor);
+                anchorVisuals[anchor.anchor_id] = new AnchorVisualState(anchor, marker.transform, markerRenderer, mesh, haloLine, stemLine, baseScale, baseColor);
             }
+
+            BuildSpatialRouteLine();
 
             if (!string.IsNullOrEmpty(selectedAnchorId) && !anchorVisuals.ContainsKey(selectedAnchorId))
             {
@@ -1013,11 +1080,93 @@ namespace InnerWorld.Rokid
             return new Vector3(x, y, wallCenter.z - 0.24f);
         }
 
+        private Vector3 AnchorBaseScale(AnchorData anchor)
+        {
+            if (anchor != null && anchor.kind == "write_back") return new Vector3(0.34f, 0.22f, 1f);
+            if (anchor != null && anchor.kind == "entry") return new Vector3(0.32f, 0.2f, 1f);
+            return new Vector3(0.36f, 0.24f, 1f);
+        }
+
+        private LineRenderer CreateAnchorHalo(string anchorId, Vector3 displayPosition, Color color)
+        {
+            GameObject halo = new GameObject("Halo " + anchorId);
+            halo.transform.position = displayPosition + new Vector3(0f, 0f, -0.018f);
+            halo.transform.rotation = Quaternion.LookRotation((cameraPosition - displayPosition).normalized, Vector3.up);
+            LineRenderer line = halo.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.loop = true;
+            line.positionCount = 72;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.006f;
+            line.startColor = color;
+            line.endColor = color;
+            Material material = CreateLineMaterial(color, 0.6f);
+            if (material != null) line.material = material;
+            SetCircleLine(line, 0.24f);
+            spawnedObjects.Add(halo);
+            return line;
+        }
+
+        private LineRenderer CreateAnchorStem(string anchorId, Vector3 displayPosition, Color color)
+        {
+            GameObject stem = new GameObject("Stem " + anchorId);
+            LineRenderer line = stem.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 2;
+            line.numCapVertices = 4;
+            line.startWidth = 0.008f;
+            line.endWidth = 0.002f;
+            line.startColor = color;
+            line.endColor = new Color(color.r, color.g, color.b, 0.18f);
+            Material material = CreateLineMaterial(color, 0.45f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, displayPosition + new Vector3(0f, -0.02f, -0.03f));
+            line.SetPosition(1, displayPosition + new Vector3(0f, -0.46f, 0.08f));
+            spawnedObjects.Add(stem);
+            return line;
+        }
+
+        private void BuildSpatialRouteLine()
+        {
+            if (!anchorVisuals.ContainsKey("A1") || !anchorVisuals.ContainsKey("A2") || !anchorVisuals.ContainsKey("A3"))
+            {
+                return;
+            }
+
+            GameObject route = new GameObject("A1 A2 A3 Spatial Route");
+            LineRenderer line = route.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 3;
+            line.numCapVertices = 6;
+            line.numCornerVertices = 8;
+            line.startWidth = 0.012f;
+            line.endWidth = 0.012f;
+            Color color = new Color(0.42f, 1f, 0.84f, 0.72f);
+            line.startColor = color;
+            line.endColor = color;
+            Material material = CreateLineMaterial(color, 0.5f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, anchorVisuals["A1"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
+            line.SetPosition(1, anchorVisuals["A2"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
+            line.SetPosition(2, anchorVisuals["A3"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
+            spawnedObjects.Add(route);
+        }
+
         private string AnchorBeaconLine(string anchorId)
         {
             BeaconData[] beacons = FindBeacons(anchorId);
-            if (beacons.Length == 0) return "No memory";
+            if (beacons.Length == 0) return "layer pending";
             return beacons[beacons.Length - 1].display_text;
+        }
+
+        private string AnchorKindLabel(AnchorData anchor)
+        {
+            if (anchor == null || string.IsNullOrWhiteSpace(anchor.kind)) return "spatial node";
+            if (anchor.kind == "entry") return "entry gate";
+            if (anchor.kind == "write_back") return "write-back node";
+            if (anchor.kind == "memory") return "memory beacon";
+            return anchor.kind.Trim();
         }
 
         private void ApplyMaterial(Renderer renderer, Color color)
@@ -1050,6 +1199,28 @@ namespace InnerWorld.Rokid
             {
                 material.EnableKeyword("_EMISSION");
                 material.SetColor("_EmissionColor", color * Mathf.Max(0f, emissionStrength));
+            }
+        }
+
+        private Material CreateLineMaterial(Color color, float emissionStrength)
+        {
+            Shader shader = FindRuntimeShader();
+            if (shader == null) return null;
+            Material material = new Material(shader);
+            SetMaterialColor(material, color, emissionStrength);
+            return material;
+        }
+
+        private void SetCircleLine(LineRenderer line, float radius)
+        {
+            if (line == null) return;
+
+            int count = Mathf.Max(8, line.positionCount);
+            float safeRadius = Mathf.Max(0.03f, radius);
+            for (int index = 0; index < count; index++)
+            {
+                float angle = (Mathf.PI * 2f * index) / count;
+                line.SetPosition(index, new Vector3(Mathf.Cos(angle) * safeRadius, Mathf.Sin(angle) * safeRadius, 0f));
             }
         }
 
@@ -1151,6 +1322,7 @@ namespace InnerWorld.Rokid
 
         private void RefreshAnchorVisualStates()
         {
+            int visualIndex = 0;
             foreach (AnchorVisualState visual in anchorVisuals.Values)
             {
                 bool isGaze = visual.Anchor != null && visual.Anchor.anchor_id == currentGazeAnchorId;
@@ -1179,13 +1351,20 @@ namespace InnerWorld.Rokid
                 }
 
                 SetRendererColor(visual.MarkerRenderer, markerColor, isGaze || isSelected ? 0.65f : 0.25f);
+                ApplyLineColor(visual.HaloLine, markerColor, isGaze || isSelected ? 0.75f : 0.35f);
+                ApplyLineColor(visual.StemLine, markerColor, isGaze || isSelected ? 0.48f : 0.2f);
 
                 if (visual.LabelMesh != null)
                 {
                     visual.LabelMesh.color = labelColor;
                     visual.LabelMesh.text = BuildAnchorLabel(visual.Anchor, isGaze, isSelected);
                 }
+
+                AnimateAnchorVisual(visual, isGaze, isSelected, visualIndex);
+                visualIndex++;
             }
+
+            RefreshRadarHud();
         }
 
         private string BuildAnchorLabel(AnchorData anchor, bool isGaze, bool isSelected)
@@ -1193,9 +1372,50 @@ namespace InnerWorld.Rokid
             if (anchor == null) return string.Empty;
 
             string prefix = string.Empty;
-            if (isSelected) prefix += "[SELECTED] ";
-            if (isGaze) prefix += "[GAZE] ";
-            return prefix + anchor.anchor_id + "  " + anchor.label + "\n" + AnchorBeaconLine(anchor.anchor_id);
+            if (isSelected) prefix += "LOCK ";
+            if (isGaze) prefix += "FOCUS ";
+            return prefix + anchor.anchor_id + "  " + anchor.label + "\n" + AnchorKindLabel(anchor) + " | " + AnchorBeaconLine(anchor.anchor_id);
+        }
+
+        private void TickPremiumSpatialSurfaces()
+        {
+            int index = 0;
+            foreach (AnchorVisualState visual in anchorVisuals.Values)
+            {
+                bool isGaze = visual.Anchor != null && visual.Anchor.anchor_id == currentGazeAnchorId;
+                bool isSelected = visual.Anchor != null && visual.Anchor.anchor_id == selectedAnchorId;
+                AnimateAnchorVisual(visual, isGaze, isSelected, index);
+                index++;
+            }
+        }
+
+        private void AnimateAnchorVisual(AnchorVisualState visual, bool isGaze, bool isSelected, int index)
+        {
+            if (visual == null) return;
+
+            float wave = 0.5f + 0.5f * Mathf.Sin(visualClockSeconds * (isSelected ? 3.2f : 1.8f) + index * 0.9f);
+            float baseRadius = isSelected ? 0.31f : (isGaze ? 0.28f : 0.23f);
+            if (visual.HaloLine != null)
+            {
+                SetCircleLine(visual.HaloLine, baseRadius + wave * (isGaze || isSelected ? 0.018f : 0.008f));
+                visual.HaloLine.startWidth = isSelected ? 0.012f : (isGaze ? 0.009f : 0.005f);
+                visual.HaloLine.endWidth = visual.HaloLine.startWidth;
+            }
+
+            if (visual.StemLine != null)
+            {
+                visual.StemLine.startWidth = isSelected ? 0.012f : 0.007f + wave * 0.002f;
+            }
+        }
+
+        private void ApplyLineColor(LineRenderer line, Color color, float alpha)
+        {
+            if (line == null) return;
+
+            Color lineColor = new Color(color.r, color.g, color.b, Mathf.Clamp01(alpha));
+            line.startColor = lineColor;
+            line.endColor = new Color(color.r, color.g, color.b, Mathf.Clamp01(alpha * 0.55f));
+            SetMaterialColor(line.material, lineColor, alpha);
         }
 
         private void UpdateGazeReticle(Vector3 hitPoint, bool isSelecting, bool isSelected)
@@ -1235,19 +1455,133 @@ namespace InnerWorld.Rokid
         {
             if (targetText == null) return;
 
-            string gazeLine = string.IsNullOrEmpty(currentGazeAnchorId)
-                ? "Gaze: none"
-                : "Gaze: " + currentGazeAnchorId + " " + CurrentAnchorLabel(currentGazeAnchorId, currentGazeAnchorLabel);
-            if (!string.IsNullOrEmpty(currentGazeAnchorId) && currentGazeSelecting)
+            string debugLine = BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine();
+            targetText.text = BuildPremiumTargetCardLine(debugLine);
+            if (systemText != null) systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel();
+            RefreshRadarHud();
+        }
+
+        private string BuildPremiumTargetCardLine(string debugLine)
+        {
+            FieldMarkerAnchor marker = ResolveCurrentFieldMarkerAnchor();
+            return SpatialFocusLine()
+                + "\n" + FieldMarkerTargetSummary(marker)
+                + "\n" + ImageTargetAssetCardLine(marker)
+                + "\n" + CalibrationCompactLine()
+                + "\n" + AcceptanceCompactLine();
+        }
+
+        private string SpatialFocusLine()
+        {
+            string focusAnchor = CurrentActiveAnchorId();
+            string label = CurrentAnchorLabel(focusAnchor, currentGazeAnchorLabel);
+            string mode = string.IsNullOrEmpty(selectedAnchorId) ? "focus" : "locked";
+            if (!string.IsNullOrEmpty(currentGazeAnchorId) && currentGazeSelecting) mode = "selecting";
+            return mode.ToUpperInvariant() + " " + focusAnchor + " | " + label;
+        }
+
+        private string FieldMarkerTargetSummary(FieldMarkerAnchor marker)
+        {
+            if (marker == null) return "Marker none | waiting for field manifest";
+            string markerId = marker.marker != null ? SafeLabel(marker.marker.marker_id, marker.anchor_id) : SafeLabel(marker.anchor_id, "unknown");
+            string markerType = marker.marker != null ? SafeLabel(marker.marker.marker_type, "marker") : "marker";
+            return "Marker " + markerId + " | " + markerType + " | " + TrackingModesLabel(marker.tracking_modes);
+        }
+
+        private string ImageTargetAssetCardLine(FieldMarkerAnchor marker)
+        {
+            if (marker == null || !IsImageTargetMarker(marker))
             {
-                gazeLine += " (select)";
+                return "Asset QR entry | no image target import needed";
             }
 
-            string selectedLine = string.IsNullOrEmpty(selectedAnchorId)
-                ? "Selected: none"
-                : "Selected: " + selectedAnchorId + " " + CurrentAnchorLabel(selectedAnchorId, string.Empty);
+            FieldMarkerImageTargetAsset asset = marker.image_target_asset;
+            if (asset == null)
+            {
+                return "Asset missing | add target image before hardware import";
+            }
 
-            targetText.text = gazeLine + "\n" + selectedLine + "\n" + BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine();
+            return "Asset " + SafeLabel(asset.asset_id, "unknown")
+                + " | " + ShortAssetStatus(asset.unity_target_library_status)
+                + " / " + ShortAssetStatus(asset.rokid_import_status)
+                + " | " + ImageTargetPhysicalSizeLabel(asset)
+                + " | sha " + ShortSha(asset.sha256);
+        }
+
+        private string CalibrationCompactLine()
+        {
+            string ready = WallCalibrationReadyFlag() ? "hardware lock ready" : "hardware lock pending";
+            return "Wall " + ready + " | " + BuildWallCalibrationObservationLine();
+        }
+
+        private string AcceptanceCompactLine()
+        {
+            return "Site gates " + FieldAcceptanceReadyGateCount() + "/" + FieldAcceptanceTotalGateCount()
+                + " ready | blockers " + FieldAcceptanceBlockingCount()
+                + " | " + FieldAcceptanceTrackingGuardLabel();
+        }
+
+        private string ActiveAnchorSummaryLabel()
+        {
+            string anchorId = CurrentActiveAnchorId();
+            return anchorId + " " + CurrentAnchorLabel(anchorId, currentGazeAnchorLabel) + " | " + SpatialLockQualityLabel();
+        }
+
+        private string SpatialLockQualityLabel()
+        {
+            if (!string.IsNullOrEmpty(selectedAnchorId)) return "locked";
+            if (!string.IsNullOrEmpty(currentGazeAnchorId) && currentGazeSelecting) return "selecting";
+            if (!string.IsNullOrEmpty(currentGazeAnchorId)) return "focus";
+            return "searching";
+        }
+
+        private string ShortAssetStatus(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "pending";
+            string clean = value.Trim();
+            if (clean.IndexOf("ready", StringComparison.OrdinalIgnoreCase) >= 0) return "ready";
+            if (clean.IndexOf("import", StringComparison.OrdinalIgnoreCase) >= 0) return "import";
+            if (clean.IndexOf("pending", StringComparison.OrdinalIgnoreCase) >= 0) return "pending";
+            return clean.Length <= 18 ? clean : clean.Substring(0, 18);
+        }
+
+        private string ArShellStatusCompactLabel()
+        {
+            if (missionState != null && !string.IsNullOrWhiteSpace(missionState.ArShellStatusLabel))
+            {
+                string label = missionState.ArShellStatusLabel.Trim();
+                return label.Length <= 92 ? label : label.Substring(0, 92);
+            }
+
+            return presentationStrategy != null ? presentationStrategy.PremiumStatusLine : "AR shell pending";
+        }
+
+        private void RefreshRadarHud()
+        {
+            if (radarText == null) return;
+            radarText.text = BuildRadarHudLine();
+        }
+
+        private string BuildRadarHudLine()
+        {
+            return "RADAR  "
+                + RadarAnchorSegment("A1", "ENTRY")
+                + "  ->  " + RadarAnchorSegment("A2", "MEMORY")
+                + "  ->  " + RadarAnchorSegment("A3", "WRITE")
+                + "\n" + MissionProgressLabel()
+                + " | " + SpatialLockQualityLabel()
+                + " | " + ArShellStatusCompactLabel()
+                + " | " + PairingHudBadge()
+                + " | " + FieldAcceptanceHudBadge();
+        }
+
+        private string RadarAnchorSegment(string anchorId, string label)
+        {
+            string state = "idle";
+            if (anchorId == selectedAnchorId) state = "lock";
+            else if (anchorId == currentGazeAnchorId) state = currentGazeSelecting ? "select" : "focus";
+            else if (missionState != null && missionState.CurrentStep != null && anchorId == missionState.CurrentStep.anchor_id) state = "next";
+            return anchorId + ":" + label + "[" + state + "]";
         }
 
         private string CurrentAnchorLabel(string anchorId, string fallback)
@@ -1256,6 +1590,35 @@ namespace InnerWorld.Rokid
             if (anchor != null && !string.IsNullOrWhiteSpace(anchor.label)) return anchor.label.Trim();
             if (!string.IsNullOrWhiteSpace(fallback)) return fallback.Trim();
             return string.IsNullOrEmpty(anchorId) ? "unknown" : anchorId;
+        }
+
+        private GameObject CreateHudPanel(string name, Transform parent, Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size, Color color)
+        {
+            GameObject panel = CreateUiObject(name, parent);
+            RectTransform rect = panel.GetComponent<RectTransform>();
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+            rect.pivot = pivot;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+            Image image = panel.AddComponent<Image>();
+            image.color = color;
+            return panel;
+        }
+
+        private void CreateAccentBar(string name, Transform parent, Color color, float thickness, bool vertical)
+        {
+            GameObject item = CreateUiObject(name, parent);
+            RectTransform rect = item.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = vertical ? new Vector2(0f, 1f) : new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = vertical ? new Vector2(thickness, 0f) : new Vector2(0f, thickness);
+            rect.offsetMin = vertical ? new Vector2(0f, 0f) : new Vector2(0f, -thickness);
+            rect.offsetMax = vertical ? new Vector2(thickness, 0f) : new Vector2(0f, 0f);
+            Image image = item.AddComponent<Image>();
+            image.color = color;
         }
 
         private GameObject CreateUiObject(string name, Transform parent)
@@ -1401,6 +1764,7 @@ namespace InnerWorld.Rokid
                 rokidInputStateSink.SetConnection(RokidConnectionStatus.Disconnected, PresentationStatusMessage());
             }
 
+            ApplyPresentationStrategyToMissionState();
             RefreshInputStatusLine();
         }
 
@@ -1426,8 +1790,14 @@ namespace InnerWorld.Rokid
             RokidConnectionInfo connection = CurrentConnectionInfo();
             string mode = presentationStrategy != null ? presentationStrategy.mode.ToString() : presentationMode;
             string observation = BuildWallCalibrationObservationLine();
-            sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status + " | " + CurrentDeviceProfile()
-                + "\n" + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + PairingHudBadge() + " | " + observation + " | " + BuildFieldMarkerReadinessLine() + " | " + FieldAcceptanceHudBadge();
+            string fieldReadiness = BuildFieldMarkerReadinessLine();
+            string acceptanceStatus = FieldAcceptanceHudBadge();
+            sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status
+                + "\nSERVER " + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + CurrentDeviceProfile() + " | " + acceptanceStatus;
+            if (systemText != null)
+            {
+                systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation;
+            }
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -1613,6 +1983,7 @@ namespace InnerWorld.Rokid
             string[] completedSteps = runtime != null ? runtime.completed_steps : null;
             string userId = runtime != null ? runtime.active_user : (runtimeConfig != null ? runtimeConfig.active_user : InnerWorldRuntimeConfig.DefaultActiveUser);
             missionState.ApplyRuntime(state, stepIndex, completedSteps, userId);
+            ApplyPresentationStrategyToMissionState();
             localStepIndex = missionState.current_step_index;
         }
 
@@ -1634,7 +2005,16 @@ namespace InnerWorld.Rokid
                     bootstrap.mission != null ? bootstrap.mission.current_step_index : missionState.current_step_index,
                     bootstrap.runtime.completed_steps,
                     bootstrap.runtime.active_user);
+                ApplyPresentationStrategyToMissionState();
                 localStepIndex = missionState.current_step_index;
+            }
+        }
+
+        private void ApplyPresentationStrategyToMissionState()
+        {
+            if (missionState != null && presentationStrategy != null)
+            {
+                missionState.ApplyPresentationStrategy(presentationStrategy);
             }
         }
 
@@ -1986,7 +2366,8 @@ namespace InnerWorld.Rokid
         {
             return "field markers: " + FieldMarkerSchemaLabel()
                 + ", " + BuildFieldMarkerReadinessLine()
-                + ", markers " + FieldMarkerIdsLabel();
+                + ", markers " + FieldMarkerIdsLabel()
+                + ", image target assets " + FieldMarkerImageTargetAssetsLabel();
         }
 
         private string BuildFieldMarkerStatusLine()
@@ -1999,6 +2380,7 @@ namespace InnerWorld.Rokid
             return "field markers schema " + FieldMarkerSchemaLabel()
                 + " | " + BuildFieldMarkerReadinessLine()
                 + " | markers " + FieldMarkerIdsLabel()
+                + " | image target assets " + FieldMarkerImageTargetAssetsLabel()
                 + " | active " + BuildFieldMarkerActiveLine();
         }
 
@@ -2006,7 +2388,8 @@ namespace InnerWorld.Rokid
         {
             return (FieldMarkerPrintReadyFlag() ? "print kit ready" : "print kit pending")
                 + " | " + FieldMarkerSimulatorRehearsalLabel()
-                + " | " + FieldMarkerHardwareReadinessLabel();
+                + " | " + FieldMarkerHardwareReadinessLabel()
+                + " | " + FieldMarkerImageTargetAssetReadinessLabel();
         }
 
         private string BuildFieldMarkerActiveLine()
@@ -2023,7 +2406,31 @@ namespace InnerWorld.Rokid
                 + " " + markerId
                 + " " + markerType
                 + " | modes " + TrackingModesLabel(marker.tracking_modes)
-                + " | expected " + PosePositionLabel(marker.expected_pose);
+                + " | expected " + PosePositionLabel(marker.expected_pose)
+                + " | " + BuildFieldMarkerImageTargetAssetLine(marker);
+        }
+
+        private string BuildFieldMarkerImageTargetAssetLine(FieldMarkerAnchor marker)
+        {
+            if (marker == null || !IsImageTargetMarker(marker))
+            {
+                return "image target asset not required";
+            }
+
+            FieldMarkerImageTargetAsset asset = marker.image_target_asset;
+            if (asset == null)
+            {
+                return "image target asset missing";
+            }
+
+            return "image target asset " + SafeLabel(asset.asset_id, "asset unknown")
+                + " | unity " + SafeLabel(asset.unity_target_library_status, "target library pending")
+                + " | rokid " + SafeLabel(asset.rokid_import_status, "import pending")
+                + " | " + ImageTargetPhysicalSizeLabel(asset)
+                + " | dpi " + (asset.dpi > 0 ? asset.dpi.ToString() : "unknown")
+                + " | print " + SafeLabel(asset.print_version, "unknown")
+                + " | sha " + ShortSha(asset.sha256)
+                + " | path " + SafeLabel(asset.asset_path, "path pending");
         }
 
         private string FieldMarkerSchemaLabel()
@@ -2132,6 +2539,107 @@ namespace InnerWorld.Rokid
             }
 
             return markerIds.Count == 0 ? "none" : string.Join(",", markerIds.ToArray());
+        }
+
+        private string FieldMarkerImageTargetAssetReadinessLabel()
+        {
+            int required = CountImageTargetMarkers();
+            if (required == 0) return "image target assets not required";
+            int ready = CountReadyImageTargetAssets();
+            return ready == required ? "image target assets ready " + ready + "/" + required : "image target assets pending " + ready + "/" + required;
+        }
+
+        private string FieldMarkerImageTargetAssetsLabel()
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null)
+            {
+                return "pending";
+            }
+
+            List<string> assets = new List<string>();
+            foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+            {
+                if (marker == null || !IsImageTargetMarker(marker)) continue;
+                FieldMarkerImageTargetAsset asset = marker.image_target_asset;
+                string anchorId = SafeLabel(marker.anchor_id, "unknown");
+                if (asset == null)
+                {
+                    assets.Add(anchorId + ":missing");
+                }
+                else
+                {
+                    assets.Add(anchorId
+                        + ":" + SafeLabel(asset.unity_target_library_status, "unity pending")
+                        + "/" + SafeLabel(asset.rokid_import_status, "rokid pending")
+                        + "@" + SafeLabel(asset.print_version, "print unknown"));
+                }
+            }
+
+            return assets.Count == 0 ? "none" : string.Join(",", assets.ToArray());
+        }
+
+        private int CountImageTargetMarkers()
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null) return 0;
+
+            int count = 0;
+            foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+            {
+                if (marker != null && IsImageTargetMarker(marker)) count++;
+            }
+
+            return count;
+        }
+
+        private int CountReadyImageTargetAssets()
+        {
+            if (fieldMarkerManifest == null || fieldMarkerManifest.markers == null) return 0;
+
+            int count = 0;
+            foreach (FieldMarkerAnchor marker in fieldMarkerManifest.markers)
+            {
+                if (marker != null && IsImageTargetMarker(marker) && IsImageTargetAssetReady(marker.image_target_asset)) count++;
+            }
+
+            return count;
+        }
+
+        private bool IsImageTargetMarker(FieldMarkerAnchor marker)
+        {
+            return marker != null
+                && marker.marker != null
+                && string.Equals(marker.marker.marker_type, "image_target", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsImageTargetAssetReady(FieldMarkerImageTargetAsset asset)
+        {
+            return asset != null
+                && !string.IsNullOrWhiteSpace(asset.asset_id)
+                && !string.IsNullOrWhiteSpace(asset.asset_path)
+                && !string.IsNullOrWhiteSpace(asset.sha256)
+                && asset.physical_width_mm > 0f
+                && asset.physical_height_mm > 0f
+                && asset.dpi > 0
+                && !string.IsNullOrWhiteSpace(asset.print_version)
+                && !string.IsNullOrWhiteSpace(asset.unity_target_library_status)
+                && !string.IsNullOrWhiteSpace(asset.rokid_import_status);
+        }
+
+        private string ImageTargetPhysicalSizeLabel(FieldMarkerImageTargetAsset asset)
+        {
+            if (asset == null || asset.physical_width_mm <= 0f || asset.physical_height_mm <= 0f)
+            {
+                return "size unknown";
+            }
+
+            return asset.physical_width_mm.ToString("0.#") + "x" + asset.physical_height_mm.ToString("0.#") + "mm";
+        }
+
+        private string ShortSha(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "sha pending";
+            string clean = value.Trim();
+            return clean.Length <= 12 ? clean : clean.Substring(0, 12);
         }
 
         private string BuildFieldAcceptanceHeartbeatLine()
@@ -2739,6 +3247,8 @@ namespace InnerWorld.Rokid
             public readonly Transform MarkerTransform;
             public readonly Renderer MarkerRenderer;
             public readonly TextMesh LabelMesh;
+            public readonly LineRenderer HaloLine;
+            public readonly LineRenderer StemLine;
             public readonly Vector3 BaseScale;
             public readonly Color BaseColor;
 
@@ -2747,6 +3257,8 @@ namespace InnerWorld.Rokid
                 Transform markerTransform,
                 Renderer markerRenderer,
                 TextMesh labelMesh,
+                LineRenderer haloLine,
+                LineRenderer stemLine,
                 Vector3 baseScale,
                 Color baseColor)
             {
@@ -2754,6 +3266,8 @@ namespace InnerWorld.Rokid
                 MarkerTransform = markerTransform;
                 MarkerRenderer = markerRenderer;
                 LabelMesh = labelMesh;
+                HaloLine = haloLine;
+                StemLine = stemLine;
                 BaseScale = baseScale;
                 BaseColor = baseColor;
             }

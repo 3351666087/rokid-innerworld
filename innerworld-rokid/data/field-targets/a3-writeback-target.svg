@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1772" height="1181" viewBox="0 0 1772 1181">
+  <rect width="1772" height="1181" fill="#fbfaf4"/>
+  <rect x="38" y="38" width="1696" height="1105" fill="none" stroke="#151515" stroke-width="18"/>
+  <rect x="94" y="94" width="1584" height="993" fill="#151515"/>
+  <rect x="138" y="138" width="1496" height="905" fill="#fbfaf4"/>
+  <g fill="#151515">
+    <rect x="174" y="174" width="176" height="176"/>
+    <rect x="1422" y="174" width="176" height="176"/>
+    <rect x="174" y="831" width="176" height="176"/>
+    <rect x="1422" y="831" width="176" height="176"/>
+    <rect x="418" y="236" width="88" height="150"/>
+    <rect x="1266" y="236" width="150" height="88"/>
+    <rect x="418" y="794" width="150" height="88"/>
+    <rect x="1204" y="794" width="88" height="150"/>
+  </g>
+  <g fill="none" stroke="#151515" stroke-width="20" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M556 430 L886 248 L1216 430 L1216 752 L886 934 L556 752 Z"/>
+    <path d="M676 488 L886 372 L1096 488 L1096 696 L886 812 L676 696 Z"/>
+    <path d="M796 546 L886 496 L976 546 L976 638 L886 688 L796 638 Z"/>
+    <path d="M886 248 L886 496"/>
+    <path d="M1216 430 L976 546"/>
+    <path d="M1216 752 L976 638"/>
+    <path d="M886 934 L886 688"/>
+    <path d="M556 752 L796 638"/>
+    <path d="M556 430 L796 546"/>
+    <path d="M356 590 L556 590"/>
+    <path d="M1216 590 L1416 590"/>
+    <path d="M886 174 L886 248"/>
+    <path d="M886 934 L886 1008"/>
+  </g>
+  <g fill="#ffb84d">
+    <circle cx="886" cy="590" r="26"/>
+    <circle cx="556" cy="430" r="17"/>
+    <circle cx="1216" cy="430" r="17"/>
+    <circle cx="1216" cy="752" r="17"/>
+    <circle cx="556" cy="752" r="17"/>
+  </g>
+  <g fill="#151515" font-family="Inter, Arial, sans-serif" font-weight="700">
+    <text x="454" y="1110" font-size="54">A3 IMAGE TARGET / WRITEBACK NODE</text>
+    <text x="454" y="1162" font-size="32">InnerWorld campus wall target asset v1</text>
+  </g>
+</svg>
