@@ -1,0 +1,64 @@
+{
+  "updated_at": "2026-07-02T14:45:00+08:00",
+  "status": "sample-loan-application-recorded",
+  "source": {
+    "type": "loan-agreement-image",
+    "path": "D:/Downloads/mmexport1782974349484.jpg",
+    "privacy_note": "Personal recipient details, phone numbers, addresses, and device serial numbers are intentionally omitted from this working manifest."
+  },
+  "applied_hardware": [
+    {
+      "product_name": "Rokid Max Pro",
+      "model": "RA202",
+      "color": "blue-black",
+      "quantity": 1,
+      "role": "glasses display and headset endpoint for AR Studio spatial experience"
+    },
+    {
+      "product_name": "Rokid Station Pro",
+      "model": "RAS201",
+      "color": "blue-black",
+      "quantity": 1,
+      "role": "compute/control companion running YodaOS-Master for AR Studio"
+    }
+  ],
+  "kit_interpretation": "This matches Rokid AR Studio: the official platform describes AR Studio as Rokid Max Pro glasses plus Rokid Station Pro host, running YodaOS-Master for spatial computing.",
+  "loan_terms_summary": {
+    "developer_reference_price_cny_per_set": 6500,
+    "borrow_deadline": "2026-08-31",
+    "allowed_use": "Rokid system app experience, adaptation, and development for the event/project.",
+    "restricted_use": [
+      "commercial use",
+      "resale",
+      "rental",
+      "lending to third parties",
+      "setting third-party rights",
+      "reverse engineering"
+    ],
+    "risk_owner": "Borrower is responsible for loss, damage, repair, and timely return under the loan terms."
+  },
+  "project_fit": {
+    "assessment": "fit",
+    "reason": "The final project is a Rokid glasses spatial memory layer over a real campus exhibition wall. Max Pro provides the glasses display endpoint; Station Pro provides the AR Studio/YodaOS-Master companion for spatial computing. The Windows host remains the localhost/LAN control machine before and during field demo.",
+    "implementation_rule": "Hardware arrival should replace only the input/display layer. Space API, space_demo.json, mission state machine, AI schema/prompt, service action, write-back, and evidence chain remain shared across Web, Unity fallback, and Rokid."
+  },
+  "official_references": [
+    "https://open.rokid.com/",
+    "https://arstudio.rokid.com/",
+    "https://open.rokid.com/master?lang=zh"
+  ],
+  "local_evidence": [
+    {
+      "id": "wechat_export_jsonl",
+      "description": "Group chat export under the workspace chat-export folder; relevant messages confirm Studio/Lite, then Studio preference."
+    },
+    {
+      "id": "final_decision_table",
+      "description": "Final evidence decision table: Campus Hidden Layer / three-anchor route is the only main direction."
+    },
+    {
+      "id": "technical_route_table",
+      "description": "Technical route table: P0 Web/Unity mock first, P1 Rokid ecosystem / UXR / OpenXR enhancement after hardware."
+    }
+  ]
+}

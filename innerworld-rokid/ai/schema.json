@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InnerWorld HUD AI Output",
+  "type": "object",
+  "required": ["mission_state", "display_text", "hint_level", "write_back_review"],
+  "properties": {
+    "mission_state": {
+      "type": "string",
+      "enum": ["entered", "reading", "doing", "service_ready", "writing", "complete"]
+    },
+    "display_text": {
+      "type": "string",
+      "maxLength": 54
+    },
+    "hint_level": {
+      "type": "string",
+      "enum": ["none", "weak", "strong", "answer"]
+    },
+    "service_action": {
+      "type": ["null", "object"],
+      "properties": {
+        "action_id": { "type": "string" },
+        "label": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "write_back_review": {
+      "type": "object",
+      "required": ["status", "tag", "summary", "visibility"],
+      "properties": {
+        "status": { "type": "string", "enum": ["approved", "needs_review", "rejected"] },
+        "tag": { "type": "string" },
+        "summary": { "type": "string", "maxLength": 36 },
+        "visibility": { "type": "string", "enum": ["public_after_demo", "private", "organizer_only"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "read_memory",
+    "input": { "anchor_id": "A2", "action": "look" },
+    "expected_contains": "留言"
+  },
+  {
+    "name": "weak_hint",
+    "input": { "mission_step": "find_year", "action": "hint" },
+    "expected_hint_level": "weak"
+  },
+  {
+    "name": "write_back",
+    "input": { "mission_step": "write_back", "text": "后来的人，别忘了抬头看这里。" },
+    "expected_review_status": "approved"
+  }
+]

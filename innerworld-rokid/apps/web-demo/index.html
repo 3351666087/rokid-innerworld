@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>镜见 InnerWorld</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="app-shell" aria-label="镜见 InnerWorld 校园记忆展墙">
+    <section class="spatial-stage" aria-label="Rokid 空间镜像">
+      <header class="top-bar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">IW</span>
+          <div>
+            <p>Rokid Spatial Memory Layer</p>
+            <h1>镜见 InnerWorld</h1>
+          </div>
+        </div>
+        <div class="status-cluster" aria-label="运行状态">
+          <span id="connectionPill" class="status-pill">Localhost</span>
+          <span id="missionState" class="status-pill">entered</span>
+          <span id="userBadge" class="status-pill">User A</span>
+        </div>
+      </header>
+
+      <div class="stage-frame">
+        <div class="wall-scene" id="wallScene">
+          <div class="wall-meta">
+            <span>Campus Memory Wall</span>
+            <strong id="spaceName">校园记忆展墙</strong>
+          </div>
+          <div class="route-rail" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="anchor-layer" id="anchorLayer" aria-label="空间锚点"></div>
+        </div>
+
+        <section class="hud-surface" aria-label="眼镜端 HUD">
+          <div class="hud-topline">
+            <span id="hudAnchor">A1 入口海报</span>
+            <span id="hudHintLevel">hint none</span>
+          </div>
+          <h2 id="hudTitle">校园记忆层已打开</h2>
+          <p id="hudBody">看向展墙中间的记忆信标，读取前人留在这里的三行摘要。</p>
+          <div class="hud-meta" id="hudMeta"></div>
+          <div class="progress-track" id="progress"></div>
+        </section>
+
+        <section class="spatial-stack" aria-label="空间产品层">
+          <div>
+            <span>Input</span>
+            <strong>Gaze / Tap / Voice</strong>
+          </div>
+          <div>
+            <span>Layer</span>
+            <strong>Official · Public · Time Capsule</strong>
+          </div>
+          <div>
+            <span>Output</span>
+            <strong>Rokid HUD · Space Server</strong>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <aside class="operator-panel" aria-label="现场控制台">
+      <section class="panel-section command-center">
+        <div class="section-head">
+          <div>
+            <p>Operator Console</p>
+            <h2>现场闭环</h2>
+          </div>
+          <button id="resetBtn" class="icon-button" type="button" title="重置演示" aria-label="重置演示">↻</button>
+        </div>
+
+        <div class="control-strip" aria-label="演示动作">
+          <button id="nextBtn" class="primary-action" type="button">推进一步</button>
+          <button id="autoBtn" type="button">90 秒彩排</button>
+          <button id="serviceBtn" type="button">服务动作</button>
+          <button id="writeBtn" type="button">写回展墙</button>
+          <button id="switchUserBtn" type="button">切换用户</button>
+        </div>
+      </section>
+
+      <section class="panel-section workflow-section" aria-label="低噪音任务流">
+        <div class="section-head compact">
+          <div>
+            <p>Mission Flow</p>
+            <h2>任务流</h2>
+          </div>
+        </div>
+        <div class="stepper" id="stepper"></div>
+      </section>
+
+      <section class="panel-section writeback-section" aria-label="写回审核">
+        <div class="section-head compact">
+          <div>
+            <p>Write-back Review</p>
+            <h2>时间胶囊</h2>
+          </div>
+        </div>
+        <label class="write-field">
+          <span>写回内容</span>
+          <textarea id="writeText" rows="4">后来的人，别忘了抬头看这里。</textarea>
+        </label>
+      </section>
+
+      <section class="panel-section product-section" aria-label="产品模块">
+        <div class="section-head compact">
+          <div>
+            <p>Product System</p>
+            <h2>空间产品模块</h2>
+          </div>
+        </div>
+        <div class="product-grid" id="productGrid"></div>
+      </section>
+
+      <section class="panel-section agent-section" aria-label="AI agent 队列">
+        <div class="section-head compact">
+          <div>
+            <p>Agent Runtime</p>
+            <h2>AI 执行链</h2>
+          </div>
+        </div>
+        <div class="agent-queue" id="agentQueue"></div>
+      </section>
+
+      <section class="panel-section showcase-section" aria-label="现场展示模式">
+        <div class="section-head compact">
+          <div>
+            <p>Show Mode</p>
+            <h2>交付演示</h2>
+          </div>
+        </div>
+        <div class="showcase-grid" id="showcaseGrid"></div>
+      </section>
+
+      <section class="panel-section ops-section" aria-label="设备和发布状态">
+        <div class="section-head compact">
+          <div>
+            <p>Device / Release</p>
+            <h2>现场状态</h2>
+          </div>
+          <button id="opsRefreshBtn" class="icon-button" type="button" title="刷新状态" aria-label="刷新状态">↻</button>
+        </div>
+        <div class="ops-grid" id="opsGrid"></div>
+      </section>
+
+      <section class="panel-section telemetry-section" aria-label="遥测日志">
+        <div class="section-head compact">
+          <div>
+            <p>Agent Trace</p>
+            <h2>空间日志</h2>
+          </div>
+        </div>
+        <pre id="log"></pre>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

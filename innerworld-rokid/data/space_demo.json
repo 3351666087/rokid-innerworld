@@ -1,0 +1,114 @@
+{
+  "space_id": "innerworld_campus_wall",
+  "name": "校园记忆展墙",
+  "version": 1,
+  "entry": {
+    "type": "qr_poster",
+    "label": "入口海报",
+    "url": "innerworld://space/innerworld_campus_wall"
+  },
+  "grid": {
+    "unit_cm": 30,
+    "scope": "one_wall",
+    "width_units": 12,
+    "height_units": 6
+  },
+  "layers": ["official", "public", "circle", "time_capsule"],
+  "anchors": [
+    {
+      "anchor_id": "A1",
+      "label": "入口海报",
+      "grid_pos": { "x": 1, "y": 2 },
+      "pose": { "x": -1.6, "y": 1.25, "z": 3.1 },
+      "kind": "entry",
+      "default_state": "available"
+    },
+    {
+      "anchor_id": "A2",
+      "label": "记忆信标",
+      "grid_pos": { "x": 6, "y": 3 },
+      "pose": { "x": 0, "y": 1.5, "z": 3.0 },
+      "kind": "memory",
+      "default_state": "available"
+    },
+    {
+      "anchor_id": "A3",
+      "label": "写回点",
+      "grid_pos": { "x": 10, "y": 2 },
+      "pose": { "x": 1.55, "y": 1.18, "z": 3.2 },
+      "kind": "write_back",
+      "default_state": "locked"
+    }
+  ],
+  "beacons": [
+    {
+      "beacon_id": "B_OFFICIAL_001",
+      "anchor_id": "A1",
+      "layer": "official",
+      "title": "官方彩蛋",
+      "body": "这面墙不是展板清单，而是一层可被打开的校园记忆。",
+      "display_text": "校园记忆层已打开",
+      "source": "organizer",
+      "created_at": "2026-07-01T00:00:00+08:00"
+    },
+    {
+      "beacon_id": "B_MEMORY_001",
+      "anchor_id": "A2",
+      "layer": "public",
+      "title": "留声摘要",
+      "body": "前人留下的碎片会在这里被压缩为三行：地点、情绪、下一步。",
+      "display_text": "这里有 7 条前人留言",
+      "source": "demo_seed",
+      "created_at": "2026-07-01T00:00:00+08:00"
+    }
+  ],
+  "mission": {
+    "mission_id": "M_FIND_YEAR",
+    "state": "entered",
+    "title": "寻找隐藏年份",
+    "steps": [
+      {
+        "step_id": "read",
+        "label": "读取记忆",
+        "anchor_id": "A2",
+        "hint": "先看展墙中间的留声信标。"
+      },
+      {
+        "step_id": "find_year",
+        "label": "寻找年份",
+        "anchor_id": "A2",
+        "hint": "弱提示：年份藏在右下角的旧照片旁。"
+      },
+      {
+        "step_id": "service_action",
+        "label": "加入体验活动",
+        "anchor_id": "A1",
+        "hint": "把 14:30 的体验活动加入今日行程。"
+      },
+      {
+        "step_id": "write_back",
+        "label": "写回一句话",
+        "anchor_id": "A3",
+        "hint": "给后来者留下一句和这个地点有关的话。"
+      }
+    ],
+    "expected_answer": "2026"
+  },
+  "display_rule": {
+    "max_lines": 3,
+    "max_chars_per_line": 18,
+    "low_distraction": true,
+    "default_opacity": 0.78
+  },
+  "fallback": {
+    "mode": "manual_advance",
+    "data": "local_json"
+  },
+  "service_actions": [
+    {
+      "action_id": "JOIN_EVENT_1430",
+      "label": "加入 14:30 体验活动",
+      "status": "mock"
+    }
+  ]
+}

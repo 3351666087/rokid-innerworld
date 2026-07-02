@@ -1,0 +1,40 @@
+# Local environment and secrets
+.env
+.env.*
+*.secret
+*.secret.*
+secrets/
+local-secrets/
+
+# Raw private evidence and extracted chat material
+群聊_Rokid/
+analysis/
+tmp/
+
+# Generated artifacts and caches
+output/
+innerworld-rokid/output/
+innerworld-rokid/data/runtime_state.json
+pdf-renderer/target/
+node_modules/
+Library/
+Temp/
+Obj/
+PackageCache/
+Logs/
+.utmp/
+UserSettings/
+dist/
+build/
+coverage/
+.cache/
+
+# Binary release bundles
+*.zip
+*.7z
+*.rar
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vs/

@@ -1,0 +1,23 @@
+# Local environment and secret files
+.env
+.env.*
+*.secret
+*.secret.*
+secrets/
+local-secrets/
+
+# Dependencies and generated output
+node_modules/
+output/
+data/runtime_state.json
+Logs/
+.utmp/
+UserSettings/
+dist/
+build/
+coverage/
+.cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
