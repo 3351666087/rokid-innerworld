@@ -172,6 +172,7 @@ function summarizeFieldAcceptance(payload) {
     hardware_calibrated_anchor_ids: list(hardwareEvidence.hardware_calibrated_anchor_ids),
     missing_mission_steps: list(missionEvidence.missing_steps),
     write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
+    user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
     pending_gate_ids: list(payload.gates).filter((gate) => gate.status === "pending").map((gate) => gate.id),
     blocking_items: list(payload.blocking_items).map((item) => ({
       gate_id: item.gate_id,
@@ -207,7 +208,10 @@ function summarizeMission(payload) {
     current_step_index: Number(payload.current_step_index) || 0,
     completed_steps: list(payload.completed_steps),
     beacon_count: beacons.length,
-    write_back_beacon_count: writeBackBeacons.length
+    write_back_beacon_count: writeBackBeacons.length,
+    user_b_readback_ready: String(payload.active_user || "").trim().toUpperCase() === "B"
+      && payload.mission_state === "complete"
+      && writeBackBeacons.length > 0
   };
 }
 
@@ -284,7 +288,8 @@ async function captureSnapshot(baseUrl) {
     live_session_ready: session.live_operator_paired_ready_count > 0,
     trusted_a1_a2_a3_ready: requiredAnchors.every((anchorId) => trustedAnchorSet.has(anchorId)),
     mission_loop_ready: ["read", "find_year", "service_action", "write_back"].every((stepId) => missionStepSet.has(stepId))
-      && mission.write_back_beacon_count > 0,
+      && mission.write_back_beacon_count > 0
+      && mission.user_b_readback_ready === true,
     field_acceptance_ready: field.ready === true,
     session,
     field_acceptance: field,
@@ -319,6 +324,7 @@ function buildMarkdown(report) {
     `- Live session ready: ${latest.live_session_ready}`,
     `- Trusted A1/A2/A3 ready: ${latest.trusted_a1_a2_a3_ready}`,
     `- Mission loop ready: ${latest.mission_loop_ready}`,
+    `- User B readback ready: ${latest.mission.user_b_readback_ready}`,
     `- Field acceptance ready: ${latest.field_acceptance_ready}`,
     `- Online sessions: ${latest.session.online_count}`,
     `- Live operator-paired sessions: ${latest.session.live_operator_paired_ready_count}`,
@@ -326,6 +332,7 @@ function buildMarkdown(report) {
     `- Hardware anchors: ${latest.field_acceptance.hardware_calibrated_anchor_ids.join(",") || "none"}`,
     `- Pending gates: ${latest.field_acceptance.pending_gate_ids.join(",") || "none"}`,
     `- Completed mission steps: ${latest.mission.completed_steps.join(",") || "none"}`,
+    `- Active user: ${latest.mission.active_user || "unknown"}`,
     `- Beacon count: ${latest.mission.beacon_count}`,
     `- Write-back beacons: ${latest.mission.write_back_beacon_count}`,
     `- Raw session ids included: false`,
@@ -419,6 +426,7 @@ async function main() {
     online_sessions: latest.session.online_count,
     live_operator_paired_sessions: latest.session.live_operator_paired_ready_count,
     trusted_hardware_anchor_ids: latest.field_acceptance.trusted_hardware_anchor_ids,
+    user_b_readback_ready: latest.mission.user_b_readback_ready,
     pending_gate_ids: latest.field_acceptance.pending_gate_ids,
     blockers,
     json: jsonPath,

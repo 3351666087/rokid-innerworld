@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-03 23:32 Asia/Shanghai
+Updated: 2026-07-04 00:05 Asia/Shanghai
 
 ## Objective
 
@@ -27,21 +27,18 @@ Current verified local facts from the strict hardware probe:
 
 Current Station Pro live APK checkpoint:
 
-- Superseding current fact from 2026-07-03 23:14-23:32 Asia/Shanghai: the active APK is `output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`. It includes `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`; Station Pro install/cold-launch/process/operator-pairing smoke passed for this exact SHA; clean logcat relaunch showed zero `DllNotFoundException`, `rokid_openxr_api`, and `UnsatisfiedLinkError` counts.
-- New live pass monitor: `tools/field-live-pass.js` with `npm run field:live-pass`, `npm run field:live-pass:watch`, and `npm run check:field-live-pass`. Current live snapshot proves the operator-paired live SDK session window is open (`live_session_ready=true`) while trusted A1/A2/A3, mission loop, and field acceptance remain false. Final physical acceptance should use `npm run field:live-pass -- --require-trusted --require-mission-loop` and must fail until the real wall evidence exists.
-- Evidence was reconciled at 2026-07-03 22:18 Asia/Shanghai. The current disk APK at `output/unity-android/InnerWorldRokid.apk` is 45,167,409 bytes with SHA256 `ce3f118632d6202c61455f19cdc11080a765e17c74f6be07496ef2c2b571cf1d`.
-- The 2026-07-03 21:05/22:01 Asia/Shanghai APK smoke resolved the earlier Station display-area launch blocker for earlier APK builds, including previous APK SHA `70592a5dfec4...`; it does not prove that the current `ce3f118632d6...` APK has been installed/launched.
-- The APK now carries the UXR manifest gate derived from on-device Rokid sample comparison: `com.rokid.sdk=uxr`, `com.rokid.uxr.application.mode=3d`, OpenXR/UXR package queries, and `uxr_manifest_ready=true`.
-- Current non-mutating gates pass for the current APK: `npm run check:station-apk:lan`, `npm run uxr:doctor`, and `npm run check:uxr-readiness:ready`. `uxr-readiness-latest` explicitly warns `latest_mutating_launch_apk_sha_mismatch_current_apk` and sets next proof to `user_confirmed_current_apk_station_pro_install_launch_smoke`.
-- Historical mutating smoke showed Station Pro install/launch, `am start` OK, process observed, `isUxrApp=true`, and LAN Space API heartbeat with active anchor `A3` and pose present for the earlier APK lineage.
-- This is not hardware acceptance. The session still reports `sdk_binding_status.stage=fallback_only`, `live_binding_ready=false`, is unpaired, and is not hardware-acceptance eligible. The next mainline gap is official Rokid SDK live binding plus operator-paired trusted A1/A2/A3 observations.
-- Smoke/readiness evidence has been hardened so non-mutating inspect and mutating launch proof use separate latest pointers and cannot silently apply stale launch proof to a different current APK. The current UXR readiness doctor keeps hardware-ready false.
+- Current authoritative APK fact: `output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`. It includes `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`.
+- Current mutating Station Pro proof for that exact SHA is green: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and the launch evidence includes no raw pairing code, raw session id, raw serial, raw USB id, private IP, or MAC address.
+- Current live-pass snapshot after LAN server restart and pair smoke proves the operator-paired live SDK session window is open (`live_session_ready=true`, one online live operator-paired session). It still correctly reports `trusted_a1_a2_a3_ready=false`, `mission_loop_ready=false`, `field_acceptance_ready=false`, and `user_b_readback_ready=false`.
+- Field acceptance now explicitly requires User B readback. A completed read/service/write-back sequence cannot set hardware acceptance unless `/api/state.active_user` is `B` after an A3 write-back beacon exists.
+- Historical note: the 22:18 `ce3f...` and 21:05/22:01 `70592...` APK facts are superseded by the current `bd852...` APK and must not be used as the current next proof. The old `fallback_only`/unpaired boundary describes earlier evidence, not the current pair-smoke/live-session state.
+- Hardware-ready remains false. The next mainline gap is not current-APK launch or pairing; it is the physical target pass: trusted A1 QR plus A2/A3 image-tracking observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` green under `field:live-pass -- --single --require-live-session --require-trusted --require-mission-loop`.
 
 Current non-mutating APK evidence:
 
 - `npm run station:apk:inspect` reads the Android fallback APK without installing it.
 - `npm run check:station-apk` passes and verifies package `com.innerworld.rokid.prototype`, launchable activity `com.unity3d.player.UnityPlayerGameActivity`, min SDK 25, target SDK 36, manifest network flags, and embedded `innerworld_campus_wall` config.
-- Earlier direct Gradle rebuild completed after adding Aliyun Maven mirrors to Unity's generated Gradle `settings.gradle`: `:launcher:assembleRelease` succeeded and `launcher-release.apk` was copied to `output/unity-android/InnerWorldRokid.apk` (24,752,749 bytes). This is historical LAN package evidence; the current disk APK is now the 45,167,409-byte `ce3f...` artifact recorded above.
+- Earlier direct Gradle rebuild completed after adding Aliyun Maven mirrors to Unity's generated Gradle `settings.gradle`: `:launcher:assembleRelease` succeeded and `launcher-release.apk` was copied to `output/unity-android/InnerWorldRokid.apk` (24,752,749 bytes). This is historical LAN package evidence; the current disk APK is now the 45,719,155-byte `bd852...` artifact recorded above.
 - Latest LAN preflight on 2026-07-03 20:12 Asia/Shanghai restarted the Space Server in LAN mode, updated Unity config to a private-LAN URL, and kept reports/stdout redacted.
 - `npm run station:apk:patch-lan` created a config-only, zipaligned, debug-signed APK with v2 signature verification. `npm run check:station-apk:lan` now passes with `config_host_kind=private_lan` and `network_ready_for_device=true`.
 - Latest `npm run station:apk:inspect` and `npm run check:station-apk:lan` pass with `config_host_kind=private_lan`, `network_ready_for_device=true`, and the same host hash as the current Unity source config after `field:preflight -- -RequireLan`.
@@ -51,7 +48,7 @@ Current non-mutating APK evidence:
 
 Current UXR live-binding instruction:
 
-- Do not spend the next slice on plain Unity fallback polish. The earlier app build could launch and heartbeat; the current APK first needs its own user/operator-confirmed Station Pro install/launch smoke because its SHA differs from the last mutating launch evidence.
+- Do not spend the next slice on plain Unity fallback polish. The current APK already has its own Station Pro install/launch/operator-pairing smoke; the next proof is trusted physical A1/A2/A3 plus A3 write-back and User B readback.
 - Install/validate `com.rokid.xr.unity`, run Rokid Environment Fix, OpenXR Feature Groups, and Project Validation, then bind RKCameraRig, RKInput 3DoF ray, PointableUI/PointableUICurve, A1/A2/A3 image targets, SLAM/head tracking heartbeat, device pairing, live heartbeat, and field acceptance to the existing Space API/SQLite contracts.
 
 ## Teammate Docs Adoption Ledger

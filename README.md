@@ -2,6 +2,14 @@
 
 ## Latest Checkpoint
 
+2026-07-04 00:05 Asia/Shanghai:
+
+- PR #1 is open as a draft from `codex/rokid-real-device-sync`; Carver reviewed commit `1358664f` as directionally safe for the P0 real-device lane.
+- Current APK remains `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, with `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so` packaged.
+- LAN Space Server is back online, and `npm run station:apk:pair-smoke` passed on the connected Station Pro for the current APK: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and no raw pairing code persisted.
+- Field acceptance now makes User B readback explicit: mission/write-back is not enough unless `/api/state.active_user` is `B` after the A3 write-back beacon exists. `npm run check:field-acceptance -- --api` and `npm run check:field-live-pass` both reflect `user_b_readback_ready=false` until the physical pass completes.
+- Hardware-ready remains false. The next P0 action is the real A1/A2/A3 target pass plus A1 entry -> A2 read -> A3 TimeMark write-back -> User B readback, then `field:live-pass -- --single --require-live-session --require-trusted --require-mission-loop` and `/api/field/acceptance`.
+
 2026-07-03 22:18 Asia/Shanghai:
 
 - Evidence-chain reconciliation is now the latest checkpoint. The current disk APK is `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` at 45,167,409 bytes with SHA256 `ce3f118632d6202c61455f19cdc11080a765e17c74f6be07496ef2c2b571cf1d`.

@@ -993,6 +993,23 @@ async function assertFieldAcceptanceCheckSkeleton() {
   return "verified";
 }
 
+async function assertFieldLivePassCheckSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/field-live-pass.js"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"field:live-pass\""), "package field live pass script missing");
+  assert(packageJson.includes("\"check:field-live-pass\""), "package field live pass check script missing");
+  assert(tool.includes("innerworld-field-live-pass/v1"), "field live pass schema missing");
+  assert(tool.includes("/api/field/acceptance"), "field live pass acceptance endpoint missing");
+  assert(tool.includes("/api/state"), "field live pass state endpoint missing");
+  assert(tool.includes("user_b_readback_ready"), "field live pass User B readback evidence missing");
+  assert(tool.includes("mission.user_b_readback_ready === true"), "field live pass mission loop must require User B readback");
+  assert(tool.includes("p0_mission_writeback_user_b_loop_missing"), "field live pass mission/User B blocker missing");
+  return "verified";
+}
+
 async function main() {
   const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
     readJson("data/space_demo.json"),
@@ -1015,6 +1032,7 @@ async function main() {
   assertStateMachine(space);
   const server_core = await assertServerCoreSkeleton();
   const fieldAcceptanceCheck = await assertFieldAcceptanceCheckSkeleton();
+  const fieldLivePassCheck = await assertFieldLivePassCheckSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
 
@@ -1068,6 +1086,7 @@ async function main() {
     wall_calibration: WALL_CALIBRATION_SCHEMA,
     field_markers: FIELD_MARKER_SCHEMA,
     field_acceptance_check: fieldAcceptanceCheck,
+    field_live_pass_check: fieldLivePassCheck,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,

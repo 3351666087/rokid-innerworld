@@ -1,5 +1,13 @@
 # Status
 
+## 2026-07-04
+
+- PR #1 follow-up checkpoint: Carver reviewed commit `1358664f` as directionally safe for the P0 real-device lane, with the next work locked to physical A1/A2/A3 observations, A3 TimeMark write-back, User B readback, and field acceptance.
+- Field acceptance now requires explicit User B readback. The `mission_loop` gate requires `user_b_readback`, exposes `active_user`, `required_active_user=B`, and `user_b_readback_ready`; completed mission steps plus an A3 write-back beacon are not enough unless `/api/state.active_user` is `B`.
+- `tools/field-live-pass.js` now includes `user_b_readback_ready` in `mission_loop_ready`; the strict negative command `node tools/field-live-pass.js --single --require-trusted --require-mission-loop` blocks as expected with `trusted_a1_a2_a3_observations_missing` and `p0_mission_writeback_user_b_loop_missing`.
+- LAN Space Server was restarted onto the current code, `npm run station:apk:pair-smoke` passed again on the connected Station Pro for current APK SHA `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, and `npm run check:field-live-pass` is green for the live operator-paired session window while still showing trusted A1/A2/A3, User B readback, and field acceptance as false.
+- Verified after the change: `npm run check:field-acceptance`, `npm run check:field-acceptance -- --api`, `npm run check:unity`, `npm run check:contract`, `npm run check:field-live-pass`, and the expected-blocker strict field live pass command.
+
 ## 2026-07-03
 
 - Station Pro native-lib checkpoint passed at 23:14-23:17 Asia/Shanghai. Current APK: `output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`.

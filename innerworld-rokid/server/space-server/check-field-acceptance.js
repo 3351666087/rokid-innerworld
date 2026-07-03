@@ -131,6 +131,7 @@ function assertAcceptancePayload(payload) {
   const simulator = gates.get("simulator_rehearsal");
   const hardware = gates.get("hardware_alignment");
   const trusted = gates.get("trusted_hardware_session");
+  const mission = gates.get("mission_loop");
   assertTrustedHardwareGateOrEvidence(payload, gates);
   assert(printKit !== simulator && simulator !== hardware && printKit !== hardware, "acceptance gates must be separate objects");
   assert(trusted !== hardware && trusted !== simulator && trusted !== printKit, "trusted hardware session gate must be separate");
@@ -158,6 +159,11 @@ function assertAcceptancePayload(payload) {
   assert(Array.isArray(trusted.evidence?.untrusted_hardware_anchor_ids), "untrusted hardware anchors evidence missing");
   assert(hardware.evidence?.hardware_tracking_modes?.includes("simulator") === false, "hardware evidence modes must exclude simulator");
   assert(trusted.evidence?.hardware_tracking_modes?.includes("simulator") === false, "trusted hardware evidence modes must exclude simulator");
+  assert(Array.isArray(mission.required) && mission.required.includes("user_b_readback"), "mission loop gate must require User B readback");
+  assert(mission.evidence?.required_active_user === "B", "mission loop must declare User B as the required readback user");
+  assert(typeof mission.evidence?.user_b_readback_ready === "boolean", "mission loop User B readback evidence missing");
+  assert(mission.status !== "ready" || mission.evidence.user_b_readback_ready === true, "mission loop ready requires User B readback evidence");
+  assert(mission.status !== "ready" || String(mission.evidence.active_user || "").toUpperCase() === "B", "mission loop ready requires active User B readback");
   assert(Array.isArray(payload.hardware_modes_required), "top-level hardware modes missing");
   for (const mode of hardwareTrackingModes) {
     assert(payload.hardware_modes_required.includes(mode), `top-level hardware mode missing: ${mode}`);
@@ -505,6 +511,23 @@ function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {
   assert(missingPrintKit.ready === false, "missing print kit must not set ready");
   assert(missingPrintKit.blocking_items.some((item) => item.gate_id === "print_kit"), "missing print kit blocker missing");
 
+  const missingUserBReadback = buildFieldAcceptance({
+    ...common,
+    state: {
+      ...state,
+      active_user: "A"
+    },
+    fieldMarkers: validFieldMarkers,
+    ledgerSummary: readyLedgerSummary()
+  });
+  const missingUserBMissionGate = missingUserBReadback.gates.find((gate) => gate.id === "mission_loop");
+  assert(missingUserBReadback.status !== "hardware_acceptance_ready", "hardware acceptance must require User B readback");
+  assert(missingUserBReadback.ready === false, "missing User B readback must not set ready");
+  assert(missingUserBReadback.blocking_items.some((item) => item.gate_id === "mission_loop"), "missing User B readback blocker missing");
+  assert(missingUserBMissionGate?.status !== "ready", "mission loop must not be ready without User B readback");
+  assert(missingUserBMissionGate?.evidence?.required_active_user === "B", "mission loop User B readback evidence target missing");
+  assert(missingUserBMissionGate?.evidence?.user_b_readback_ready === false, "mission loop must expose missing User B readback evidence");
+
   const fullyReady = buildFieldAcceptance({
     ...common,
     fieldMarkers: validFieldMarkers,
@@ -514,6 +537,39 @@ function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {
   assert(fullyReady.ready === true, "trusted live hardware evidence should set ready");
   assert(fullyReady.summary?.trusted_hardware_evidence_count === 3, "trusted hardware evidence count mismatch");
   assert(fullyReady.summary?.trusted_hardware_session_count === 1, "trusted hardware session count mismatch");
+  const fullyReadyMissionGate = fullyReady.gates.find((gate) => gate.id === "mission_loop");
+  assert(fullyReadyMissionGate?.evidence?.user_b_readback_ready === true, "trusted live hardware acceptance must include User B readback evidence");
+}
+
+function assertMissionLoopRequiresUserBReadback(space, fieldMarkers) {
+  const state = {
+    ...completeRuntimeState(space),
+    active_user: "A"
+  };
+  const wallCalibration = hardwareReadyWallCalibration(space);
+  const validFieldMarkers = buildFieldMarkerManifest({
+    baseUrl: base,
+    space,
+    markerConfig: fieldMarkers,
+    wallCalibration,
+    generatedAt: "2026-07-02T00:13:00.000Z"
+  });
+  const payload = buildFieldAcceptance({
+    baseUrl: base,
+    space,
+    state,
+    wallCalibration,
+    fieldMarkers: validFieldMarkers,
+    ledgerSummary: readyLedgerSummary(),
+    opsStatus: readyOpsStatus(),
+    generatedAt: "2026-07-02T00:14:00.000Z"
+  });
+  const missionGate = payload.gates.find((gate) => gate.id === "mission_loop");
+  assert(payload.status !== "hardware_acceptance_ready", "hardware acceptance must require User B readback");
+  assert(payload.ready === false, "missing User B readback must not set ready");
+  assert(missionGate?.status === "pending", "mission loop must remain pending before User B readback");
+  assert(missionGate?.evidence?.user_b_readback_ready === false, "mission loop should expose missing User B readback");
+  assert(payload.blocking_items.some((item) => item.gate_id === "mission_loop"), "missing User B readback blocker missing");
 }
 
 async function fetchAcceptancePayload() {
@@ -549,6 +605,7 @@ async function main() {
   const simulatorOnlyManifest = assertAllSimulatorDoesNotMakeHardwareReady(space);
   assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers);
   assertHardwareTrackingRequiresLiveSdkSession(space, fieldMarkers);
+  assertMissionLoopRequiresUserBReadback(space, fieldMarkers);
   const payload = useApi
     ? await fetchAcceptancePayload()
     : buildExpectedPayload({ space, fieldMarkers, wallCalibration: simulatorOnlyManifest });
@@ -566,6 +623,7 @@ async function main() {
     separated_states: ["print_kit", "simulator_rehearsal", "hardware_alignment"],
     all_simulator_ready_for_hardware: false,
     tracking_mode_only_hardware_ready: false,
+    user_b_readback_required: true,
     constrained_by: "check:field-acceptance"
   }, null, 2));
 }

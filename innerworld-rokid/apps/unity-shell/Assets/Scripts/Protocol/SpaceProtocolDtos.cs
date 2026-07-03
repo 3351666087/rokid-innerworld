@@ -1026,10 +1026,13 @@ namespace InnerWorld.Rokid.Protocol
         public string[] hardware_calibrated_anchor_ids;
         public string[] hardware_tracking_modes;
         public string mission_state;
+        public string active_user;
+        public string required_active_user;
         public string[] completed_steps;
         public string[] missing_steps;
         public int beacon_count;
         public int write_back_beacons;
+        public bool user_b_readback_ready;
         public string engine;
         public int event_count;
         public bool release_index_ok;

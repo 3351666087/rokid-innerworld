@@ -170,9 +170,15 @@ function missionLoopGate(space, state) {
   const requiredStepIds = steps.map((step) => step.step_id);
   const missingSteps = requiredStepIds.filter((stepId) => !doneSet.has(stepId));
   const runtimeBeacons = beacons(runtimeState);
+  const writeBackBeacons = runtimeBeacons.filter((item) => item?.layer === "time_capsule" || item?.anchor_id === "A3");
+  const activeUser = String(runtimeState.active_user || "").trim();
+  const userBReadbackReady = activeUser.toUpperCase() === "B"
+    && runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
+    && writeBackBeacons.length > 0;
   const complete = runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
     && missingSteps.length === 0
-    && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons;
+    && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons
+    && userBReadbackReady;
 
   return gate({
     id: "mission_loop",
@@ -180,15 +186,18 @@ function missionLoopGate(space, state) {
     status: complete ? "ready" : "pending",
     summary: complete
       ? "Read, service action, write-back, and User B readback loop are complete."
-      : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons.`,
+      : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons; User B readback ${userBReadbackReady ? "ready" : "pending"}.`,
     source: "/api/state",
-    required: requiredStepIds,
+    required: [...requiredStepIds, "user_b_readback"],
     evidence: {
       mission_state: runtimeState.mission_state || null,
+      active_user: activeUser || null,
+      required_active_user: "B",
       completed_steps: done,
       missing_steps: missingSteps,
       beacon_count: runtimeBeacons.length,
-      write_back_beacons: runtimeBeacons.filter((item) => item?.layer === "time_capsule" || item?.anchor_id === "A3").length
+      write_back_beacons: writeBackBeacons.length,
+      user_b_readback_ready: userBReadbackReady
     }
   });
 }
