@@ -71,6 +71,7 @@ namespace InnerWorld.Rokid
         private WallCalibrationObservation lastWallCalibrationObservation;
         private string wallCalibrationObservationLine = "calibration observation pending";
         private string calibrationRehearsalSessionId = string.Empty;
+        private readonly Dictionary<string, float> trustedHardwareObservationPostedAt = new Dictionary<string, float>();
         private float heartbeatClockSeconds;
         private bool heartbeatInFlight;
         private bool wallCalibrationObservationInFlight;
@@ -96,9 +97,12 @@ namespace InnerWorld.Rokid
         private const float A1EntryConfirmMinDistanceMeters = 0.4f;
         private const float A1EntryConfirmMaxDistanceMeters = 0.5f;
         private const float A1EntryConfirmationFallbackDistanceMeters = 0.45f;
+        private const float TrustedHardwareObservationMinIntervalSeconds = 4f;
         private const string UnityClientVersion = "unity-runtime-0.2.0";
         private const string OperatorPairingCodeEnv = "INNERWORLD_OPERATOR_PAIRING_CODE";
         private const string OperatorPairingCodeArg = "--innerworld-pairing-code";
+        private const string OperatorPairingCodeIntentExtra = "innerworld_pairing_code";
+        private const string OperatorPairingCodeIntentExtraQualified = "com.innerworld.rokid.OPERATOR_PAIRING_CODE";
 
         private void Awake()
         {
@@ -283,7 +287,7 @@ namespace InnerWorld.Rokid
         {
             if (frame.Command == RokidInputCommand.Confirm)
             {
-                CompleteNextStep();
+                ConfirmEntryOrCompleteNextStep();
             }
             else if (frame.Command == RokidInputCommand.Back)
             {
@@ -790,6 +794,126 @@ namespace InnerWorld.Rokid
                     wallCalibrationObservationLine = "calibration observation failed | anchor " + anchor.anchor_id + " | http " + request.responseCode;
                     Debug.LogWarning(wallCalibrationObservationLine + ": " + request.error + " | " + url);
                     SetStatus("Calibration observation failed", request.error + " " + url);
+                    SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                }
+            }
+
+            wallCalibrationObservationInFlight = false;
+            yield return LoadFieldAcceptanceManifest();
+            if (space != null)
+            {
+                RefreshHud();
+            }
+        }
+
+        public void SubmitRokidTrackedImageObservation(int imageIndex, Pose pose, Vector2 size, string eventType)
+        {
+            string anchorId = AnchorIdForRokidTrackedImageIndex(imageIndex);
+            if (string.IsNullOrWhiteSpace(anchorId))
+            {
+                wallCalibrationObservationLine = "trusted image observation ignored | unknown image index " + imageIndex;
+                RefreshHud();
+                return;
+            }
+
+            if (!CanSubmitTrustedRokidHardwareObservation())
+            {
+                wallCalibrationObservationLine = "trusted image observation pending | live paired session required | anchor " + anchorId;
+                RefreshHud();
+                return;
+            }
+
+            if (!ShouldPostTrustedHardwareObservation(anchorId, eventType))
+            {
+                return;
+            }
+
+            SelectAnchor(anchorId);
+            if (IsA1EntryAnchor(anchorId))
+            {
+                PrimeA1SpatialEntryLock("rokid_tracked_image");
+            }
+
+            StartCoroutine(SubmitRokidTrackedImageObservation(anchorId, imageIndex, pose, size, eventType));
+        }
+
+        private IEnumerator SubmitRokidTrackedImageObservation(string anchorId, int imageIndex, Pose pose, Vector2 size, string eventType)
+        {
+            EnsureApiClient();
+            if (wallCalibrationObservationInFlight)
+            {
+                yield break;
+            }
+
+            WallCalibrationAnchor anchor = FindWallCalibrationAnchor(anchorId);
+            string mode = TrustedTrackingModeForAnchor(anchorId);
+            WallCalibrationObservationPayload payload = BuildRokidTrackedImageObservationPayload(anchor, anchorId, imageIndex, pose, size, mode, eventType);
+            string json = JsonUtility.ToJson(payload);
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.wall_calibration_observations : null, apiClient.WallCalibrationObservationsUrl);
+            wallCalibrationObservationInFlight = true;
+            wallCalibrationObservationLine = "trusted " + mode + " observation posting | anchor " + anchorId + " | image " + imageIndex;
+            SetRokidConnection(RokidConnectionStatus.Connecting, wallCalibrationObservationLine);
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                byte[] body = Encoding.UTF8.GetBytes(json);
+                request.uploadHandler = new UploadHandlerRaw(body);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json; charset=utf-8");
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        lastWallCalibrationObservationResult = JsonUtility.FromJson<WallCalibrationObservationResult>(request.downloadHandler.text);
+                        lastWallCalibrationObservation = lastWallCalibrationObservationResult != null
+                            ? lastWallCalibrationObservationResult.observation
+                            : null;
+                        if (lastWallCalibrationObservationResult != null && wallCalibrationManifest != null)
+                        {
+                            if (wallCalibrationManifest.runtime == null)
+                            {
+                                wallCalibrationManifest.runtime = new WallCalibrationRuntime();
+                            }
+                            if (lastWallCalibrationObservationResult.summary != null)
+                            {
+                                wallCalibrationManifest.runtime.summary = lastWallCalibrationObservationResult.summary;
+                            }
+                            if (lastWallCalibrationObservation != null)
+                            {
+                                WallCalibrationAnchor resolvedAnchor = anchor ?? FindWallCalibrationAnchor(anchorId);
+                                if (resolvedAnchor != null)
+                                {
+                                    resolvedAnchor.latest_observation = lastWallCalibrationObservation;
+                                }
+                                UpdateFieldMarkerObservation(anchorId, lastWallCalibrationObservation, lastWallCalibrationObservationResult.summary);
+                            }
+                        }
+
+                        wallCalibrationObservationLine = BuildWallCalibrationObservationLine();
+                        wallCalibrationLine = BuildWallCalibrationStatusLine();
+                        fieldMarkerLine = BuildFieldMarkerStatusLine();
+                        Debug.Log("Trusted Rokid image observation posted: " + wallCalibrationObservationLine + " | " + url);
+                        SetStatus("Trusted image observation posted", wallCalibrationObservationLine);
+                        SetRokidConnection(RokidConnectionStatus.Connected, wallCalibrationObservationLine);
+                    }
+                    catch (Exception error)
+                    {
+                        lastWallCalibrationObservationResult = null;
+                        lastWallCalibrationObservation = null;
+                        wallCalibrationObservationLine = "trusted image observation parse failed | anchor " + anchorId;
+                        Debug.LogWarning(wallCalibrationObservationLine + ": " + error.Message + " | " + url);
+                        SetStatus("Trusted image observation failed", error.Message);
+                        SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                    }
+                }
+                else
+                {
+                    wallCalibrationObservationLine = "trusted image observation failed | anchor " + anchorId + " | http " + request.responseCode;
+                    Debug.LogWarning(wallCalibrationObservationLine + ": " + request.error + " | " + url);
+                    SetStatus("Trusted image observation failed", request.error + " " + url);
                     SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
                 }
             }
@@ -2110,7 +2234,51 @@ namespace InnerWorld.Rokid
             }
 
             string fromArgs;
-            return TryReadRuntimeArg(Environment.GetCommandLineArgs(), OperatorPairingCodeArg, out fromArgs) ? fromArgs : string.Empty;
+            if (TryReadRuntimeArg(Environment.GetCommandLineArgs(), OperatorPairingCodeArg, out fromArgs))
+            {
+                return fromArgs;
+            }
+
+            return ReadAndroidIntentOperatorPairingCode();
+        }
+
+        private static string ReadAndroidIntentOperatorPairingCode()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (AndroidJavaObject activity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
+                {
+                    if (activity == null) return string.Empty;
+
+                    using (AndroidJavaObject intent = activity.Call<AndroidJavaObject>("getIntent"))
+                    {
+                        if (intent == null) return string.Empty;
+
+                        string[] keys =
+                        {
+                            OperatorPairingCodeIntentExtra,
+                            OperatorPairingCodeIntentExtraQualified,
+                            OperatorPairingCodeArg
+                        };
+                        foreach (string key in keys)
+                        {
+                            string value = intent.Call<string>("getStringExtra", key);
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                return value.Trim();
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return string.Empty;
+            }
+#endif
+            return string.Empty;
         }
 
         private static bool TryReadRuntimeArg(string[] args, string name, out string value)
@@ -2325,6 +2493,59 @@ namespace InnerWorld.Rokid
             };
         }
 
+        private WallCalibrationObservationPayload BuildRokidTrackedImageObservationPayload(
+            WallCalibrationAnchor anchor,
+            string anchorId,
+            int imageIndex,
+            Pose pose,
+            Vector2 size,
+            string trackingMode,
+            string eventType)
+        {
+            float confidence = string.Equals(eventType, "updated", StringComparison.OrdinalIgnoreCase) ? 0.96f : 0.94f;
+            return new WallCalibrationObservationPayload
+            {
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = !string.IsNullOrWhiteSpace(anchorId) ? anchorId.Trim() : (anchor != null ? anchor.anchor_id : CurrentActiveAnchorId()),
+                tracking_mode = trackingMode,
+                observed_pose = BuildObservedPoseFromUnityPose(pose, confidence),
+                confidence = confidence,
+                notes = "Rokid UXR tracked image " + SafeLabel(eventType, "event")
+                    + " | image_index " + imageIndex
+                    + " | size_m " + size.x.ToString("0.000") + "x" + size.y.ToString("0.000")
+                    + " | operator-paired live session required.",
+                client_time = DateTime.UtcNow.ToString("o")
+            };
+        }
+
+        private DevicePosePayload BuildObservedPoseFromUnityPose(Pose pose, float confidence)
+        {
+            Quaternion rotation = pose.rotation;
+            if (rotation.x == 0f && rotation.y == 0f && rotation.z == 0f && rotation.w == 0f)
+            {
+                rotation = Quaternion.identity;
+            }
+
+            return new DevicePosePayload
+            {
+                confidence = confidence,
+                position = new DeviceVector3
+                {
+                    x = pose.position.x,
+                    y = pose.position.y,
+                    z = pose.position.z
+                },
+                rotation = new DeviceQuaternion
+                {
+                    x = rotation.x,
+                    y = rotation.y,
+                    z = rotation.z,
+                    w = rotation.w
+                }
+            };
+        }
+
         private DevicePosePayload BuildObservedPoseFromExpectedPose(WallCalibrationPose expectedPose, float confidence)
         {
             DeviceVector3 position = expectedPose != null && expectedPose.position != null
@@ -2351,6 +2572,59 @@ namespace InnerWorld.Rokid
                     w = rotation.w == 0f ? 1f : rotation.w
                 }
             };
+        }
+
+        private bool CanSubmitTrustedRokidHardwareObservation()
+        {
+            if (deviceSession == null || !deviceSession.ok || string.IsNullOrWhiteSpace(deviceSessionId))
+            {
+                return false;
+            }
+            if (!deviceSession.hardware_acceptance_eligible)
+            {
+                return false;
+            }
+            if (deviceSession.pairing == null || !deviceSession.pairing.paired)
+            {
+                return false;
+            }
+
+            RokidSdkBindingReport report = CurrentSdkBindingReport();
+            return report.LiveBindingReady && report.InputBindingReady && report.OverlayBindingReady;
+        }
+
+        private bool ShouldPostTrustedHardwareObservation(string anchorId, string eventType)
+        {
+            string cleanAnchorId = SafeLabel(anchorId, string.Empty);
+            if (string.IsNullOrEmpty(cleanAnchorId))
+            {
+                return false;
+            }
+
+            string key = cleanAnchorId + ":" + SafeLabel(eventType, "event");
+            float now = Time.realtimeSinceStartup;
+            float lastPostedAt;
+            if (trustedHardwareObservationPostedAt.TryGetValue(key, out lastPostedAt)
+                && now - lastPostedAt < TrustedHardwareObservationMinIntervalSeconds)
+            {
+                return false;
+            }
+
+            trustedHardwareObservationPostedAt[key] = now;
+            return true;
+        }
+
+        private string AnchorIdForRokidTrackedImageIndex(int imageIndex)
+        {
+            if (imageIndex == 1) return "A1";
+            if (imageIndex == 2) return "A2";
+            if (imageIndex == 3) return "A3";
+            return string.Empty;
+        }
+
+        private string TrustedTrackingModeForAnchor(string anchorId)
+        {
+            return IsA1EntryAnchor(anchorId) ? "qr" : "image_tracking";
         }
 
         private DeviceRegisterRequest BuildDeviceRegisterRequest()
@@ -2514,7 +2788,7 @@ namespace InnerWorld.Rokid
 
         private RokidSdkBindingStatusPayload BuildSdkBindingStatusPayload(string source)
         {
-            RokidSdkBindingReport report = rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            RokidSdkBindingReport report = BuildCurrentSdkBindingReport();
             return new RokidSdkBindingStatusPayload
             {
                 schema = RokidSdkBindingReport.Schema,
@@ -2538,27 +2812,32 @@ namespace InnerWorld.Rokid
             RokidSdkBindingReport binding = report ?? RokidSdkBindingProbe.Detect();
             bool compiledAndPackaged = binding.BoundaryCompiled && binding.PackageDetected;
             bool liveBinding = compiledAndPackaged && binding.LiveBindingReady;
+            bool uxrInputReady = IsRokidUxrInputBindingReady();
+            bool uxrOverlayReady = IsRokidUxrOverlayBindingReady();
+            bool pointableUiReady = compiledAndPackaged && HasPackageResource("Prefabs/UI/PointableUI/PointableUI");
+            bool pointableUiCurveReady = compiledAndPackaged && HasPackageResource("Prefabs/UI/PointableUI/PointableUI_Curve");
+            bool imageTrackingReady = compiledAndPackaged && HasRuntimeType("Rokid.UXR.Module.ARTrackedImageManager");
 
             return new RokidLiveAdapterChecklistReport
             {
                 boundary_compiled = binding.BoundaryCompiled,
                 package_detected = binding.PackageDetected,
-                rk_camera_rig_ready = false,
-                camera_rig_ready = false,
-                rk_input_3dof_ray_ready = false,
-                input_ray_ready = false,
-                pointable_ui_ready = false,
-                pointable_ui_curve_ready = false,
+                rk_camera_rig_ready = liveBinding && Camera.main != null,
+                camera_rig_ready = liveBinding && Camera.main != null,
+                rk_input_3dof_ray_ready = uxrInputReady,
+                input_ray_ready = uxrInputReady,
+                pointable_ui_ready = pointableUiReady,
+                pointable_ui_curve_ready = pointableUiCurveReady,
                 a1_entry_lock_ready = IsA1EntryLockReady(),
                 entry_lock_ready = IsA1EntryLockReady(),
-                qr_entry_lock_ready = false,
-                image_tracking_ready = false,
-                image_target_library_ready = false,
-                a2_a3_image_tracking_ready = false,
-                slam_head_tracking_ready = false,
-                slam_status_ready = false,
+                qr_entry_lock_ready = imageTrackingReady,
+                image_tracking_ready = imageTrackingReady,
+                image_target_library_ready = imageTrackingReady,
+                a2_a3_image_tracking_ready = imageTrackingReady,
+                slam_head_tracking_ready = liveBinding && binding.InputBindingReady,
+                slam_status_ready = liveBinding && binding.InputBindingReady,
                 head_tracking_heartbeat_ready = liveBinding && binding.InputBindingReady,
-                uxr_overlay_renderer_ready = liveBinding && binding.OverlayBindingReady,
+                uxr_overlay_renderer_ready = uxrOverlayReady,
                 overlay_binding_ready = binding.OverlayBindingReady,
                 trusted_hardware_proof_ready = false,
                 hardware_proof_ready = false,
@@ -2566,6 +2845,85 @@ namespace InnerWorld.Rokid
                 fps_target_ready = false,
                 spatial_panels_readable = a1SpatialEntryConfirmed
             };
+        }
+
+        private RokidSdkBindingReport BuildCurrentSdkBindingReport()
+        {
+            RokidSdkBindingReport report = rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            bool inputReady = IsRokidUxrInputBindingReady();
+            bool overlayReady = IsRokidUxrOverlayBindingReady();
+
+            if (report.BoundaryCompiled && report.PackageDetected && (inputReady || overlayReady))
+            {
+                return report.WithLiveBinding(
+                    inputReady,
+                    overlayReady,
+                    "ROKID_UXR live adapter instantiated; RKCameraRig/Camera pose, RKInput 3DoF controls, and worldspace overlay are bound. Field acceptance still requires operator pairing and trusted A1/A2/A3 observations.");
+            }
+
+            return report;
+        }
+
+        private bool IsRokidUxrInputBindingReady()
+        {
+#if ROKID_UXR
+            RokidUxrInputSource input = rokidInputSource as RokidUxrInputSource;
+            return input != null && input.IsSdkBindingReady;
+#else
+            return false;
+#endif
+        }
+
+        private bool IsRokidUxrOverlayBindingReady()
+        {
+#if ROKID_UXR
+            RokidUxrOverlayRenderer renderer = rokidOverlayRenderer as RokidUxrOverlayRenderer;
+            return renderer != null && renderer.IsSdkBindingReady;
+#else
+            return false;
+#endif
+        }
+
+        private bool HasPackageResource(string resourcePath)
+        {
+            if (string.IsNullOrWhiteSpace(resourcePath))
+            {
+                return false;
+            }
+
+            return Resources.Load<GameObject>(resourcePath.Trim()) != null;
+        }
+
+        private bool HasRuntimeType(string typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                return false;
+            }
+
+            Type type = Type.GetType(typeName.Trim());
+            if (type != null)
+            {
+                return true;
+            }
+
+            System.Reflection.Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            for (int index = 0; index < assemblies.Length; index++)
+            {
+                try
+                {
+                    type = assemblies[index].GetType(typeName.Trim(), false);
+                    if (type != null)
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
         }
 
         private string BuildWallCalibrationHeartbeatMessage(string sdkMessage)
@@ -2721,7 +3079,7 @@ namespace InnerWorld.Rokid
 
         private RokidSdkBindingReport CurrentSdkBindingReport()
         {
-            return rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            return BuildCurrentSdkBindingReport();
         }
 
         private string BuildWallCalibrationHeartbeatLine()

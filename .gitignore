@@ -10,6 +10,7 @@ local-secrets/
 群聊_Rokid/
 analysis/
 tmp/
+.agents/
 
 # Generated artifacts and caches
 output/

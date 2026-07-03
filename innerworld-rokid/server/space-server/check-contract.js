@@ -888,9 +888,15 @@ async function assertRokidSimulatorSkeleton() {
   assert(fallbackOverlay.includes("public sealed class FallbackRokidOverlayRenderer : IRokidOverlayRenderer"), "fallback overlay renderer missing");
   assert(uxrInput.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR input file must be fully guarded");
   assert(uxrInput.includes("public sealed class RokidUxrInputSource : IRokidInputSource, IRokidInputStateSink"), "Rokid UXR input state sink missing");
-  assert(uxrInput.includes("SDK input binding pending"), "Rokid UXR input pending message missing");
+  assert(uxrInput.includes("using Rokid.UXR.Module;"), "Rokid UXR input must bind the official SDK namespace");
+  assert(uxrInput.includes("RKNativeInput"), "Rokid UXR input must bind RKNativeInput");
+  assert(uxrInput.includes("rokid-uxr-rkinput-3dof"), "Rokid UXR input live adapter name missing");
+  assert(uxrInput.includes("public bool IsSdkBindingReady"), "Rokid UXR input SDK readiness flag missing");
+  assert(uxrInput.includes("KEY_OK") && uxrInput.includes("KEY_BACK") && uxrInput.includes("KEY_MOUSE_FIRST"), "Rokid UXR input key mapping missing");
   assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
   assert(uxrOverlay.includes("public sealed class RokidUxrOverlayRenderer : IRokidOverlayRenderer"), "Rokid UXR overlay renderer missing");
+  assert(uxrOverlay.includes("rokid-uxr-worldspace-overlay"), "Rokid UXR overlay live adapter name missing");
+  assert(uxrOverlay.includes("public bool IsSdkBindingReady"), "Rokid UXR overlay SDK readiness flag missing");
   return "verified";
 }
 

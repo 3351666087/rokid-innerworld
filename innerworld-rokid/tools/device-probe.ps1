@@ -121,13 +121,23 @@ function Get-Version {
 function Convert-AdbDeviceLine {
   param([string]$Line)
   if ([string]::IsNullOrWhiteSpace($Line)) { return $null }
-  if ($Line -match "^List of devices") { return $null }
-  $parts = $Line -split "\s+"
+  $trimmed = $Line.Trim()
+  if ($trimmed -match "^List of devices") { return $null }
+  if ($trimmed -match "^\*+\s*daemon\b") { return $null }
+  if ($trimmed -match "^daemon\s+started\s+successfully\b") { return $null }
+  $parts = $trimmed -split "\s+"
   if ($parts.Count -lt 2) { return $null }
   $id = $parts[0]
   $state = $parts[1]
+  $fieldStart = 2
+  if ($state -eq "no" -and $parts.Count -ge 3 -and $parts[2] -eq "permissions") {
+    $state = "no permissions"
+    $fieldStart = 3
+  }
+  $validStates = @("device", "offline", "unauthorized", "recovery", "sideload", "rescue", "bootloader", "host", "no permissions")
+  if ($id -match "^\*" -or $validStates -notcontains $state) { return $null }
   $fields = @{}
-  foreach ($part in ($parts | Select-Object -Skip 2)) {
+  foreach ($part in ($parts | Select-Object -Skip $fieldStart)) {
     if ($part -match "^([^:]+):(.+)$") { $fields[$Matches[1]] = $Matches[2] }
   }
   $transport = if ($id -match "^\d{1,3}(\.\d{1,3}){3}:\d+$") { "tcp" } else { "usb" }

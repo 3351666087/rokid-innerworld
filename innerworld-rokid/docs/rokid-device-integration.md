@@ -43,7 +43,19 @@ Practical implication for this project:
 
 Station Pro live pass starts with sanitized ADB evidence, then Unity UXR3.0 validation: Android target, `com.rokid.xr.unity`, Environment Fix, OpenXR Feature Groups, Project Validation, RKCameraRig, RKInput, PointableUI, image target library, and SLAM/head tracking heartbeat. Passing package detection is not live binding; passing live binding is not field acceptance until operator-paired A1/A2/A3 observations clear `/api/field/acceptance`.
 
-The current connected-hardware fact is: Windows can see a Rokid Station Pro over USB ADB as a device-state Android target. This proves that the hardware lane can begin. It does not prove the Unity/UXR adapter, APK runtime, or field acceptance gates yet.
+The current connected-hardware fact is: Windows can see a Rokid Station Pro over USB ADB as a device-state Android target. Strict probe evidence on 2026-07-03 19:12 Asia/Shanghai found ADB 36.0.0 at `C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe`, one sanitized USB device in `device` state with model `RG_stationPro` / device `stationPro`, Android SDK build-tools/platforms, and Unity Editor `6000.3.19f1`. This proves that the hardware lane can begin. It does not prove the Unity/UXR adapter, APK runtime, or field acceptance gates yet.
+
+Environment gap: the current shell does not expose `adb` or Unity through PATH and does not set `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `JAVA_HOME`. Scripts can find known install paths, but a reproducible runbook should either call the explicit paths or set the environment before AR Studio / UXR package validation.
+
+`npm run station:apk:inspect` inspects the current Android fallback APK, aapt badging, Android manifest network flags, embedded `innerworld-config.json`, and sanitized ADB state without installing anything. `npm run check:station-apk` reruns that non-mutating inspect path and asserts that the report does not expose raw serials, raw USB instance ids, private IPs, MAC addresses, or raw config URLs. `npm run check:station-apk:lan` adds the P0 hardware-network gate: APK config must be device-network-ready, not `localhost`. `npm run station:apk:patch-lan` is now only a local config-only fallback for cases where Unity/Gradle rebuild is blocked; the preferred path is `npm run unity:android:build:lan`, which can patch Unity-generated Gradle repositories, retry direct `:launcher:assembleRelease`, copy the Gradle APK, and run non-mutating LAN package checks. `npm run station:apk:smoke` requires a connected Station Pro ADB device, installs the APK, launches it, verifies the app process, and writes a sanitized ignored report under `output/station-pro-apk-smoke`.
+
+Current checkpoint: the current APK is SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, size 45,719,155 bytes. Its package includes `assets/RKImage.db` plus `arm64-v8a/libopenxr_loader.so`, `arm64-v8a/librokid_openxr_api.so`, and `arm64-v8a/libyuv.so`. `station:apk:pair-smoke` passed install, cold launch, process observation, `is_uxr_app`, and operator pairing for this checkpoint.
+
+Clean logcat relaunch for the same checkpoint showed `DllNotFoundException=0`, `rokid_openxr_api=0`, and `UnsatisfiedLinkError=0`. This is APK runtime evidence for the P0 lane, not field acceptance.
+
+Current remaining boundary: this still is not hardware-ready. The project cannot claim RKCameraRig/RKInput/PointableUI/image target/SLAM trusted hardware readiness until trusted A1/A2/A3 physical observations, mission write-back, User B readback, and `/api/field/acceptance` readiness all pass.
+
+UXR live-binding instruction: keep the UXR manifest gate, then install `com.rokid.xr.unity`, run Rokid Environment Fix, OpenXR Feature Groups, and Project Validation. Bind RKCameraRig/RKInput/PointableUI/image target/SLAM into the existing adapter boundary and heartbeat contract instead of creating a parallel runtime.
 
 ## SDK Docs Adoption Matrix
 
@@ -133,6 +145,7 @@ Current checkpoint status: the Space API contract, `/api/device/adapter-checklis
 6. In Unity Package Manager, add the official Rokid UXR/OpenXR registry/scopes from the account-visible documentation; install the SDK package version approved by Rokid docs.
 7. Build an Android/Rokid APK from Unity, keeping `Assets/Plugins/Android/InnerWorldNetwork.androidlib` for HTTP LAN access during local demo.
 8. Open the Web Wall Calibration / Field Kit panel, confirm the wall manifest, A1/A2/A3 field marker ids, tracking modes, expected poses, and print-kit readiness, then fetch `/api/calibration/wall`, `/api/field/markers`, and `/api/field/acceptance` from Unity/Rokid, rehearse simulator/manual observations, scan/lock A1/A2/A3 markers, and submit `/api/calibration/observations` for each anchor.
+   - Keep `npm run field:live-pass` running during this pass. It is a read-only live field monitor for the A1/A2/A3 physical target pass: it watches current session/operator pairing, trusted A1/A2/A3 status, mission write-back, User B readback, and `/api/field/acceptance` readiness without posting observations, writing mission state, or claiming hardware readiness.
 9. Replace only the input/display adapters:
    - Input: gaze/ray/gesture/voice/keyboard events map to `SelectAnchor`, `CompleteNextStep`, `PostServiceAction`, and `PostWriteBack`.
    - Display: UXR binocular/spatial overlay renders the same HUD text, anchor labels, and mission state currently shown by the fallback.
@@ -194,22 +207,29 @@ Run these before connecting real hardware:
 ```powershell
 npm run device:probe
 npm run check:device-probe -- --require-adb-device
+npm run station:apk:inspect
+npm run check:station-apk
+npm run check:station-apk:lan
 npm run check:device
 npm run check:ops -- --require-artifacts
 npm run check:web
 npm run check:unity
 npm run check:field-markers
 npm run check:field-acceptance
+npm run check:field-live-pass
 ```
 
 `device:probe` writes a private ignored sanitized hardware/toolchain report under `output/device-probe`.
 `check:device-probe` reruns the probe, asserts that JSON/Markdown do not expose raw serials, USB instance ids, private IPs, MAC addresses, or pairing codes, and can require one ADB `device` when passed `--require-adb-device`.
+`station:apk:inspect` proves the APK package metadata, launchable activity, embedded Space config boundary, aapt availability, Android manifest network flags, and sanitized ADB state. `check:station-apk:lan` is the required hardware-network gate before install/launch. Use `station:apk:smoke` only when the operator is ready for an actual install/launch on the connected Station Pro; a successful install without process observation is not hardware readiness.
 `check:device` verifies `/api/device/bootstrap`, follows the advertised URLs including `/api/field/acceptance`, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
 `check:web` verifies the operator console keeps the Wall Calibration / Field Kit panel, `/api/field/markers` API hook, marker-card rendering, API read/write hooks, simulator lock actions, readiness separation, and trace fields.
 `check:unity` verifies the controller actively fetches/parses the wall calibration and field marker manifests and POSTs simulator/manual observations instead of only declaring protocol DTOs.
 `check:store` verifies the SQLite summary separates simulator/manual rehearsal from hardware readiness, uses each anchor's latest observation, and blocks `ready_for_hardware` unless A1/A2/A3 have accepted/warning QR/image tracking/SLAM observations.
 `check:field-markers` verifies printable marker cards stay synchronized with wall calibration and the field kit PDF/HTML.
 `check:field-acceptance` verifies the site gate schema, endpoint, all required gate IDs, hardware tracking mode whitelist, and the all-simulator negative guard.
+`field:live-pass` is the read-only live monitor for the trusted A1/A2/A3 physical target pass. It is P0-only and must not mutate calibration, mission, write-back, or acceptance state.
+`check:field-live-pass` verifies that live-pass monitoring stays read-only and keeps the boundary intact: not hardware-ready until trusted A1/A2/A3 observations, mission write-back, User B readback, and `/api/field/acceptance` are ready.
 
 ## Runtime Flow
 

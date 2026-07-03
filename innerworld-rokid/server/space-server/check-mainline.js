@@ -38,7 +38,7 @@ const requiredGoalDirection = [
 ];
 
 const requiredGoalReviewerTokens = [
-  "Kepler reviewer",
+  "Carver reviewer",
   "persistent reviewer",
   "feed every major implementation checkpoint back to it"
 ];
@@ -250,7 +250,7 @@ async function main() {
 
   const failures = [
     ...directionChecks.filter((item) => !item.ok).map((item) => `active goal missing: ${item.needle}`),
-    ...reviewerChecks.filter((item) => !item.ok).map((item) => `Kepler reviewer rule missing: ${item.needle}`),
+    ...reviewerChecks.filter((item) => !item.ok).map((item) => `Carver reviewer rule missing: ${item.needle}`),
     ...longModuleChecks.filter((item) => !item.ok).map((item) => `hardware-independent long module missing: ${item.needle}`),
     ...hardwareConnectedChecks.filter((item) => !item.ok).map((item) => `hardware-connected phase missing: ${item.needle}`),
     ...teammateDocsBusChecks.filter((item) => !item.ok).map((item) => `teammate docs bus missing: ${item.needle}`),
@@ -303,7 +303,7 @@ async function main() {
       "institution_lite_content_compiler",
       "spatial_audio_gesture_feedback_pack"
     ],
-    reviewer: "Kepler",
+    reviewer: "Carver",
     field_markers: fieldMarkers.markers.map((marker) => marker.marker_id),
     sqlite_backup_tokens: requiredBackupTokens.length
   }, null, 2));

@@ -1,8 +1,8 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-03 17:55 Asia/Shanghai
+Updated: 2026-07-03 22:18 Asia/Shanghai
 
-This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Kepler reviewed the materials again during the real-device phase. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
+This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
 ## Sources
 
@@ -11,11 +11,50 @@ This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cf
 - `docs/rokid_sdk_docs_full.md`: full SDK capture, including UXR3.0/OpenXR package setup, scoped registry flow, `com.rokid.xr.unity`, Environment Fix, OpenXR Feature Groups, Project Validation, RKCameraRig replacement, sample APK install/run, image tracking, and SLAM sample references.
 - `docs/策划案.pdf`: 13-page A4 proposal. Extractable text confirms the core idea: Campus Hidden Layer, Spatial URL/visual anchor entry, fixed-place TimeMark, AI semantic compression/moderation, controlled demo at one place, and later platform ideas. The P0 adoption below deliberately keeps only the one-wall demo loop.
 
-## Kepler Review Result
+## Carver Review Result
 
-Kepler says the current absorption path is correct: teammate material must enter through Space API, SQLite, Unity adapter, device runtime, field markers, field acceptance, and evidence replay. It must not compete with `station_pro_trusted_hardware_session`.
+Carver says the current absorption path is correct: teammate material must enter through Space API, SQLite, Unity adapter, device runtime, field markers, field acceptance, and evidence replay. It must not compete with `station_pro_trusted_hardware_session`.
 
-Final Kepler review on 2026-07-03: OK to commit/push this checkpoint. Mainline drift check passed: P0 remains Station Pro + UXR3.0 + RKCameraRig/RKInput/PointableUI/image target/SLAM/live SDK proof on a single A1/A2/A3/User B wall loop. Hardware-ready language is still correct because sanitized ADB visibility only starts the hardware lane; it does not prove Unity/UXR adapter readiness, APK runtime, or field acceptance. The only commit caution is to keep the historical dirty `docs/rokid_sdk_docs_full.md` out of this checkpoint.
+Latest Carver-context review on 2026-07-03: OK to keep this checkpoint as the bus. Mainline drift check passed: P0 remains Station Pro + UXR3.0 + RKCameraRig/RKInput/PointableUI/image target/SLAM/live SDK proof on a single A1/A2/A3/User B wall loop. Hardware-ready language is still correct because sanitized ADB visibility only starts the hardware lane; it does not prove Unity/UXR adapter readiness, APK runtime, or field acceptance.
+
+Full source-review record: `docs/carver-source-review.md`. That file records Carver's requested read-through of group extracted attachments, teammate GitHub files, old context exports, PDF extraction coverage, P0/P1/P2 boundaries, current live-hardware risks, and the next task queue.
+
+Local/GitHub source alignment checked on 2026-07-03 19:20 Asia/Shanghai:
+
+- `origin/main` and local `main` are at `b21fa314`.
+- Teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` is by Shiyao Zhang and adds only `docs/design.md`, `docs/rokid_sdk_docs.md`, `docs/rokid_sdk_docs_full.md`, and `docs/策划案.pdf`.
+- Group-chat final artifacts still support the campus memory wall / small controlled hidden layer loop; broad Spatial Pin, public TimeMark, dashboards, and platform content remain P2/reference until the hardware loop is accepted.
+
+Fresh GitHub check on 2026-07-03 19:46 Asia/Shanghai:
+
+- `git fetch --all --prune` completed and left local `main`, `origin/main`, and `origin/HEAD` aligned at `b21fa314`.
+- `gh pr list --state all` and `gh issue list --state all` returned no repository PRs or issues, so teammate GitHub material currently enters only through the main-branch commit above.
+- Fresh Carver re-audit completed under `.agents/carver/`; the final source audit is `.agents/carver/source-audit-2026-07-03.md`. It rendered the 13-page proposal PDF to page PNGs, smoke-rendered 19 raw PDFs, and confirmed the root proposal PDF is readable with `pypdf`/`pdfplumber`.
+- Carver's PDF metadata correction: old extracted `pdfinfo.txt` files are mostly broken wrapper output, so future page/encryption metadata should come from `pages.json` or the real Poppler executables in the bundled runtime.
+
+LAN APK checkpoint on 2026-07-03 20:18 Asia/Shanghai:
+
+- Direct Gradle `:launcher:assembleRelease` succeeded after adding Aliyun Maven mirrors to Unity's generated Gradle `settings.gradle`; the current APK artifact is `output/unity-android/InnerWorldRokid.apk` copied from `launcher-release.apk`, not only a config-patched fallback.
+- `station:apk:inspect`, `check:station-apk:lan`, `device:probe`, `check:device-probe`, `check:mainline`, and `field:preflight -- -RequireLan` passed. APK config is `private_lan` and `network_ready_for_device=true`; APK and source Unity config host hashes match.
+- No new install/launch was performed in this checkpoint. The bus still treats this as package/config readiness, not live UXR proof or hardware acceptance.
+- If Gradle/Maven downloads fail again, IDM is the preferred fetch tool for failed dependency URLs; long-term fix is to codify mirror/IDM fallback outside generated Unity output.
+
+UXR launch + heartbeat checkpoint on 2026-07-03 21:05/21:19 Asia/Shanghai:
+
+- Carver's superseded blocker audit remains `.agents/carver/uxr-blocker-audit-2026-07-03.md`; the current checkpoint audit is `.agents/carver/uxr-launch-heartbeat-checkpoint-2026-07-03-2105.md`.
+- That checkpoint's LAN APK was Station-UXR-manifest accepted at the install/run layer: install OK, `am start` OK, process observed, `isUxrApp=true`, and no error 102. This resolved the plain package launch blocker for that APK lineage.
+- LAN Space API heartbeat from the running Unity app is proven, including active anchor A3 and pose present.
+- This still narrows, rather than expands, the bus: teammate SDK material must enter next through official UXR/OpenXR live binding, not fallback UI polish or broad product features.
+- P0 next proof is `com.rokid.xr.unity`, `com.unity.xr.openxr`, `com.unity.xr.management`, Rokid Environment Fix, OpenXR Feature Groups, Project Validation, minimal RKCameraRig/sample launch, RKInput 3DoF ray, PointableUI, image target / SLAM heartbeat, operator pairing, trusted A1/A2/A3 observations, and User B readback inside that live SDK lane.
+- Boundary remains false for hardware acceptance: current live session is still `fallback_only`, `live_binding_ready=false`, unpaired, and `hardware_acceptance_eligible=false`.
+- Evidence tooling now separates latest non-mutating inspect from latest mutating launch so package checks do not overwrite the last real Station Pro launch proof.
+
+Evidence reconciliation checkpoint on 2026-07-03 22:18 Asia/Shanghai:
+
+- The current disk APK is now 45,167,409 bytes with SHA256 `ce3f118632d6202c61455f19cdc11080a765e17c74f6be07496ef2c2b571cf1d`; current non-mutating inspect/LAN evidence matches that SHA.
+- `tools/build-unity-android.ps1` records final APK size/SHA after post-checks, preventing stale build reports when the APK changes after an earlier sample point.
+- `uxr-readiness-latest` now compares current APK SHA, latest inspect SHA, and latest mutating-launch SHA. It warns `latest_mutating_launch_apk_sha_mismatch_current_apk` because the last mutating launch belongs to previous APK SHA `70592a5dfec4...`.
+- The bus must treat the 21:05/22:01 Station Pro launch as historical proof for earlier APKs, not launch proof for the current `ce3f...` APK. Next P0 proof is `user_confirmed_current_apk_station_pro_install_launch_smoke`, followed by live SDK binding, operator pairing, trusted A1/A2/A3 observations, A3 write-back, User B readback, and `/api/field/acceptance`.
 
 Already merged into the mainline:
 
@@ -71,7 +110,11 @@ These ideas are useful but cannot pull effort away from the hardware loop until 
 
 ## Current Bus Action
 
-The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The bus accepts teammate modules only when they pass these questions:
+The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The immediate build-hardening slice has advanced: the current Station Pro APK is SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, includes `assets/RKImage.db`, `librokid_openxr_api.so`, and `libyuv.so`, passes current-APK Station Pro install/launch/operator-pairing smoke, and no longer reproduces the `rokid_openxr_api` `DllNotFoundException` after a clean logcat relaunch.
+
+The bus now moves to the physical trusted-observation pass: run `npm run check:field-live-pass` before scanning, use `npm run field:live-pass:watch` during the A1/A2/A3 target pass, point the live device at A1/A2/A3 targets, produce operator-paired trusted QR/image_tracking observations, complete A2 read -> A3 write-back -> User B readback, and only then allow `/api/field/acceptance` to turn hardware-ready. Current live-pass baseline is one online operator-paired live SDK session and `0/3` trusted A1/A2/A3 anchors; `npm run field:live-pass -- --require-trusted --require-mission-loop` must fail until that evidence exists. Gradle mirror/IDM fallback still needs durable non-generated hardening, but it is no longer the immediate runtime blocker.
+
+The bus accepts teammate modules only when they pass these questions:
 
 1. Does it strengthen the one-wall A1/A2/A3/User B Rokid spatial memory loop?
 2. Does it reuse Space API, SQLite, shared contract, calibration, field markers, field acceptance, and evidence replay?

@@ -1,5 +1,17 @@
 {
+  "scopedRegistries": [
+    {
+      "name": "Rokid",
+      "url": "https://npm.rokid.com",
+      "scopes": [
+        "com.rokid"
+      ]
+    }
+  ],
   "dependencies": {
+    "com.rokid.openxr": "3.0.3",
+    "com.rokid.xr.unity": "3.0.3",
+    "com.unity.xr.management": "4.4.1",
     "com.unity.multiplayer.center": "1.0.1",
     "com.unity.ugui": "2.0.0",
     "com.unity.modules.accessibility": "1.0.0",

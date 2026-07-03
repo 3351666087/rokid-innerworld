@@ -57,8 +57,10 @@ function assertArray(value, label) {
 }
 
 function assertDeviceRedaction(devices) {
+  const ignoredAdbNoiseStates = new Set(["daemon", "started"]);
   for (const device of devices) {
     assert(!("serial" in device), "ADB device entry must not expose serial");
+    assert(!ignoredAdbNoiseStates.has(device.state), "ADB daemon output must not be parsed as a device");
     assert(typeof device.id_hash_prefix === "string" && /^[0-9a-f]{8,16}$/i.test(device.id_hash_prefix), "ADB device hash prefix missing");
     assert(typeof device.id_redacted === "string" && device.id_redacted.includes("redacted"), "ADB device redacted id missing");
     assert(["device", "offline", "unauthorized", "recovery", "sideload", "no permissions"].includes(device.state) || typeof device.state === "string", "ADB device state missing");

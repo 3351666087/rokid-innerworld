@@ -217,8 +217,14 @@ async function assertUnityAdapterBoundary() {
   assert(editorInput.includes("IRokidInputStateSink"), "Editor input state sink implementation missing");
   assert(fallbackOverlay.includes("IRokidOverlayRenderer"), "Fallback overlay renderer missing");
   assert(uxrInput.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR input file must be fully guarded");
-  assert(uxrInput.includes("SDK input binding pending"), "Rokid UXR input stub message missing");
+  assert(uxrInput.includes("using Rokid.UXR.Module;"), "Rokid UXR input must bind the official SDK namespace");
+  assert(uxrInput.includes("RKNativeInput"), "Rokid UXR input must bind RKNativeInput");
+  assert(uxrInput.includes("rokid-uxr-rkinput-3dof"), "Rokid UXR input live adapter name missing");
+  assert(uxrInput.includes("public bool IsSdkBindingReady"), "Rokid UXR input SDK readiness flag missing");
+  assert(uxrInput.includes("KEY_OK") && uxrInput.includes("KEY_BACK") && uxrInput.includes("KEY_MOUSE_FIRST"), "Rokid UXR input key mapping missing");
   assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
+  assert(uxrOverlay.includes("rokid-uxr-worldspace-overlay"), "Rokid UXR overlay live adapter name missing");
+  assert(uxrOverlay.includes("public bool IsSdkBindingReady"), "Rokid UXR overlay SDK readiness flag missing");
   assert(presentationMode.includes("RokidSpatialEntryStates"), "Unity presentation strategy spatial entry states missing");
   assert(presentationMode.includes("RokidImageTargetLockStates"), "Unity presentation strategy image target lock states missing");
   assert(presentationMode.includes("RokidDiscoveryLayerStates"), "Unity presentation strategy discovery/radar states missing");

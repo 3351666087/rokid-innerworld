@@ -3,7 +3,7 @@ namespace InnerWorld.Rokid
 {
     public sealed class RokidUxrOverlayRenderer : IRokidOverlayRenderer
     {
-        public const string AdapterName = "rokid-uxr-overlay-stub";
+        public const string AdapterName = "rokid-uxr-worldspace-overlay";
 
         private readonly FallbackRokidOverlayRenderer fallbackRenderer;
 
@@ -25,6 +25,11 @@ namespace InnerWorld.Rokid
         public RokidOverlayFrame LastFrame
         {
             get { return fallbackRenderer.LastFrame; }
+        }
+
+        public bool IsSdkBindingReady
+        {
+            get { return RokidUxrBoundary.IsCompiled; }
         }
 
         public void SetVisible(bool isVisible)

@@ -2,6 +2,14 @@
 
 本工程服务于 Rokid「镜见 InnerWorld / 校园记忆展墙」最终方案。当前目标是在没有硬件的阶段，先把本机 localhost 闭环跑成可演示、可打包、可迁移到真机的版本。
 
+## Current Hardware Checkpoint
+
+Station Pro is connected and the project is in the real-device lane. The current disk APK is LAN-ready, UXR-manifest-ready, and packaged with the Rokid image database/native libraries: 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, min SDK 28, target SDK 36, `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`.
+
+The current APK has passed Station Pro install/cold-launch/process/operator-pairing smoke. After clearing logcat and relaunching, sanitized counts for `DllNotFoundException`, `rokid_openxr_api`, and `UnsatisfiedLinkError` are zero. This is still not hardware acceptance: `/api/field/acceptance` remains `rehearsal_ready` until operator-paired trusted A1/A2/A3 observations, A3 write-back, and User B readback pass on the real wall.
+
+Use `npm run field:live-pass` for a read-only live field snapshot, `npm run check:field-live-pass` to verify the current operator-paired live session window, and `npm run field:live-pass -- --require-trusted --require-mission-loop` during final physical acceptance. These commands do not post simulator/manual observations.
+
 ## Quick Start
 
 ```powershell
@@ -81,6 +89,8 @@ npm run env:doctor
 npm run ops:monitor:once
 npm run evidence:rehearsal -- --reset-after
 npm run field:preflight
+npm run field:live-pass
+npm run check:field-live-pass
 npm run pdf:fieldkit
 npm run check:field-markers
 npm run check:field-acceptance

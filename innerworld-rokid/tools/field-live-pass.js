@@ -1,0 +1,436 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, "..");
+
+const args = process.argv.slice(2);
+const options = {
+  baseUrl: process.env.INNERWORLD_API_BASE_URL || "http://127.0.0.1:5177",
+  durationSec: 1,
+  intervalSec: 2,
+  outputRoot: path.join(root, "output", "field-live-pass"),
+  clearLogcat: false,
+  includeLogcatCounts: false,
+  requireLiveSession: false,
+  requireTrusted: false,
+  requireMissionLoop: false
+};
+
+for (let index = 0; index < args.length; index += 1) {
+  const arg = args[index];
+  const next = args[index + 1];
+  if (arg === "--base-url" && next) {
+    options.baseUrl = next;
+    index += 1;
+  } else if (arg === "--duration-sec" && next) {
+    options.durationSec = Number(next);
+    index += 1;
+  } else if (arg === "--interval-sec" && next) {
+    options.intervalSec = Number(next);
+    index += 1;
+  } else if (arg === "--output-root" && next) {
+    options.outputRoot = path.resolve(next);
+    index += 1;
+  } else if (arg === "--single") {
+    options.durationSec = 1;
+  } else if (arg === "--clear-logcat") {
+    options.clearLogcat = true;
+  } else if (arg === "--logcat") {
+    options.includeLogcatCounts = true;
+  } else if (arg === "--require-live-session") {
+    options.requireLiveSession = true;
+  } else if (arg === "--require-trusted") {
+    options.requireTrusted = true;
+  } else if (arg === "--require-mission-loop") {
+    options.requireMissionLoop = true;
+  }
+}
+
+function normalizeBaseUrl(value) {
+  return String(value || "http://127.0.0.1:5177").trim().replace(/\/+$/, "");
+}
+
+function shaPrefix(value, length = 12) {
+  if (!value) return null;
+  return createHash("sha256").update(String(value)).digest("hex").slice(0, length);
+}
+
+function redactUrl(value) {
+  try {
+    const url = new URL(value);
+    const port = url.port ? `:${url.port}` : "";
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1") {
+      return `${url.protocol}//localhost${port}`;
+    }
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.)/.test(url.hostname)) {
+      return `${url.protocol}//<private-ip-redacted>${port}`;
+    }
+    return `${url.protocol}//<host-redacted>${port}`;
+  } catch {
+    return "<invalid-url-redacted>";
+  }
+}
+
+function hostKind(value) {
+  try {
+    const url = new URL(value);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1") return "localhost";
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.)/.test(url.hostname)) return "private_lan";
+    return "public_or_hostname";
+  } catch {
+    return "invalid";
+  }
+}
+
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+async function getJson(baseUrl, apiPath) {
+  const response = await fetch(`${baseUrl}${apiPath}`, {
+    headers: { accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`${apiPath} returned HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function latestSession(sessions) {
+  return list(sessions)
+    .slice()
+    .sort((left, right) => Date.parse(right.created_at || 0) - Date.parse(left.created_at || 0))[0] || null;
+}
+
+function summarizeSession(session) {
+  if (!session) return null;
+  const sdk = session.sdk_binding_status || {};
+  return {
+    session_hash_prefix: shaPrefix(session.session_id),
+    device_hash_prefix: shaPrefix(session.device_id),
+    profile: session.profile || null,
+    client_version: session.client_version || null,
+    session_status: session.session_status || null,
+    heartbeat_count: Number(session.heartbeat_count) || 0,
+    health_severity: session.health_severity || null,
+    active_anchor: session.active_anchor || null,
+    pairing_status: session.pairing_status || null,
+    hardware_acceptance_eligible: session.hardware_acceptance_eligible === true,
+    sdk_stage: sdk.stage || null,
+    sdk_live_binding_ready: sdk.live_binding_ready === true,
+    sdk_input_binding_ready: sdk.input_binding_ready === true,
+    sdk_overlay_binding_ready: sdk.overlay_binding_ready === true,
+    raw_session_ids_included: false
+  };
+}
+
+function summarizeSessions(payload) {
+  const sessions = list(payload.sessions);
+  const online = sessions.filter((item) => item.session_status === "online");
+  const liveOperatorPaired = online.filter((item) => {
+    const sdk = item.sdk_binding_status || {};
+    return item.pairing_status === "operator_paired"
+      && item.hardware_acceptance_eligible === true
+      && sdk.live_binding_ready === true
+      && sdk.input_binding_ready === true
+      && sdk.overlay_binding_ready === true;
+  });
+
+  return {
+    total: Number(payload.total) || sessions.length,
+    online_count: online.length,
+    operator_paired_online_count: online.filter((item) => item.pairing_status === "operator_paired").length,
+    live_operator_paired_ready_count: liveOperatorPaired.length,
+    latest_session: summarizeSession(latestSession(sessions)),
+    latest_live_operator_paired_session: summarizeSession(latestSession(liveOperatorPaired)),
+    raw_session_ids_included: false
+  };
+}
+
+function summarizeFieldAcceptance(payload) {
+  const trustedGate = list(payload.gates).find((gate) => gate.id === "trusted_hardware_session") || {};
+  const hardwareGate = list(payload.gates).find((gate) => gate.id === "hardware_alignment") || {};
+  const missionGate = list(payload.gates).find((gate) => gate.id === "mission_loop") || {};
+  const trustedEvidence = trustedGate.evidence || {};
+  const hardwareEvidence = hardwareGate.evidence || {};
+  const missionEvidence = missionGate.evidence || {};
+
+  return {
+    status: payload.status || null,
+    ready: payload.ready === true,
+    ready_for_hardware: payload.summary?.ready_for_hardware === true,
+    trusted_hardware_ready: payload.summary?.trusted_hardware_ready === true,
+    trusted_hardware_evidence_count: Number(payload.summary?.trusted_hardware_evidence_count) || 0,
+    trusted_hardware_session_count: Number(payload.summary?.trusted_hardware_session_count) || 0,
+    trusted_hardware_anchor_ids: list(trustedEvidence.trusted_hardware_calibrated_anchor_ids),
+    untrusted_hardware_anchor_ids: list(trustedEvidence.untrusted_hardware_anchor_ids),
+    hardware_calibrated_anchor_ids: list(hardwareEvidence.hardware_calibrated_anchor_ids),
+    missing_mission_steps: list(missionEvidence.missing_steps),
+    write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
+    pending_gate_ids: list(payload.gates).filter((gate) => gate.status === "pending").map((gate) => gate.id),
+    blocking_items: list(payload.blocking_items).map((item) => ({
+      gate_id: item.gate_id,
+      summary: item.summary
+    }))
+  };
+}
+
+function summarizeWall(payload) {
+  const summary = payload.runtime?.summary || {};
+  return {
+    schema: payload.schema || null,
+    ready_for_hardware: summary.ready_for_hardware === true,
+    rehearsal_ready: summary.rehearsal_ready === true,
+    calibrated_anchor_ids: list(summary.calibrated_anchor_ids),
+    hardware_calibrated_anchor_ids: list(summary.hardware_calibrated_anchor_ids),
+    trusted_hardware_calibrated_anchor_ids: list(summary.trusted_hardware_calibrated_anchor_ids),
+    trusted_hardware_session_count: Number(summary.trusted_hardware_session_count) || 0,
+    untrusted_hardware_anchor_ids: list(summary.untrusted_hardware_anchor_ids)
+  };
+}
+
+function summarizeMission(payload) {
+  const beacons = list(payload.beacons);
+  const writeBackBeacons = beacons.filter((item) => {
+    return /write/i.test(String(item.layer || ""))
+      || /WRITE/i.test(String(item.beacon_id || ""))
+      || String(item.anchor_id || "") === "A3";
+  });
+  return {
+    active_user: payload.active_user || null,
+    mission_state: payload.mission_state || null,
+    current_step_index: Number(payload.current_step_index) || 0,
+    completed_steps: list(payload.completed_steps),
+    beacon_count: beacons.length,
+    write_back_beacon_count: writeBackBeacons.length
+  };
+}
+
+function findAdb() {
+  const candidates = [
+    process.env.ADB,
+    "C:\\Program Files (x86)\\Android\\android-sdk\\platform-tools\\adb.exe",
+    "C:\\Program Files\\Android\\android-sdk\\platform-tools\\adb.exe",
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Android", "Sdk", "platform-tools", "adb.exe") : null
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate)) || null;
+}
+
+function adbLogcatCounts({ clear = false, read = false } = {}) {
+  const adb = findAdb();
+  const patterns = [
+    "DllNotFoundException",
+    "rokid_openxr_api",
+    "UnsatisfiedLinkError",
+    "TryOpenImageTracker",
+    "Open Marker",
+    "ImageDB"
+  ];
+  if (!adb) {
+    return {
+      adb_found: false,
+      raw_log_included: false,
+      pattern_counts: patterns.map((pattern) => ({ pattern, count: 0 }))
+    };
+  }
+
+  if (clear) {
+    spawnSync(adb, ["logcat", "-b", "all", "-c"], { encoding: "utf8", windowsHide: true });
+  }
+
+  if (!read) {
+    return {
+      adb_found: true,
+      raw_log_included: false,
+      pattern_counts: patterns.map((pattern) => ({ pattern, count: 0 }))
+    };
+  }
+
+  const result = spawnSync(adb, ["logcat", "-d", "-v", "brief"], { encoding: "utf8", windowsHide: true });
+  const text = `${result.stdout || ""}\n${result.stderr || ""}`;
+  return {
+    adb_found: true,
+    raw_log_included: false,
+    pattern_counts: patterns.map((pattern) => ({
+      pattern,
+      count: (text.match(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length
+    }))
+  };
+}
+
+async function captureSnapshot(baseUrl) {
+  const [fieldAcceptance, sessions, wallCalibration, missionState] = await Promise.all([
+    getJson(baseUrl, "/api/field/acceptance"),
+    getJson(baseUrl, "/api/device/sessions"),
+    getJson(baseUrl, "/api/calibration/wall"),
+    getJson(baseUrl, "/api/state")
+  ]);
+
+  const field = summarizeFieldAcceptance(fieldAcceptance);
+  const session = summarizeSessions(sessions);
+  const wall = summarizeWall(wallCalibration);
+  const mission = summarizeMission(missionState);
+  const requiredAnchors = ["A1", "A2", "A3"];
+  const trustedAnchorSet = new Set(field.trusted_hardware_anchor_ids);
+  const missionStepSet = new Set(mission.completed_steps);
+
+  return {
+    captured_at: new Date().toISOString(),
+    live_session_ready: session.live_operator_paired_ready_count > 0,
+    trusted_a1_a2_a3_ready: requiredAnchors.every((anchorId) => trustedAnchorSet.has(anchorId)),
+    mission_loop_ready: ["read", "find_year", "service_action", "write_back"].every((stepId) => missionStepSet.has(stepId))
+      && mission.write_back_beacon_count > 0,
+    field_acceptance_ready: field.ready === true,
+    session,
+    field_acceptance: field,
+    wall_calibration: wall,
+    mission
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function uniqueSnapshots(snapshots) {
+  if (snapshots.length <= 6) return snapshots;
+  return [
+    snapshots[0],
+    ...snapshots.slice(Math.max(1, snapshots.length - 5))
+  ];
+}
+
+function buildMarkdown(report) {
+  const latest = report.latest_snapshot;
+  const blockers = report.blockers.length
+    ? report.blockers.map((item) => `- ${item}`)
+    : ["- none"];
+  return [
+    "# Field Live Pass",
+    "",
+    `- Generated: ${report.generated_at}`,
+    `- OK: ${report.ok}`,
+    `- API host kind: ${report.api.host_kind}`,
+    `- Live session ready: ${latest.live_session_ready}`,
+    `- Trusted A1/A2/A3 ready: ${latest.trusted_a1_a2_a3_ready}`,
+    `- Mission loop ready: ${latest.mission_loop_ready}`,
+    `- Field acceptance ready: ${latest.field_acceptance_ready}`,
+    `- Online sessions: ${latest.session.online_count}`,
+    `- Live operator-paired sessions: ${latest.session.live_operator_paired_ready_count}`,
+    `- Trusted hardware anchors: ${latest.field_acceptance.trusted_hardware_anchor_ids.join(",") || "none"}`,
+    `- Hardware anchors: ${latest.field_acceptance.hardware_calibrated_anchor_ids.join(",") || "none"}`,
+    `- Pending gates: ${latest.field_acceptance.pending_gate_ids.join(",") || "none"}`,
+    `- Completed mission steps: ${latest.mission.completed_steps.join(",") || "none"}`,
+    `- Beacon count: ${latest.mission.beacon_count}`,
+    `- Write-back beacons: ${latest.mission.write_back_beacon_count}`,
+    `- Raw session ids included: false`,
+    `- Raw logcat included: false`,
+    "",
+    "## Blockers",
+    "",
+    ...blockers,
+    "",
+    "## Boundary",
+    "",
+    "This report watches the live field pass. It does not create simulator/manual observations and cannot claim hardware readiness unless the live API reports trusted A1/A2/A3 evidence plus the P0 mission/write-back loop."
+  ].join("\n");
+}
+
+async function main() {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const startedAt = new Date();
+  const snapshots = [];
+  adbLogcatCounts({ clear: options.clearLogcat, read: false });
+
+  const durationMs = Math.max(1, Number(options.durationSec) || 1) * 1000;
+  const intervalMs = Math.max(1, Number(options.intervalSec) || 2) * 1000;
+  const deadline = startedAt.getTime() + durationMs;
+
+  do {
+    snapshots.push(await captureSnapshot(baseUrl));
+    if (Date.now() + intervalMs > deadline) break;
+    await sleep(intervalMs);
+  } while (Date.now() < deadline);
+
+  const latest = snapshots[snapshots.length - 1];
+  const blockers = [];
+  if (options.requireLiveSession && !latest.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
+  if (options.requireTrusted && !latest.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
+  if (options.requireMissionLoop && !latest.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+
+  const report = {
+    schema: "innerworld-field-live-pass/v1",
+    generated_at: new Date().toISOString(),
+    ok: blockers.length === 0,
+    api: {
+      api_base_url_redacted: redactUrl(baseUrl),
+      host_kind: hostKind(baseUrl),
+      host_hash_prefix: (() => {
+        try { return shaPrefix(new URL(baseUrl).hostname); } catch { return null; }
+      })()
+    },
+    duration_sec: Math.max(1, Number(options.durationSec) || 1),
+    interval_sec: Math.max(1, Number(options.intervalSec) || 2),
+    requirements: {
+      require_live_session: options.requireLiveSession,
+      require_trusted_a1_a2_a3: options.requireTrusted,
+      require_mission_loop: options.requireMissionLoop
+    },
+    latest_snapshot: latest,
+    snapshots: uniqueSnapshots(snapshots),
+    logcat: adbLogcatCounts({ clear: false, read: options.includeLogcatCounts }),
+    blockers,
+    privacy: {
+      raw_session_ids_included: false,
+      raw_device_ids_included: false,
+      raw_logcat_included: false,
+      private_ips_included: false,
+      note: "Session/device identifiers are hashed; raw logcat is never written."
+    }
+  };
+
+  await mkdir(options.outputRoot, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const jsonPath = path.join(options.outputRoot, `field-live-pass-${stamp}.json`);
+  const mdPath = path.join(options.outputRoot, `field-live-pass-${stamp}.md`);
+  const latestJsonPath = path.join(options.outputRoot, "field-live-pass-latest.json");
+  const latestMdPath = path.join(options.outputRoot, "field-live-pass-latest.md");
+  const json = `${JSON.stringify(report, null, 2)}\n`;
+  const markdown = `${buildMarkdown(report)}\n`;
+  await Promise.all([
+    writeFile(jsonPath, json, "utf8"),
+    writeFile(mdPath, markdown, "utf8"),
+    writeFile(latestJsonPath, json, "utf8"),
+    writeFile(latestMdPath, markdown, "utf8")
+  ]);
+
+  console.log(JSON.stringify({
+    ok: report.ok,
+    check: "field-live-pass",
+    live_session_ready: latest.live_session_ready,
+    trusted_a1_a2_a3_ready: latest.trusted_a1_a2_a3_ready,
+    mission_loop_ready: latest.mission_loop_ready,
+    field_acceptance_ready: latest.field_acceptance_ready,
+    online_sessions: latest.session.online_count,
+    live_operator_paired_sessions: latest.session.live_operator_paired_ready_count,
+    trusted_hardware_anchor_ids: latest.field_acceptance.trusted_hardware_anchor_ids,
+    pending_gate_ids: latest.field_acceptance.pending_gate_ids,
+    blockers,
+    json: jsonPath,
+    markdown: mdPath
+  }, null, 2));
+
+  if (!report.ok) {
+    process.exitCode = 2;
+  }
+}
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

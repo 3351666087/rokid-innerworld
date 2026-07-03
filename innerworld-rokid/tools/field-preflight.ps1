@@ -49,6 +49,46 @@ function Get-LanIPv4 {
   throw "Could not detect a LAN IPv4 address. Pass -LanIp <ip> explicitly."
 }
 
+function Get-Sha256Prefix {
+  param(
+    [AllowNull()][string]$Value,
+    [int]$Length = 12
+  )
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = $sha.ComputeHash($bytes)
+  } finally {
+    $sha.Dispose()
+  }
+  $hex = [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+  return $hex.Substring(0, [Math]::Min($Length, $hex.Length))
+}
+
+function Redact-PrivateUrl {
+  param([AllowNull()][string]$Value)
+  if ($null -eq $Value) { return $null }
+  return "$Value" -replace '\b(?:(?:10|127)\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})\b', '<private-ip-redacted>'
+}
+
+function Convert-HealthForEvidence {
+  param([pscustomobject]$Health)
+  return [pscustomobject]@{
+    ok = $Health.ok
+    url = Redact-PrivateUrl $Health.url
+    status_code = $Health.status_code
+    service = $Health.service
+    demo_ready = $Health.demo_ready
+    mission_state = $Health.mission_state
+    beacon_count = $Health.beacon_count
+    completed_step_count = $Health.completed_step_count
+    cache_control = $Health.cache_control
+    cors = $Health.cors
+    error = Redact-PrivateUrl $Health.error
+  }
+}
+
 function Test-JsonEndpoint {
   param([string]$Url)
   try {
@@ -105,6 +145,8 @@ $localhostUrl = "http://localhost:$Port"
 $localLoopbackUrl = "http://127.0.0.1:$Port"
 $lanUrl = "http://$LanIp`:$Port"
 $publicUrl = "$lanUrl/"
+$lanUrlRedacted = Redact-PrivateUrl $lanUrl
+$publicUrlRedacted = Redact-PrivateUrl $publicUrl
 
 $localHealth = Test-JsonEndpoint -Url "$localLoopbackUrl/api/health"
 $lanHealth = Test-JsonEndpoint -Url "$lanUrl/api/health"
@@ -114,7 +156,7 @@ if (!$localHealth.ok) {
 }
 
 if (!$lanHealth.ok) {
-  Write-Warning "LAN URL is not reachable from this machine: $lanUrl. For Rokid/phone access, run npm run dev:lan and allow the port through Windows Firewall if prompted."
+  Write-Warning "LAN URL is not reachable from this machine: $lanUrlRedacted. For Rokid/phone access, run npm run dev:lan and allow the port through Windows Firewall if prompted."
   if ($RequireLan) {
     throw "LAN health check failed and -RequireLan was set."
   }
@@ -153,12 +195,17 @@ if (!$SkipCacheReport) {
 $result = [pscustomobject]@{
   ok = $true
   generated_at = (Get-Date).ToString("o")
+  privacy = [pscustomobject]@{
+    private_ips_included = $false
+    note = "LAN IPs are hashed/redacted in this evidence report; the Unity config and field-kit QR may contain the real local URL for on-site device access."
+  }
   port = $Port
-  lan_ip = $LanIp
+  lan_ip_hash_prefix = Get-Sha256Prefix $LanIp
+  lan_ip_redacted = "<private-ip-redacted>"
   localhost_url = "$localhostUrl/"
-  lan_url = $publicUrl
-  local_health = $localHealth
-  lan_health = $lanHealth
+  lan_url = $publicUrlRedacted
+  local_health = Convert-HealthForEvidence $localHealth
+  lan_health = Convert-HealthForEvidence $lanHealth
   unity_config_updated = $unityConfigUpdated
   pdf_rendered = $pdfRendered
   pdf_path = (Join-Path $root "output\pdf\rokid_innerworld_field_kit.pdf")
@@ -166,7 +213,7 @@ $result = [pscustomobject]@{
   temp_report = $tempReport
   next_steps = @(
     "Run npm run dev:lan for Rokid/phone access.",
-    "Open $publicUrl on devices connected to the same LAN.",
+    "Open $publicUrlRedacted on devices connected to the same LAN.",
     "Use output\pdf\rokid_innerworld_field_kit.pdf for the LAN QR field kit.",
     "Run npm run evidence:rehearsal -- --reset-after before packaging."
   )
@@ -215,7 +262,7 @@ $md | Set-Content -Encoding UTF8 -Path $mdPath
 Copy-Item -LiteralPath $mdPath -Destination $latestMd -Force
 
 Write-Output "Field preflight complete."
-Write-Output "LAN URL: $publicUrl"
+Write-Output "LAN URL: $publicUrlRedacted"
 Write-Output "JSON: $jsonPath"
 Write-Output "Markdown: $mdPath"
 if (!$lanHealth.ok) {

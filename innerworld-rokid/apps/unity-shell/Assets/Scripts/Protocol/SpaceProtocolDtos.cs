@@ -357,11 +357,28 @@ namespace InnerWorld.Rokid.Protocol
         public string server_time;
         public DeviceCapabilityStatus capabilities;
         public RokidSdkBindingStatusPayload sdk_binding_status;
+        public DevicePairingState pairing;
+        public bool hardware_acceptance_eligible;
         public DeviceMissionSnapshot mission_snapshot;
         public DeviceRuntimeEnvelope runtime;
         public DeviceEndpointSubset endpoints;
         public DeviceWarning[] warnings;
         public DevicePrivacyPolicy privacy;
+    }
+
+    [Serializable]
+    public sealed class DevicePairingState
+    {
+        public string schema;
+        public string status;
+        public bool paired;
+        public bool required_for_hardware_acceptance;
+        public string issued_at;
+        public string paired_at;
+        public string expires_at;
+        public string method;
+        public bool code_persisted;
+        public string privacy;
     }
 
     [Serializable]
