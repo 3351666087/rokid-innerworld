@@ -39,6 +39,12 @@ Practical implication for this project:
 - Do not vendor Rokid SDK files into Git until the official UPM registry, package name, scoped registry, and package version are confirmed on the hardware account.
 - Treat Rokid SDK integration as an adapter swap: `EditorRokidInputSource` and screen-space HUD are replaced by UXR/OpenXR input/display adapters, while Space API, mission state, evidence chain, AI HUD schema, write-back, calibration, and LAN server stay stable.
 
+## Station Pro Live Pass
+
+Station Pro live pass starts with sanitized ADB evidence, then Unity UXR3.0 validation: Android target, `com.rokid.xr.unity`, Environment Fix, OpenXR Feature Groups, Project Validation, RKCameraRig, RKInput, PointableUI, image target library, and SLAM/head tracking heartbeat. Passing package detection is not live binding; passing live binding is not field acceptance until operator-paired A1/A2/A3 observations clear `/api/field/acceptance`.
+
+The current connected-hardware fact is: Windows can see a Rokid Station Pro over USB ADB as a device-state Android target. This proves that the hardware lane can begin. It does not prove the Unity/UXR adapter, APK runtime, or field acceptance gates yet.
+
 ## SDK Docs Adoption Matrix
 
 The newly added SDK/design reference docs are actionable, but they enter the mainline only through the existing contract. Current P0 is still the real campus exhibition wall with A1/A2/A3, not a broad campus social platform.
@@ -104,7 +110,7 @@ The Unity runtime now has a compile-safe SDK boundary:
 
 This checklist is the P0 implementation contract for the first real hardware pass. Do not claim Rokid hardware readiness until every item below has a passing local proof or a clearly marked hardware-blocked note.
 
-Current checkpoint status: the Space API contract, `/api/device/adapter-checklist`, Web operator rendering, Unity manifest consumption, Unity heartbeat report field, and regression checks are implemented. The real SDK binding items remain `pending` / hardware-blocked until the official Rokid package, account-visible SDK docs, and physical RA202/RAS201 kit are available; do not substitute Web expansion, open UGC, institution backend, or route-system work for this P0.
+Current checkpoint status: the Space API contract, `/api/device/adapter-checklist`, Web operator rendering, Unity manifest consumption, Unity heartbeat report field, and regression checks are implemented. A Station Pro is now visible over sanitized ADB, so the next gap is no longer "hardware absent"; the real SDK binding items remain `pending` until the official UXR package, Unity project validation, APK install/run, live heartbeat, and operator-paired A1/A2/A3 observations pass. Do not substitute Web expansion, open UGC, institution backend, or route-system work for this P0.
 
 - `RKCameraRig`: replace the scene `Main Camera` only inside the `ROKID_UXR` lane. The adapter must keep the fallback scene runnable without vendor packages and must report the rig status through `RokidSdkBindingProbe`.
 - `RKInput` / 3DoF ray: bind the default controller ray to `IRokidInputSource`. Ray hover maps to A1/A2/A3 focus, confirm maps to `CompleteNextStep`, and long-confirm or explicit command maps to write-back/service actions. The fallback mouse/keyboard path stays unchanged.
@@ -186,6 +192,8 @@ The bootstrap response includes:
 Run these before connecting real hardware:
 
 ```powershell
+npm run device:probe
+npm run check:device-probe -- --require-adb-device
 npm run check:device
 npm run check:ops -- --require-artifacts
 npm run check:web
@@ -194,6 +202,8 @@ npm run check:field-markers
 npm run check:field-acceptance
 ```
 
+`device:probe` writes a private ignored sanitized hardware/toolchain report under `output/device-probe`.
+`check:device-probe` reruns the probe, asserts that JSON/Markdown do not expose raw serials, USB instance ids, private IPs, MAC addresses, or pairing codes, and can require one ADB `device` when passed `--require-adb-device`.
 `check:device` verifies `/api/device/bootstrap`, follows the advertised URLs including `/api/field/acceptance`, confirms AI schema/prompt availability, submits one sanitized A2 calibration observation, and checks the SQLite-backed calibration summary.
 `check:web` verifies the operator console keeps the Wall Calibration / Field Kit panel, `/api/field/markers` API hook, marker-card rendering, API read/write hooks, simulator lock actions, readiness separation, and trace fields.
 `check:unity` verifies the controller actively fetches/parses the wall calibration and field marker manifests and POSTs simulator/manual observations instead of only declaring protocol DTOs.

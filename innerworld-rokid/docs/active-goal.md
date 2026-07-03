@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-03 00:34 Asia/Shanghai
+Updated: 2026-07-03 17:55 Asia/Shanghai
 
 ## Objective
 
@@ -8,15 +8,33 @@ Long-term execution goal for Rokid "Mirror-See InnerWorld / Campus Memory Wall":
 
 Build the real project framework and delivery chain, not just an environment demo. The final product is a Rokid glasses spatial memory layer opened on top of a real campus exhibition wall. It is not a normal guide app, not a PPT, and not a phone-only page.
 
+## Hardware-Connected Phase
+
+The project has entered the real-device development phase. A Rokid Station Pro is now visible to the Windows development machine over USB ADB as `RG-stationPro` / `stationPro` with Android 12 and an ADB interface. This is the first authoritative hardware evidence for the P0 live adapter lane. Do not record or publish full device serial numbers, USB instance ids, MAC addresses, private IPs, or pairing codes; only sanitized model/status/hash evidence may enter docs, probes, release evidence, or GitHub.
+
+Current P0 is now `station_pro_trusted_hardware_session`: turn this connected Station Pro + Max Pro lane into a reproducible live development path. The next code and ops checkpoints must prove ADB/toolchain detection, operator pairing, Station Pro LAN/USB reachability, APK install/run capability, Unity/AR Studio heartbeat, and trusted A1/A2/A3 observations through the existing Space API, SQLite, mission state, write-back, evidence chain, and field acceptance gates.
+
+The second connected glasses line, identified in UI as Rokid x Bolon, is not the P0 AR Studio runtime unless later evidence proves it exposes the same Station Pro / UXR / RKCameraRig / RKInput / image target / SLAM development path. Treat it as a secondary device lane for future reference, not a replacement for the Max Pro + Station Pro mainline.
+
+## Teammate Docs Adoption Ledger
+
+Kepler reviewed teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` again during the real-device phase. The durable adoption record is `docs/teammate-docs-bus.md`; use that document as the bus whenever a worker or future compressed context needs to decide whether teammate files can enter the mainline.
+
+`docs/design.md`, `docs/rokid_sdk_docs.md`, `docs/rokid_sdk_docs_full.md`, and `docs/策划案.pdf` are actionable only through the current one-wall A1/A2/A3/User B mainline. Now that Station Pro is visible over sanitized ADB, P0 adoption is: UXR3.0 SDK project validation, RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head tracking heartbeat, operator-paired live SDK proof, and trusted calibration observations through the existing Space API / SQLite / field acceptance gates.
+
+P1 adoption is: near/far AR layout constraints, A1 0.4m-0.5m confirmation polish, low-distraction radar/HUD, gesture five-state feedback for bounded controls, user-initiated A2/A3 spatial audio, controlled TimeMark authoring, and AI semantic compression.
+
+P2/reference only: open UGC, institution dashboard, public social feeds, personal homepage, broad campus/city route, NPC reward layer, commercial task system, spatial drawing tools, and full content editor. These cannot compete with `station_pro_trusted_hardware_session` until the real A1/A2/A3 hardware loop is accepted.
+
 ## Kepler Mainline Lock
 
 Rokid InnerWorld / 镜见的长期目标是：Rokid 眼镜在真实校园展墙上打开一层可读、可写、可复访的空间记忆层。P0 只服务一面可控校园展墙上的 A1/A2/A3 三锚点闭环：A1 入口打开空间层，A2 读取校园记忆/任务线索，A3 写回 TimeMark，并让后来者 User B 在同一空间看到新增记忆。
 
 This is not a normal guide app, PPT, phone-only page, broad campus map, open UGC social product, or institution dashboard. Web is the operator console and rehearsal surface; Unity/Rokid is the audience-facing spatial runtime.
 
-Current next P0 checkpoint: `real_rokid_live_adapter_execution`. RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head-tracking heartbeat, overlay rendering, and operator-paired live SDK proof must be wired into the existing Space API / SQLite / calibration / mission contracts before Web expansion, institution backend, open UGC, broad route systems, or design-document P2 ideas can compete for priority.
+Current next P0 checkpoint: `station_pro_trusted_hardware_session` under `real_rokid_live_adapter_execution`. RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head-tracking heartbeat, overlay rendering, and operator-paired live SDK proof must be wired into the existing Space API / SQLite / calibration / mission contracts before Web expansion, institution backend, open UGC, broad route systems, or design-document P2 ideas can compete for priority.
 
-Before hardware arrives, Windows localhost/LAN Space Server, Web operator console, Unity fallback, SQLite, field kit, release package, AI HUD contract, write-back loop, and field acceptance must already run in their final local/server shape. After hardware arrives, Rokid / AR Studio replaces only input and display: RKCameraRig, RKInput 3DoF ray, PointableUI, image target tracking, SLAM/head tracking, and overlay rendering bind into the existing Space API, SQLite, mission state, service actions, write-back, AI HUD schema/prompt, evidence chain, and field acceptance gates.
+The Windows localhost/LAN Space Server, Web operator console, Unity fallback, SQLite, field kit, release package, AI HUD contract, write-back loop, and field acceptance remain the rehearsal and operator foundation. Now that hardware is connected, Rokid / AR Studio replaces only input and display: RKCameraRig, RKInput 3DoF ray, PointableUI, image target tracking, SLAM/head tracking, and overlay rendering bind into the existing Space API, SQLite, mission state, service actions, write-back, AI HUD schema/prompt, evidence chain, and field acceptance gates.
 
 Never claim hardware readiness from simulator/manual observations, print-kit readiness, or `ROKID_UXR` boundary compilation alone. Hardware acceptance requires operator-paired live SDK session proof plus trusted A1/A2/A3 observations through QR/image_tracking/SLAM.
 

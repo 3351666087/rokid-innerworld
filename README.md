@@ -2,6 +2,19 @@
 
 ## Latest Checkpoint
 
+2026-07-03 17:55 Asia/Shanghai:
+
+- Kepler re-reviewed teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` for the now-connected hardware phase. The durable adoption ledger is [innerworld-rokid/docs/teammate-docs-bus.md](innerworld-rokid/docs/teammate-docs-bus.md).
+- The teammate docs and 13-page PDF now enter the bus as: P0 UXR3.0 validation, RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head tracking heartbeat, operator-paired live SDK proof, and trusted calibration observations; P1 bounded near/far layout, gestures, audio, TimeMark, and AI compression; P2/reference institution/social/platform/broad-route ideas.
+- The local device probe path is being hardened so hardware evidence stays sanitized before it reaches docs, release evidence, or GitHub.
+
+2026-07-03 17:31 Asia/Shanghai:
+
+- The project has officially switched from hardware-waiting fallback work to real-device development. Windows now sees a connected Rokid Station Pro as `RG-stationPro` with an ADB interface, and `adb devices -l` reports it as `device`. Full device serials, USB instance ids, MAC addresses, private IPs, and pairing codes remain private and must not be committed.
+- The new P0 checkpoint is `station_pro_trusted_hardware_session`: convert the connected Station Pro + Max Pro lane into a reproducible live path for ADB/toolchain detection, operator pairing, Unity/AR Studio APK install/run, heartbeat, A1/A2/A3 trusted observations, evidence chain, and field acceptance.
+- `Rokid x Bolon` is treated as a secondary connected glasses line until proven to expose the same Station Pro / UXR / RKCameraRig / RKInput / image target / SLAM development path. It must not pull P0 away from the Max Pro + Station Pro AR Studio lane.
+- The next implementation work should codify a sanitized device/toolchain probe and feed every live adapter checkpoint back to Kepler before declaring hardware readiness.
+
 2026-07-03 00:57 Asia/Shanghai:
 
 - Kepler re-audited teammate documents for hardware-independent but heavy long-run modules. `innerworld-rokid/docs/active-goal.md` now records the long module backlog: `a1_spatial_entry_experience`, `story_graph_mission_runtime_v2`, `evidence_replay_judge_mode`, `premium_unity_spatial_shell_2`, `controlled_timemark_authoring`, `ai_hud_contract_hardening`, `institution_lite_content_compiler`, and `spatial_audio_gesture_feedback_pack`.

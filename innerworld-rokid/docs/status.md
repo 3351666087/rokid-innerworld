@@ -1,5 +1,16 @@
 # Status
 
+## 2026-07-03
+
+- Kepler final-reviewed the teammate-docs bus checkpoint and cleared it for commit/push. The remaining P0 instruction is to keep driving `station_pro_trusted_hardware_session`: UXR3.0 validation, APK install/run, live heartbeat, then operator-paired trusted A1/A2/A3 observations and `/api/field/acceptance`.
+- Kepler re-reviewed teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` for real-device adoption. The result is now recorded in `docs/teammate-docs-bus.md`: P0 merges UXR3.0 validation, RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head tracking heartbeat, operator-paired live SDK proof, and trusted calibration observations; P1 keeps near/far layout, bounded gestures, controlled audio, and controlled TimeMark authoring; P2/reference keeps institution backend, social/platform features, broad routes, spatial drawing, and dashboards out of the current hardware lane.
+- The 13-page teammate PDF is treated as evidence for Campus Hidden Layer / Spatial URL / fixed-place TimeMark / AI semantic compression / one-place demo, not as permission to pivot into account/social/platform scope during P0.
+- Real-device phase started. The Windows development machine now sees a connected Rokid Station Pro over USB ADB as model `RG-stationPro` / device `stationPro`, Android 12, with an ADB interface and `device` state.
+- Full serial numbers, USB instance ids, MAC addresses, private IPs, and pairing codes are treated as private hardware identifiers. They must not be committed to docs, release evidence, public JSON, screenshots, or GitHub.
+- `station_pro_trusted_hardware_session` is the new P0 checkpoint. The immediate path is: sanitized device/toolchain probe -> operator pairing -> install/run Unity or AR Studio APK on Station Pro -> live heartbeat -> trusted A1/A2/A3 observations -> field acceptance and evidence replay.
+- A second connected glasses line identified as Rokid x Bolon remains a secondary research lane. It does not replace the Max Pro + Station Pro AR Studio mainline unless it proves the same UXR/RKCameraRig/RKInput/image target/SLAM development path.
+- Current evidence is enough to begin true hardware integration work, but it is not yet hardware-ready acceptance. Simulator/manual/fallback evidence still remains rehearsal only.
+
 ## 2026-07-02
 
 - 长期目标保持 active：在 `C:\Users\33516\Documents\Rokid` 内用本机完整权限持续推进 Rokid「镜见 InnerWorld / 校园记忆展墙」。

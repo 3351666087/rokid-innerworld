@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "../..");
 
 const files = {
   goal: path.join(root, "docs", "active-goal.md"),
+  teammateDocsBus: path.join(root, "docs", "teammate-docs-bus.md"),
   contract: path.join(root, "shared", "innerworld-contract.js"),
   webHtml: path.join(root, "apps", "web-demo", "index.html"),
   webJs: path.join(root, "apps", "web-demo", "app.js"),
@@ -55,6 +56,38 @@ const requiredLongModuleTokens = [
   "one-wall A1/A2/A3/User B Rokid spatial memory loop",
   "regression check or release/evidence assertion",
   "visual polish alone is not enough"
+];
+
+const requiredHardwareConnectedTokens = [
+  "Hardware-Connected Phase",
+  "RG-stationPro",
+  "station_pro_trusted_hardware_session",
+  "ADB/toolchain detection",
+  "APK install/run capability",
+  "trusted A1/A2/A3 observations",
+  "device serial numbers",
+  "private IPs",
+  "Rokid x Bolon",
+  "secondary device lane",
+  "not a replacement for the Max Pro + Station Pro mainline"
+];
+
+const requiredTeammateDocsBusTokens = [
+  "Teammate Docs Bus",
+  "f402f82f61d62e897d7615fa3f4259423e5cfce9",
+  "P0 Adoption",
+  "P1 Adoption",
+  "P2 / Reference Only",
+  "Do Not Merge Into P0",
+  "station_pro_trusted_hardware_session",
+  "UXR3.0 SDK project validation",
+  "RKCameraRig",
+  "RKInput 3DoF ray",
+  "PointableUI",
+  "image target library",
+  "SLAM/head tracking heartbeat",
+  "operator-paired live SDK proof",
+  "one-wall A1/A2/A3/User B Rokid spatial memory loop"
 ];
 
 const requiredCombinedDirection = [
@@ -189,6 +222,8 @@ async function main() {
   const directionChecks = includesAll(sources.goal, requiredGoalDirection);
   const reviewerChecks = includesAll(sources.goal, requiredGoalReviewerTokens);
   const longModuleChecks = includesAll(sources.goal, requiredLongModuleTokens);
+  const hardwareConnectedChecks = includesAll(sources.goal, requiredHardwareConnectedTokens);
+  const teammateDocsBusChecks = includesAll(`${sources.goal}\n${sources.teammateDocsBus}`, requiredTeammateDocsBusTokens);
   const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}\n${sources.apiRouter}\n${sources.deviceRuntime}`, requiredCombinedDirection);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
@@ -217,6 +252,8 @@ async function main() {
     ...directionChecks.filter((item) => !item.ok).map((item) => `active goal missing: ${item.needle}`),
     ...reviewerChecks.filter((item) => !item.ok).map((item) => `Kepler reviewer rule missing: ${item.needle}`),
     ...longModuleChecks.filter((item) => !item.ok).map((item) => `hardware-independent long module missing: ${item.needle}`),
+    ...hardwareConnectedChecks.filter((item) => !item.ok).map((item) => `hardware-connected phase missing: ${item.needle}`),
+    ...teammateDocsBusChecks.filter((item) => !item.ok).map((item) => `teammate docs bus missing: ${item.needle}`),
     ...combinedDirectionChecks.filter((item) => !item.ok).map((item) => `mainline contract missing: ${item.needle}`),
     ...webChecks.filter((item) => !item.ok).map((item) => `web module missing: ${item.needle}`),
     ...contractChecks.filter((item) => !item.ok).map((item) => `contract token missing: ${item.needle}`),
@@ -253,6 +290,9 @@ async function main() {
     contract_tokens: requiredContractTokens.length,
     unity_tokens: requiredUnityTokens.length,
     storage_tokens: requiredStorageTokens.length,
+    hardware_connected_tokens: requiredHardwareConnectedTokens.length,
+    hardware_connected_checkpoint: "station_pro_trusted_hardware_session",
+    teammate_docs_bus_tokens: requiredTeammateDocsBusTokens.length,
     long_modules: [
       "a1_spatial_entry_experience",
       "story_graph_mission_runtime_v2",
