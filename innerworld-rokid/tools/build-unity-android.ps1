@@ -591,19 +591,58 @@ function Invoke-ExternalForReport {
     [string]$Name,
     [string]$FilePath,
     [string[]]$Arguments,
-    [string]$WorkingDirectory = $root
+    [string]$WorkingDirectory = $root,
+    [int]$TimeoutSeconds = 300
   )
 
-  Push-Location $WorkingDirectory
+  $exitCode = $null
+  $timedOut = $false
+  $text = ""
+  $job = $null
+
   try {
-    $output = & $FilePath @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    $text = (@($output | ForEach-Object { "$_" }) -join "`n")
+    $job = Start-Job -ArgumentList $FilePath, $Arguments, $WorkingDirectory -ScriptBlock {
+      param(
+        [string]$JobFilePath,
+        [string[]]$JobArguments,
+        [string]$JobWorkingDirectory
+      )
+
+      Push-Location $JobWorkingDirectory
+      try {
+        $output = & $JobFilePath @JobArguments 2>&1
+        $jobExitCode = $LASTEXITCODE
+        $jobText = (@($output | ForEach-Object { "$_" }) -join "`n")
+      } catch {
+        $jobExitCode = $null
+        $jobText = $_.Exception.Message
+      } finally {
+        Pop-Location
+      }
+
+      [pscustomobject]@{
+        exit_code = $jobExitCode
+        output = $jobText
+      }
+    }
+    $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+    if ($null -eq $completed) {
+      $timedOut = $true
+      try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch {}
+    } else {
+      $result = Receive-Job -Job $job
+      $exitCode = $result.exit_code
+      $text = "$($result.output)"
+    }
+    if ($timedOut) {
+      $text = "timed out after $TimeoutSeconds seconds`n$text"
+    }
   } catch {
-    $exitCode = $null
-    $text = $_.Exception.Message
+    $text = "$($_.Exception.Message)`n$text"
   } finally {
-    Pop-Location
+    if ($job) {
+      try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch {}
+    }
   }
 
   $redacted = Redact-BuildOutput -Text $text
@@ -613,8 +652,10 @@ function Invoke-ExternalForReport {
 
   return [pscustomobject]@{
     name = $Name
-    ok = [bool]($exitCode -eq 0)
+    ok = [bool](!$timedOut -and $exitCode -eq 0)
     exit_code = $exitCode
+    timed_out = [bool]$timedOut
+    timeout_seconds = $TimeoutSeconds
     output_tail = $redacted
   }
 }
@@ -697,7 +738,7 @@ $imageDbBuild = [pscustomobject]@{
   output_tail = "skipped"
   skipped = $true
 }
-if (!$SkipRokidImageDbBuild) {
+if (!$SkipRokidImageDbBuild -and !$SkipUnityBuild) {
   $imageDbScript = Join-Path $root "tools\build-rokid-image-db.ps1"
   if (!(Test-Path -LiteralPath $imageDbScript)) {
     throw "Rokid image DB build script not found: $imageDbScript"

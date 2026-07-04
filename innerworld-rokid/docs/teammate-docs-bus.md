@@ -66,6 +66,13 @@ Real-device probe and evidence-pointer checkpoint on 2026-07-04 12:31 Asia/Shang
 - Follow-up live-pass watch hardening now reports missing trusted anchors, missing raw hardware anchors, missing mission steps, and next required field actions. The current baseline says A1 still needs raw hardware scan, while A2/A3 need re-scan or re-bind through the operator-paired live SDK session before they can become trusted evidence.
 - Follow-up field acceptance session runner now makes the next physical proof executable: default mode captures sanitized device/APK/API/live-pass prechecks without mutating observations or mission state, and `field:acceptance-session:live` explicitly wraps the mutating pair-smoke plus live watch for the real A1/A2/A3/User B pass. Latest default runner pass is green but still blocks hardware-ready with trusted anchors and mission/User B incomplete.
 
+Target-diagnostics APK checkpoint on 2026-07-04 14:31 Asia/Shanghai:
+
+- The current APK supersedes the earlier `bd852...` fact: `output/unity-android/InnerWorldRokid.apk`, 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`.
+- This APK includes the `IW_TARGET_*` target-observation diagnostics and passed Station Pro install/cold-launch/process/operator-pairing smoke. `field-live-pass --single --logcat` exposes the diagnostic counters without writing raw logcat.
+- `tools/build-unity-android.ps1` now timeout-bounds external post-build checks, so Unity success can refresh build evidence without hanging. This is build/evidence reliability only, not hardware-ready proof.
+- The bus remains unchanged: teammate SDK material still enters only through the single-wall A1/A2/A3/User B loop. Trusted A1/A2/A3 observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` are still the missing proof.
+
 Already merged into the mainline:
 
 - A1 spatial entry, including physical anchor/QR/logo, recognition lock frame, deliberate confirmation, and entry transition language.

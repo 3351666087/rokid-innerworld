@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 14:10 Asia/Shanghai
+Updated: 2026-07-04 14:31 Asia/Shanghai
 
 ## Objective
 
@@ -28,14 +28,15 @@ Current verified local facts from the strict hardware probe:
 
 Current Station Pro live APK checkpoint:
 
-- Current authoritative APK fact: `output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`. It includes `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`.
+- Current authoritative APK fact: `output/unity-android/InnerWorldRokid.apk`, 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`. It includes `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`, and the APK metadata contains the `IW_TARGET_*` target-observation diagnostics for the next physical wall pass.
 - Current mutating Station Pro proof for that exact SHA is green: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and the launch evidence includes no raw pairing code, raw session id, raw serial, raw USB id, private IP, or MAC address.
 - Current live-pass snapshot after the 2026-07-04 12:29 LAN server restart and pair smoke proves the operator-paired live SDK session window is open (`live_session_ready=true`, one online live operator-paired session). It still correctly reports `trusted_a1_a2_a3_ready=false`, `mission_loop_ready=false`, `field_acceptance_ready=false`, and `user_b_readback_ready=false`.
 - Current live-pass watch now also reports missing trusted anchors, missing raw hardware anchors, missing mission steps, and operator-facing next actions. The current baseline is: trusted A1/A2/A3 `0/3`, raw hardware alignment missing `A1`, A2/A3 requiring re-scan or re-bind through the operator-paired live SDK session, and the full A2/A3/User B mission loop still pending.
 - Current Unity/field-watch diagnostics now expose stable `IW_TARGET_*` log tokens for the next physical wall pass: target event received, unknown image index, live-pairing/session gate reason, throttle, POST start/result/failure, and mission-assist outcome. `field:live-pass:watch --logcat` counts these tokens only as diagnostics and still writes no raw logcat, pairing codes, session ids, serials, private IPs, or MAC addresses.
+- Current Unity build wrapper is hardened after the target-diagnostics build exposed a post-Unity hang: `tools/build-unity-android.ps1` external checks are timeout-bounded and expose `timed_out` / `timeout_seconds`; `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` now refreshes build evidence for the current APK without rebuilding `RKImage.db`.
 - Current field acceptance runner now has a local/LAN executable wrapper: `npm run field:acceptance-session` records device probe, APK inspect, endpoint snapshots, and a single live-pass without creating simulator/manual observations; `npm run field:acceptance-session:live` adds the explicit mutating pair-smoke plus live watch for the physical target pass. The latest default runner pass is green as a precheck, with `hardware_ready_claim_allowed=false`.
 - Field acceptance now explicitly requires User B readback. A completed read/service/write-back sequence cannot set hardware acceptance unless `/api/state.active_user` is `B` after an A3 write-back beacon exists.
-- Historical note: the 22:18 `ce3f...` and 21:05/22:01 `70592...` APK facts are superseded by the current `bd852...` APK and must not be used as the current next proof. The old `fallback_only`/unpaired boundary describes earlier evidence, not the current pair-smoke/live-session state.
+- Historical note: the 22:18 `ce3f...`, 21:05/22:01 `70592...`, and 2026-07-04 12:29 `bd852...` APK facts are superseded by the current `e447...` APK and must not be used as the current next proof. The old `fallback_only`/unpaired boundary describes earlier evidence, not the current pair-smoke/live-session state.
 - Hardware-ready remains false. The next mainline gap is not current-APK launch or pairing; it is the physical target pass: trusted A1 QR plus A2/A3 image-tracking observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` green under `field:live-pass -- --single --require-live-session --require-trusted --require-mission-loop`.
 
 Current non-mutating APK evidence:

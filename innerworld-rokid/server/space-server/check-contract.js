@@ -1067,6 +1067,23 @@ async function assertFieldTargetPassSkeleton() {
   return "verified";
 }
 
+async function assertUnityAndroidBuildSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/build-unity-android.ps1"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"unity:android:build:lan\""), "package Unity Android LAN build script missing");
+  assert(tool.includes("Invoke-ExternalForReport"), "Unity Android build external report wrapper missing");
+  assert(tool.includes("[int]$TimeoutSeconds = 300"), "Unity Android build external report timeout missing");
+  assert(tool.includes("!$SkipRokidImageDbBuild -and !$SkipUnityBuild"), "Unity Android build report refresh must not rebuild image DB");
+  assert(tool.includes("Start-Job") && tool.includes("Wait-Job -Job $job -Timeout $TimeoutSeconds"), "Unity Android build post-check wrapper must be timeout-bounded");
+  assert(tool.includes("timed_out = [bool]$timedOut") && tool.includes("timeout_seconds = $TimeoutSeconds"), "Unity Android build report must expose external command timeout evidence");
+  assert(tool.includes("Stop-Job -Job $job") && tool.includes("Remove-Job -Job $job"), "Unity Android build timeout cleanup missing");
+  assert(tool.includes("Redact-BuildOutput") && tool.includes("private_ips_included = $false"), "Unity Android build privacy redaction guard missing");
+  return "verified";
+}
+
 async function main() {
   const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
     readJson("data/space_demo.json"),
@@ -1092,6 +1109,7 @@ async function main() {
   const fieldLivePassCheck = await assertFieldLivePassCheckSkeleton();
   const fieldAcceptanceSessionCheck = await assertFieldAcceptanceSessionSkeleton();
   const fieldTargetPassCheck = await assertFieldTargetPassSkeleton();
+  const unityAndroidBuildCheck = await assertUnityAndroidBuildSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
 
@@ -1148,6 +1166,7 @@ async function main() {
     field_live_pass_check: fieldLivePassCheck,
     field_acceptance_session_check: fieldAcceptanceSessionCheck,
     field_target_pass_check: fieldTargetPassCheck,
+    unity_android_build_check: unityAndroidBuildCheck,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,
