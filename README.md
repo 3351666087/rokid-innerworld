@@ -2,6 +2,11 @@
 
 ## Latest Checkpoint
 
+2026-07-04 15:43 Asia/Shanghai:
+
+- Added per-anchor trust diagnostics to the live field reports before the next physical wall pass. `field-live-pass` and `field-target-pass` now surface untrusted hardware-mode A1/A2/A3 observations from `/api/calibration/wall`, including sanitized observation/session issue codes and SDK binding stage, without raw session ids, raw device ids, private IPs, pairing codes, or raw logcat.
+- Current baseline remains intentionally not hardware-ready: A1 still lacks a trusted physical scan, while existing A2/A3 hardware-mode observations are visible as untrusted and require re-scan/re-bind through the operator-paired live SDK session. Strict field acceptance must still fail until trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` are green.
+
 2026-07-04 15:25 Asia/Shanghai:
 
 - Rebuilt the current Unity APK with the `IW_TARGET_*` target-observation diagnostics included. Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`; APK metadata contains the target diagnostics tokens in `global-metadata.dat`.

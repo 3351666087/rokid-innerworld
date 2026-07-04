@@ -109,6 +109,7 @@ function list(value) {
 
 const REQUIRED_ANCHOR_IDS = ["A1", "A2", "A3"];
 const REQUIRED_MISSION_STEP_IDS = ["read", "find_year", "service_action", "write_back"];
+const HARDWARE_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
 const ANCHOR_ACTION_LABELS = {
   A1: "Scan A1 QR entry and confirm the spatial entry.",
   A2: "Scan A2 image target and read the memory.",
@@ -217,8 +218,53 @@ function summarizeWall(payload) {
     hardware_calibrated_anchor_ids: list(summary.hardware_calibrated_anchor_ids),
     trusted_hardware_calibrated_anchor_ids: list(summary.trusted_hardware_calibrated_anchor_ids),
     trusted_hardware_session_count: Number(summary.trusted_hardware_session_count) || 0,
-    untrusted_hardware_anchor_ids: list(summary.untrusted_hardware_anchor_ids)
+    untrusted_hardware_anchor_ids: list(summary.untrusted_hardware_anchor_ids),
+    trust_issues_by_anchor: summarizeWallTrustIssues(payload)
   };
+}
+
+function summarizeWallTrustIssues(payload) {
+  return list(payload.anchors)
+    .map((anchor) => {
+      const observation = anchor?.latest_observation || {};
+      const acceptance = observation.acceptance || {};
+      const proof = acceptance.hardware_session || {};
+      const trackingMode = observation.tracking_mode || null;
+      return {
+        anchor_id: anchor?.anchor_id || observation.anchor_id || null,
+        latest_status: observation.status || null,
+        latest_tracking_mode: trackingMode,
+        hardware_mode: HARDWARE_TRACKING_MODES.has(trackingMode),
+        hardware_observation_trusted: acceptance.hardware_observation_trusted === true,
+        observation_issues: list(observation.issues),
+        hardware_session: {
+          trusted: proof.trusted === true,
+          trust_status: proof.trust_status || null,
+          issues: list(proof.issues),
+          session_status_at_observation: proof.session_status_at_observation || null,
+          active_anchor_at_observation: proof.active_anchor_at_observation || null,
+          pairing_status_at_observation: proof.pairing_status_at_observation || null,
+          hardware_acceptance_eligible: proof.hardware_acceptance_eligible === true,
+          sdk_binding_stage: proof.sdk_binding_stage || null,
+          sdk_live_binding_ready: proof.sdk_live_binding_ready === true,
+          sdk_input_binding_ready: proof.sdk_input_binding_ready === true,
+          sdk_overlay_binding_ready: proof.sdk_overlay_binding_ready === true
+        },
+        raw_session_ids_included: false,
+        raw_device_ids_included: false
+      };
+    })
+    .filter((item) => item.anchor_id && (item.hardware_mode || item.observation_issues.length || item.hardware_session.issues.length));
+}
+
+function trustIssueSummary(snapshot, anchorId) {
+  const row = list(snapshot.wall_calibration?.trust_issues_by_anchor).find((item) => item.anchor_id === anchorId);
+  if (!row) return "";
+  const issues = [
+    ...list(row.observation_issues),
+    ...list(row.hardware_session?.issues)
+  ].filter(Boolean);
+  return [...new Set(issues)].join(", ");
 }
 
 function summarizeMission(payload) {
@@ -251,7 +297,8 @@ function buildNextRequiredActions(snapshot) {
   const untrustedAnchorSet = new Set(snapshot.field_acceptance.untrusted_hardware_anchor_ids);
   for (const anchorId of snapshot.field_acceptance.missing_trusted_anchor_ids) {
     if (hardwareAnchorSet.has(anchorId) || untrustedAnchorSet.has(anchorId)) {
-      actions.push(`Re-scan or re-bind ${anchorId} through the operator-paired live SDK session; current hardware observation is not trusted.`);
+      const issueSummary = trustIssueSummary(snapshot, anchorId);
+      actions.push(`Re-scan or re-bind ${anchorId} through the operator-paired live SDK session; current hardware observation is not trusted${issueSummary ? ` (${issueSummary})` : ""}.`);
     } else {
       actions.push(ANCHOR_ACTION_LABELS[anchorId] || `Scan ${anchorId} with the live Rokid session.`);
     }
@@ -380,6 +427,15 @@ function buildMarkdown(report) {
   const targetLogCounts = (report.logcat?.pattern_counts || [])
     .filter((item) => String(item.pattern || "").startsWith("IW_TARGET_"))
     .map((item) => `- ${item.pattern}: ${item.count}`);
+  const trustIssueLines = list(latest.wall_calibration.trust_issues_by_anchor)
+    .filter((item) => item.hardware_mode && item.hardware_observation_trusted !== true)
+    .map((item) => {
+      const issues = [
+        ...list(item.observation_issues),
+        ...list(item.hardware_session?.issues)
+      ].filter(Boolean);
+      return `- ${item.anchor_id}: mode=${item.latest_tracking_mode || "unknown"} status=${item.latest_status || "unknown"} issues=${[...new Set(issues)].join(",") || "none"} sdk_stage=${item.hardware_session?.sdk_binding_stage || "unknown"} pairing=${item.hardware_session?.pairing_status_at_observation || "unknown"}`;
+    });
   return [
     "# Field Live Pass",
     "",
@@ -414,6 +470,10 @@ function buildMarkdown(report) {
     "## Next Required Actions",
     "",
     ...(latest.next_required_actions.length ? latest.next_required_actions.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "## Untrusted Hardware Observations",
+    "",
+    ...(trustIssueLines.length ? trustIssueLines : ["- none"]),
     "",
     "## Target Logcat Diagnostics",
     "",

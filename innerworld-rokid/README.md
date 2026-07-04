@@ -20,6 +20,8 @@ Use `npm run field:target-pass` during the physical wall pass to get the phase-b
 
 Use `npm run field:target-pass:watch` during the live wall scan. It is read-only by default, records repeated API snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; counts stay zero until the glasses actually see A1/A2/A3 target events.
 
+The latest field reports now include an `Untrusted Hardware Observations` section. This is a diagnostic aid for the physical pass, not a readiness shortcut: A2/A3 hardware-mode observations can be listed with sanitized trust issues and SDK binding stage while still remaining rejected for hardware acceptance. Re-scan/re-bind through the operator-paired live SDK session is still required before A1/A2/A3 can count as trusted.
+
 ## Quick Start
 
 ```powershell

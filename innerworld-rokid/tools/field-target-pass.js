@@ -65,6 +65,7 @@ for (let index = 0; index < args.length; index += 1) {
 
 const REQUIRED_ANCHOR_IDS = ["A1", "A2", "A3"];
 const REQUIRED_MISSION_STEP_IDS = ["read", "find_year", "service_action", "write_back"];
+const HARDWARE_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
 const REQUIRED_TARGET_DIAGNOSTIC_TOKENS = [
   "IW_TARGET_EVENT",
   "IW_TARGET_IGNORED_UNKNOWN_INDEX",
@@ -258,6 +259,63 @@ function summarizeFieldAcceptance(payload) {
     user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
     pending_gate_ids: list(payload.gates).filter((gate) => gate.status === "pending").map((gate) => gate.id)
   };
+}
+
+function summarizeWallTrustIssues(payload) {
+  return list(payload.anchors)
+    .map((anchor) => {
+      const observation = anchor?.latest_observation || {};
+      const acceptance = observation.acceptance || {};
+      const proof = acceptance.hardware_session || {};
+      const trackingMode = observation.tracking_mode || null;
+      return {
+        anchor_id: anchor?.anchor_id || observation.anchor_id || null,
+        latest_status: observation.status || null,
+        latest_tracking_mode: trackingMode,
+        hardware_mode: HARDWARE_TRACKING_MODES.has(trackingMode),
+        hardware_observation_trusted: acceptance.hardware_observation_trusted === true,
+        observation_issues: list(observation.issues),
+        hardware_session: {
+          trusted: proof.trusted === true,
+          trust_status: proof.trust_status || null,
+          issues: list(proof.issues),
+          session_status_at_observation: proof.session_status_at_observation || null,
+          active_anchor_at_observation: proof.active_anchor_at_observation || null,
+          pairing_status_at_observation: proof.pairing_status_at_observation || null,
+          hardware_acceptance_eligible: proof.hardware_acceptance_eligible === true,
+          sdk_binding_stage: proof.sdk_binding_stage || null,
+          sdk_live_binding_ready: proof.sdk_live_binding_ready === true,
+          sdk_input_binding_ready: proof.sdk_input_binding_ready === true,
+          sdk_overlay_binding_ready: proof.sdk_overlay_binding_ready === true
+        },
+        raw_session_ids_included: false,
+        raw_device_ids_included: false
+      };
+    })
+    .filter((item) => item.anchor_id && (item.hardware_mode || item.observation_issues.length || item.hardware_session.issues.length));
+}
+
+function summarizeWallCalibration(payload) {
+  const summary = payload.runtime?.summary || {};
+  return {
+    schema: payload.schema || null,
+    ready_for_hardware: summary.ready_for_hardware === true,
+    rehearsal_ready: summary.rehearsal_ready === true,
+    hardware_calibrated_anchor_ids: list(summary.hardware_calibrated_anchor_ids),
+    trusted_hardware_calibrated_anchor_ids: list(summary.trusted_hardware_calibrated_anchor_ids),
+    untrusted_hardware_anchor_ids: list(summary.untrusted_hardware_anchor_ids),
+    trust_issues_by_anchor: summarizeWallTrustIssues(payload)
+  };
+}
+
+function trustIssueSummary(snapshot, anchorId) {
+  const row = list(snapshot.wall_calibration?.trust_issues_by_anchor).find((item) => item.anchor_id === anchorId);
+  if (!row) return "";
+  const issues = [
+    ...list(row.observation_issues),
+    ...list(row.hardware_session?.issues)
+  ].filter(Boolean);
+  return [...new Set(issues)].join(", ");
 }
 
 function summarizeState(payload) {
@@ -509,7 +567,7 @@ function buildPhases(snapshot) {
       anchor_id: "A2",
       status: trusted.has("A2") && completed.has("read") && completed.has("find_year") ? "ready" : "pending",
       required: ["trusted A2 image target", "read", "find_year"],
-      action: "Frame A2 through the live Rokid image target; with --apply-mission-actions, the runner posts read/find_year only after trusted A2 exists."
+      action: `Frame A2 through the live Rokid image target; with --apply-mission-actions, the runner posts read/find_year only after trusted A2 exists${trustIssueSummary(snapshot, "A2") ? ` (current issue: ${trustIssueSummary(snapshot, "A2")})` : ""}.`
     },
     {
       id: "service_action",
@@ -525,7 +583,7 @@ function buildPhases(snapshot) {
       anchor_id: "A3",
       status: trusted.has("A3") && writeBackReady ? "ready" : "pending",
       required: ["trusted A3 image target", "service_action", "write_back beacon"],
-      action: "Frame A3 through the live Rokid image target; with --apply-mission-actions, the runner posts a fixed TimeMark only after service_action is complete."
+      action: `Frame A3 through the live Rokid image target; with --apply-mission-actions, the runner posts a fixed TimeMark only after service_action is complete${trustIssueSummary(snapshot, "A3") ? ` (current issue: ${trustIssueSummary(snapshot, "A3")})` : ""}.`
     },
     {
       id: "user_b_readback",
@@ -539,16 +597,18 @@ function buildPhases(snapshot) {
 }
 
 async function captureSnapshot(baseUrl) {
-  const [fieldAcceptance, sessions, state] = await Promise.all([
+  const [fieldAcceptance, sessions, state, wallCalibration] = await Promise.all([
     requestJson(baseUrl, "/api/field/acceptance"),
     requestJson(baseUrl, "/api/device/sessions"),
-    requestJson(baseUrl, "/api/state")
+    requestJson(baseUrl, "/api/state"),
+    requestJson(baseUrl, "/api/calibration/wall")
   ]);
   const snapshot = {
     captured_at: new Date().toISOString(),
     session: summarizeSessions(sessions),
     field_acceptance: summarizeFieldAcceptance(fieldAcceptance),
-    state: summarizeState(state)
+    state: summarizeState(state),
+    wall_calibration: summarizeWallCalibration(wallCalibration)
   };
   snapshot.live_session_ready = snapshot.session.live_operator_paired_ready_count > 0;
   snapshot.trusted_a1_a2_a3_ready = REQUIRED_ANCHOR_IDS.every((anchorId) => hasTrustedAnchor(snapshot, anchorId));
@@ -692,6 +752,15 @@ function buildMarkdown(report) {
   const targetLogcatLines = (report.logcat.pattern_counts || [])
     .filter((item) => String(item.pattern || "").startsWith("IW_TARGET_"))
     .map((item) => `- ${item.pattern}: ${item.count}`);
+  const trustIssueLines = list(report.latest_snapshot.wall_calibration?.trust_issues_by_anchor)
+    .filter((item) => item.hardware_mode && item.hardware_observation_trusted !== true)
+    .map((item) => {
+      const issues = [
+        ...list(item.observation_issues),
+        ...list(item.hardware_session?.issues)
+      ].filter(Boolean);
+      return `- ${item.anchor_id}: mode=${item.latest_tracking_mode || "unknown"} status=${item.latest_status || "unknown"} issues=${[...new Set(issues)].join(",") || "none"} sdk_stage=${item.hardware_session?.sdk_binding_stage || "unknown"} pairing=${item.hardware_session?.pairing_status_at_observation || "unknown"}`;
+    });
   return [
     "# Field Target Pass",
     "",
@@ -735,6 +804,10 @@ function buildMarkdown(report) {
     `- Hardware-ready claim allowed: ${targetDiagnostics.uxr_readiness.hardware_ready_claim_allowed}`,
     "",
     ...tokenLines,
+    "",
+    "## Untrusted Hardware Observations",
+    "",
+    ...(trustIssueLines.length ? trustIssueLines : ["- none"]),
     "",
     "## Target Logcat Diagnostics",
     "",
