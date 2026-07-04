@@ -150,6 +150,7 @@ namespace InnerWorld.Rokid.Protocol
         public DeviceBatteryStatus battery;
         public DeviceNetworkStatus network;
         public DevicePosePayload pose;
+        public DeviceInputFramePayload input_frame;
         public string active_anchor;
         public string current_user;
         public RokidSdkBindingStatusPayload sdk_binding_status;
@@ -196,6 +197,32 @@ namespace InnerWorld.Rokid.Protocol
         public float y;
         public float z;
         public float w;
+    }
+
+    [Serializable]
+    public sealed class DeviceInputFramePayload
+    {
+        public string schema;
+        public string source;
+        public long sequence;
+        public float timestamp_seconds;
+        public float delta_time_seconds;
+        public string command;
+        public bool gaze_select_down;
+        public bool gaze_select_held;
+        public bool confirm_down;
+        public bool confirm_held;
+        public bool back_down;
+        public bool back_held;
+        public bool anchor_hit;
+        public string focused_anchor_id;
+        public string focused_anchor_label;
+        public float hit_distance_meters;
+        public DeviceVector3 hit_point;
+        public DeviceVector3 ray_origin;
+        public DeviceVector3 ray_direction;
+        public bool pointable_ui_focus;
+        public bool voice_text_present;
     }
 
     [Serializable]

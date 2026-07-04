@@ -539,6 +539,28 @@ async function main() {
       position: { x: 0, y: 1.5, z: 3 },
       rotation: { x: 0, y: 0, z: 0, w: 1 }
     },
+    input_frame: {
+      schema: "innerworld-rokid-input-frame/v1",
+      source: "rokid-uxr-rkinput-3dof",
+      sequence: 21,
+      timestamp_seconds: 4.5,
+      delta_time_seconds: 0.016,
+      command: "confirm",
+      gaze_select_down: true,
+      gaze_select_held: true,
+      confirm_down: true,
+      confirm_held: false,
+      back_down: false,
+      back_held: false,
+      anchor_hit: true,
+      focused_anchor_id: "A2",
+      focused_anchor_label: "A2 private-demo-wifi real-token-secret 10.0.0.18",
+      hit_distance_meters: 1.6,
+      ray_origin: { x: 0.1, y: 1.6, z: 0.2 },
+      ray_direction: { x: 0, y: 0, z: 1 },
+      pointable_ui_focus: true,
+      voice_text_present: false
+    },
     active_anchor: "A2",
     current_user: "A"
   });
@@ -550,6 +572,10 @@ async function main() {
   assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action failed");
   assert(heartbeat.pending_actions.some((action) => action.action_id === "bind_rokid_sdk_live_adapter"), "device heartbeat SDK binding action failed");
   assert(heartbeat.health?.severity === "ok", "device heartbeat health severity failed");
+  assert(heartbeat.health?.input_frame_status === "received", "device heartbeat input frame status failed");
+  assert(heartbeat.health?.input_frame?.focused_anchor_id === "A2", "device heartbeat input frame focus failed");
+  assert(heartbeat.health?.input_frame?.ray_reported === true, "device heartbeat input frame ray summary failed");
+  assert(heartbeat.health?.input_frame?.pointable_ui_focus === true, "device heartbeat input frame PointableUI focus failed");
   assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage failed");
   assert(heartbeat.sdk_binding_status?.live_binding_ready === false, "device heartbeat SDK binding live flag failed");
   assert(heartbeat.pairing?.status === "operator_paired", "device heartbeat pairing status failed");
@@ -563,6 +589,8 @@ async function main() {
   assert(!JSON.stringify(heartbeat).includes("SN-ABC-SECRET"), "device heartbeat leaked serial");
   assert(!JSON.stringify(heartbeat).includes("private-demo-wifi"), "device heartbeat leaked SSID");
   assert(!JSON.stringify(heartbeat).includes("00:11:22:33:44:55"), "device heartbeat leaked MAC");
+  assert(!JSON.stringify(heartbeat).includes("ray_origin"), "device heartbeat leaked raw ray origin");
+  assert(!JSON.stringify(heartbeat).includes("ray_direction"), "device heartbeat leaked raw ray direction");
 
   const sessions = await fetchJson(endpoints.device_sessions.url, "device_sessions");
   assert(sessions.ok === true, "device sessions ok check failed");
@@ -581,12 +609,25 @@ async function main() {
   assert(sessions.sdk_binding?.package_detected_sessions >= 1, "device sessions SDK package summary failed");
   assert(Number.isFinite(Number(sessions.sdk_binding?.live_bound_sessions)), "device sessions SDK live summary failed");
   assert(sessions.sessions.some((session) => session.session_id === register.session_id && session.sdk_binding_status?.stage === "package_detected"), "device sessions SDK binding stage failed");
+  const sessionWithInputFrame = sessions.sessions.find((session) => session.session_id === register.session_id);
+  assert(sessionWithInputFrame?.input_frame?.reported === true, "device sessions input frame summary failed");
+  assert(sessionWithInputFrame?.input_frame?.focused_anchor_id === "A2", "device sessions input frame focus failed");
+  assert(sessionWithInputFrame?.input_frame?.ray_reported === true, "device sessions input frame ray summary failed");
+  assert(sessionWithInputFrame?.input_frame?.pointable_ui_focus === true, "device sessions input frame PointableUI focus failed");
   assert(!JSON.stringify(sessions).includes("10.0.0.18"), "device sessions leaked IP");
   assert(!JSON.stringify(sessions).includes(pairing.pairing_code), "device sessions leaked pairing code");
   assert(!JSON.stringify(sessions).includes("real-token-secret"), "device sessions leaked token");
   assert(!JSON.stringify(sessions).includes("SN-ABC-SECRET"), "device sessions leaked serial");
   assert(!JSON.stringify(sessions).includes("private-demo-wifi"), "device sessions leaked SSID");
   assert(!JSON.stringify(sessions).includes("00:11:22:33:44:55"), "device sessions leaked MAC");
+  assert(!JSON.stringify(sessions).includes("ray_origin"), "device sessions leaked raw ray origin");
+  assert(!JSON.stringify(sessions).includes("ray_direction"), "device sessions leaked raw ray direction");
+
+  const liveInputAdapterChecklist = await fetchJson(endpoints.device_adapter_checklist.url, "device_adapter_checklist_after_input_frame");
+  const inputAdapterItem = liveInputAdapterChecklist.items?.find((item) => item.item_id === "rk_input_3dof_ray");
+  const inputFrameCheck = inputAdapterItem?.checks?.find((check) => check.id === "input_frame_ray_focus");
+  assert(inputFrameCheck?.status === "pass", "device adapter checklist input frame ray/focus evidence failed");
+  assert(inputFrameCheck?.evidence?.focused_anchor_id === "A2", "device adapter checklist input frame focus evidence failed");
 
   const calibrationObservation = await postJson(endpoints.wall_calibration_observations.url, "wall_calibration_observation", {
     session_id: register.session_id,

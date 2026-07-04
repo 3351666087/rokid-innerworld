@@ -2987,6 +2987,7 @@ namespace InnerWorld.Rokid
                 battery = BuildDeviceBatteryStatus(),
                 network = BuildDeviceNetworkStatus(),
                 pose = BuildDevicePosePayload(),
+                input_frame = BuildDeviceInputFramePayload(),
                 active_anchor = CurrentActiveAnchorId(),
                 current_user = CurrentUserId(),
                 sdk_binding_status = BuildSdkBindingStatusPayload("unity_heartbeat")
@@ -3049,6 +3050,99 @@ namespace InnerWorld.Rokid
                     z = pose.Rotation.z,
                     w = pose.Rotation.w
                 }
+            };
+        }
+
+        private DeviceInputFramePayload BuildDeviceInputFramePayload()
+        {
+            RokidPose fallbackPose = CurrentRokidPose();
+            RokidInputFrame frame;
+            bool hasFrame = rokidInputSource != null && rokidInputSource.TryReadFrame(out frame);
+            if (!hasFrame)
+            {
+                frame = new RokidInputFrame(
+                    0,
+                    Time.time,
+                    Mathf.Max(0f, Time.deltaTime),
+                    fallbackPose,
+                    RokidGazeState.FromPose(fallbackPose, false),
+                    RokidInputButtons.None,
+                    RokidInputButtons.None,
+                    RokidInputCommand.None,
+                    RokidVoiceText.Empty,
+                    RokidAnchorTarget.None,
+                    RokidConnectionInfo.Disconnected(apiClient != null ? apiClient.BaseUrl : baseUrl));
+            }
+
+            RokidGazeState gaze = frame.Gaze;
+            Ray ray = gaze.Ray;
+            string focusedAnchorId = gaze.HasAnchorHit
+                ? gaze.AnchorId
+                : !string.IsNullOrWhiteSpace(currentGazeAnchorId)
+                    ? currentGazeAnchorId
+                    : frame.AnchorTarget.AnchorId;
+            string focusedAnchorLabel = gaze.HasAnchorHit
+                ? gaze.AnchorLabel
+                : !string.IsNullOrWhiteSpace(currentGazeAnchorLabel)
+                    ? currentGazeAnchorLabel
+                    : frame.AnchorTarget.Label;
+            bool anchorHit = gaze.HasAnchorHit || !string.IsNullOrWhiteSpace(focusedAnchorId);
+            Vector3 hitPoint = gaze.HasAnchorHit
+                ? gaze.HitPoint
+                : frame.AnchorTarget.HasWorldPosition
+                    ? frame.AnchorTarget.WorldPosition
+                    : Vector3.zero;
+
+            return new DeviceInputFramePayload
+            {
+                schema = "innerworld-rokid-input-frame/v1",
+                source = rokidInputSource != null ? rokidInputSource.SourceName : "unity-no-input-source",
+                sequence = frame.Sequence,
+                timestamp_seconds = frame.TimestampSeconds,
+                delta_time_seconds = frame.DeltaTimeSeconds,
+                command = InputCommandLabel(frame.Command),
+                gaze_select_down = IsButtonDown(frame, RokidInputButtons.GazeSelect),
+                gaze_select_held = IsButtonHeld(frame, RokidInputButtons.GazeSelect),
+                confirm_down = IsButtonDown(frame, RokidInputButtons.Confirm),
+                confirm_held = IsButtonHeld(frame, RokidInputButtons.Confirm),
+                back_down = IsButtonDown(frame, RokidInputButtons.Back),
+                back_held = IsButtonHeld(frame, RokidInputButtons.Back),
+                anchor_hit = anchorHit,
+                focused_anchor_id = SafeLabel(focusedAnchorId, string.Empty),
+                focused_anchor_label = SafeLabel(focusedAnchorLabel, string.Empty),
+                hit_distance_meters = gaze.HasAnchorHit ? gaze.HitDistanceMeters : 0f,
+                hit_point = VectorPayload(hitPoint),
+                ray_origin = VectorPayload(ray.origin),
+                ray_direction = VectorPayload(ray.direction),
+                pointable_ui_focus = anchorHit,
+                voice_text_present = frame.HasVoiceText
+            };
+        }
+
+        private static bool IsButtonDown(RokidInputFrame frame, RokidInputButtons button)
+        {
+            return (frame.ButtonsDown & button) == button;
+        }
+
+        private static bool IsButtonHeld(RokidInputFrame frame, RokidInputButtons button)
+        {
+            return (frame.ButtonsHeld & button) == button;
+        }
+
+        private static string InputCommandLabel(RokidInputCommand command)
+        {
+            if (command == RokidInputCommand.Confirm) return "confirm";
+            if (command == RokidInputCommand.Back) return "back";
+            return "none";
+        }
+
+        private static DeviceVector3 VectorPayload(Vector3 value)
+        {
+            return new DeviceVector3
+            {
+                x = value.x,
+                y = value.y,
+                z = value.z
             };
         }
 

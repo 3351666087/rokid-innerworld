@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 16:52 Asia/Shanghai
+Updated: 2026-07-04 17:08 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -85,6 +85,12 @@ Target readiness operator panel checkpoint on 2026-07-04 16:52 Asia/Shanghai:
 - The bus now exposes read-only `/api/field/target-readiness` and Web Field Acceptance cards for `precheck_ok`, `physical_acceptance_ready`, trusted A1/A2/A3 count, mission/User B state, and physical blockers.
 - This is not a Web product expansion: it does not run device commands, read output reports directly, post simulator/manual observations, mutate mission/write-back state, or relax `/api/field/acceptance.ready` as the final physical acceptance truth.
 - This checkpoint strengthens the image-target package gate from “RKImage.db exists” to “the APK carries the correct one-wall A1/A2/A3 map.” It does not claim target events, live physical observations, write-back, User B readback, or hardware acceptance.
+
+RKInput/PointableUI heartbeat checkpoint on 2026-07-04 17:08 Asia/Shanghai:
+
+- Unity heartbeat now reports sanitized `input_frame` evidence for the RKInput 3DoF ray / PointableUI focus path over A1/A2/A3.
+- The Space Server summarizes that evidence in device health, sessions, and the `rk_input_3dof_ray` live-adapter checklist while omitting raw ray vectors and raw pose streams.
+- This is adapter observability for the physical pass, not a hardware-ready claim or a replacement for trusted A1/A2/A3 observations and the A3/User B loop.
 
 Per-anchor trust diagnostics checkpoint on 2026-07-04 15:43 Asia/Shanghai:
 

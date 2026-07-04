@@ -220,6 +220,9 @@ async function assertUnityAdapterBoundary() {
   assert(!/\[Header\(\"Device Pairing\"\)\]\s+public string operatorPairingCode/.test(controller), "Unity controller must not expose pairing code as serialized Inspector field");
   assert(!/(PlayerPrefs\.SetString|File\.WriteAllText|File\.AppendAllText|localStorage|sessionStorage)[\s\S]{0,120}(operatorPairingCode|pairing_code|pairing code)/i.test(controller), "Unity controller must not persist plaintext pairing code");
   assert(controller.includes("BuildDeviceHeartbeatRequest"), "Unity controller device heartbeat payload builder missing");
+  assert(/BuildDeviceHeartbeatRequest\(\)[\s\S]*input_frame\s*=\s*BuildDeviceInputFramePayload\(\)/.test(controller), "Unity controller heartbeat must include sanitized input_frame");
+  assert(controller.includes("BuildDeviceInputFramePayload") && controller.includes("DeviceInputFramePayload"), "Unity controller input frame payload builder missing");
+  assert(controller.includes("pointable_ui_focus") && controller.includes("voice_text_present"), "Unity controller input frame focus/voice evidence missing");
   assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller required capabilities missing");
   assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
   assert(poseProvider.includes("interface IRokidInputStateSink"), "Unity input state sink interface missing");
@@ -330,6 +333,10 @@ async function assertUnityAdapterBoundary() {
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request DTO missing");
   assert(payloads.includes("public string pairing_code;"), "Unity device register request pairing_code field missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request DTO missing");
+  assert(payloads.includes("public DeviceInputFramePayload input_frame;"), "Unity device heartbeat input_frame DTO missing");
+  assert(payloads.includes("public sealed class DeviceInputFramePayload"), "Unity device input frame payload DTO missing");
+  assert(payloads.includes("public DeviceVector3 ray_origin;") && payloads.includes("public DeviceVector3 ray_direction;"), "Unity device input frame ray DTO missing");
+  assert(payloads.includes("public bool pointable_ui_focus;"), "Unity device input frame PointableUI focus DTO missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
   assert(payloads.includes("public sealed class DeviceNetworkStatus"), "Unity device network payload missing");

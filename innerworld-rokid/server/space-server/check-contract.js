@@ -430,6 +430,28 @@ function assertDeviceRuntimeContract(space, aiSchema) {
         position: { x: 0, y: 1.5, z: 3 },
         rotation: { x: 0, y: 0, z: 0, w: 1 }
       },
+      input_frame: {
+        schema: "innerworld-rokid-input-frame/v1",
+        source: "rokid-uxr-rkinput-3dof",
+        sequence: 12,
+        timestamp_seconds: 3.25,
+        delta_time_seconds: 0.016,
+        command: "confirm",
+        gaze_select_down: true,
+        gaze_select_held: true,
+        confirm_down: true,
+        confirm_held: false,
+        back_down: false,
+        back_held: false,
+        anchor_hit: true,
+        focused_anchor_id: "A2",
+        focused_anchor_label: "A2 private-contract-wifi real-contract-token 10.0.0.18",
+        hit_distance_meters: 1.7,
+        ray_origin: { x: 0.1, y: 1.6, z: 0.2 },
+        ray_direction: { x: 0, y: 0, z: 1 },
+        pointable_ui_focus: true,
+        voice_text_present: true
+      },
       active_anchor: "A2",
       current_user: "A"
     },
@@ -447,6 +469,13 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(Array.isArray(heartbeat.pending_actions), "device heartbeat pending actions missing");
   assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action missing");
   assert(heartbeat.health.severity === "ok", "device heartbeat health severity mismatch");
+  assert(heartbeat.health.input_frame_status === "received", "device heartbeat input frame status mismatch");
+  assert(heartbeat.health.input_frame?.reported === true, "device heartbeat input frame summary missing");
+  assert(heartbeat.health.input_frame?.source === "rokid-uxr-rkinput-3dof", "device heartbeat input frame source mismatch");
+  assert(heartbeat.health.input_frame?.focused_anchor_id === "A2", "device heartbeat input frame focus mismatch");
+  assert(heartbeat.health.input_frame?.ray_reported === true, "device heartbeat input frame ray summary mismatch");
+  assert(heartbeat.health.input_frame?.pointable_ui_focus === true, "device heartbeat input frame PointableUI focus mismatch");
+  assert(heartbeat.health.input_frame?.confirm_down === true, "device heartbeat input frame button summary mismatch");
   assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage mismatch");
   assert(heartbeat.pairing?.status === "operator_paired", "device heartbeat pairing mismatch");
   assert(heartbeat.hardware_acceptance_eligible === true, "device heartbeat hardware eligibility mismatch");
@@ -459,6 +488,8 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(JSON.stringify(heartbeat).includes("SN-CONTRACT-SECRET") === false, "device heartbeat leaked serial");
   assert(JSON.stringify(heartbeat).includes("private-contract-wifi") === false, "device heartbeat leaked SSID");
   assert(JSON.stringify(heartbeat).includes("00:11:22:33:44:55") === false, "device heartbeat leaked MAC");
+  assert(JSON.stringify(heartbeat).includes("ray_origin") === false, "device heartbeat leaked raw ray origin");
+  assert(JSON.stringify(heartbeat).includes("ray_direction") === false, "device heartbeat leaked raw ray direction");
 
   const sessions = runtime.sessionsSummary();
   assert(sessions.ok === true, "device sessions ok mismatch");
@@ -472,11 +503,17 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(sessions.sdk_binding?.package_detected_sessions === 1, "device sessions SDK package summary mismatch");
   assert(sessions.sdk_binding?.live_bound_sessions === 0, "device sessions SDK live summary mismatch");
   assert(sessions.sessions[0].sdk_binding_status?.stage === "package_detected", "device sessions SDK binding status mismatch");
+  assert(sessions.sessions[0].input_frame?.reported === true, "device sessions input frame summary missing");
+  assert(sessions.sessions[0].input_frame?.focused_anchor_id === "A2", "device sessions input frame focus mismatch");
+  assert(sessions.sessions[0].input_frame?.ray_reported === true, "device sessions input frame ray summary mismatch");
+  assert(sessions.sessions[0].input_frame?.pointable_ui_focus === true, "device sessions input frame PointableUI focus mismatch");
   assert(JSON.stringify(sessions).includes("10.0.0.18") === false, "device sessions leaked IP");
   assert(JSON.stringify(sessions).includes("real-contract-token") === false, "device sessions leaked token");
   assert(JSON.stringify(sessions).includes("SN-CONTRACT-SECRET") === false, "device sessions leaked serial");
   assert(JSON.stringify(sessions).includes("private-contract-wifi") === false, "device sessions leaked SSID");
   assert(JSON.stringify(sessions).includes("00:11:22:33:44:55") === false, "device sessions leaked MAC");
+  assert(JSON.stringify(sessions).includes("ray_origin") === false, "device sessions leaked raw ray origin");
+  assert(JSON.stringify(sessions).includes("ray_direction") === false, "device sessions leaked raw ray direction");
 
   const unknownHeartbeat = runtime.heartbeat({
     body: {
@@ -837,6 +874,10 @@ async function assertUnityProtocolSkeleton() {
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request missing");
   assert(payloads.includes("public string pairing_code;"), "Unity device register pairing_code missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request missing");
+  assert(payloads.includes("public DeviceInputFramePayload input_frame;"), "Unity device heartbeat input_frame missing");
+  assert(payloads.includes("public sealed class DeviceInputFramePayload"), "Unity device input frame payload missing");
+  assert(payloads.includes("public DeviceVector3 ray_origin;") && payloads.includes("public DeviceVector3 ray_direction;"), "Unity device input frame ray payload missing");
+  assert(payloads.includes("public bool pointable_ui_focus;"), "Unity device input frame PointableUI focus payload missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
   return "verified";
@@ -934,6 +975,9 @@ async function assertServerCoreSkeleton() {
   assert(deviceRuntime.includes("buildRokidLiveAdapterChecklist"), "device runtime adapter checklist builder missing");
   assert(deviceRuntime.includes("innerworld-rokid-live-adapter-checklist/v1"), "device runtime adapter checklist schema missing");
   assert(deviceRuntime.includes("a1_entry_lock") && deviceRuntime.includes("performance_gate"), "device runtime adapter checklist item coverage missing");
+  assert(deviceRuntime.includes("sanitizeInputFrame"), "device runtime input frame sanitizer missing");
+  assert(deviceRuntime.includes("summarizeInputFrame"), "device runtime input frame summary missing");
+  assert(deviceRuntime.includes("input_frame_ray_focus"), "device runtime RKInput ray/focus checklist check missing");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
   assert(apiRouter.includes("authorizeDevicePairingIssue"), "api router device pairing operator gate missing");
   assert(apiRouter.includes("isLoopbackAddress"), "api router device pairing loopback gate missing");

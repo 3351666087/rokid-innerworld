@@ -506,6 +506,10 @@ function sdkBindingHasReportKey(deviceSessions, keys = []) {
   return false;
 }
 
+function latestReportedInputFrame(deviceSessions) {
+  return latestSessionRows(deviceSessions).find((session) => session?.input_frame?.reported === true)?.input_frame || null;
+}
+
 function imageTargetAssetsReady(fieldMarkers) {
   const markers = list(fieldMarkers?.markers);
   return ["A2", "A3"].every((anchorId) => {
@@ -661,6 +665,33 @@ export function buildRokidLiveAdapterChecklist({
           passed: reported,
           source: endpoints.device_heartbeat.path,
           evidence: { report_keys: spec.report_keys || [] }
+        })
+      ]);
+    }
+
+    if (spec.item_id === "rk_input_3dof_ray") {
+      const inputFrame = latestReportedInputFrame(deviceSessions);
+      return itemFromSpec(spec, [
+        buildChecklistCheck({
+          id: "input_binding_report",
+          label: "Unity/Rokid reports RKInput 3DoF adapter binding",
+          passed: reportOrDerived,
+          source: endpoints.device_heartbeat.path,
+          evidence: {
+            derive_from: spec.derive_from || [],
+            report_keys: spec.report_keys || []
+          }
+        }),
+        buildChecklistCheck({
+          id: "input_frame_ray_focus",
+          label: "Heartbeat carries sanitized ray focus over A1/A2/A3",
+          passed: Boolean(inputFrame?.ray_reported && inputFrame?.pointable_ui_focus && inputFrame?.focused_anchor_id),
+          source: endpoints.device_heartbeat.path,
+          evidence: inputFrame || {
+            reported: false,
+            ray_reported: false,
+            focused_anchor_id: null
+          }
         })
       ]);
     }
@@ -879,6 +910,62 @@ function sanitizePose(value) {
     confidence,
     position: position && Object.values(position).some((item) => item !== null) ? position : null,
     rotation: rotation && Object.values(rotation).some((item) => item !== null) ? rotation : null
+  };
+}
+
+function sanitizeInputFrame(value) {
+  if (!value || typeof value !== "object") return null;
+  const focusedAnchorId = sanitizeEnumText(value.focused_anchor_id || value.anchor_id || value.focusedAnchorId, 32);
+  const anchorHit = sanitizeBoolean(value.anchor_hit ?? value.has_anchor_hit ?? value.anchorHit) === true;
+  const pointableFocus = sanitizeBoolean(value.pointable_ui_focus ?? value.pointableFocus) === true || Boolean(focusedAnchorId);
+  const rayReported = Boolean(value.ray_origin && value.ray_direction) || sanitizeBoolean(value.ray_reported) === true;
+  return {
+    schema: "innerworld-rokid-input-frame/v1",
+    source: sanitizeEnumText(value.source, 64) || "unknown",
+    sequence: sanitizeNumber(value.sequence, 0, Number.MAX_SAFE_INTEGER),
+    timestamp_seconds: sanitizeNumber(value.timestamp_seconds ?? value.timestampSeconds, 0, 86400),
+    delta_time_seconds: sanitizeNumber(value.delta_time_seconds ?? value.deltaTimeSeconds, 0, 10),
+    command: sanitizeEnumText(value.command, 24) || "none",
+    buttons: {
+      gaze_select_down: sanitizeBoolean(value.gaze_select_down ?? value.gazeSelectDown) === true,
+      gaze_select_held: sanitizeBoolean(value.gaze_select_held ?? value.gazeSelectHeld) === true,
+      confirm_down: sanitizeBoolean(value.confirm_down ?? value.confirmDown) === true,
+      confirm_held: sanitizeBoolean(value.confirm_held ?? value.confirmHeld) === true,
+      back_down: sanitizeBoolean(value.back_down ?? value.backDown) === true,
+      back_held: sanitizeBoolean(value.back_held ?? value.backHeld) === true
+    },
+    anchor_hit: anchorHit,
+    pointable_ui_focus: pointableFocus,
+    focused_anchor_id: focusedAnchorId || null,
+    focused_anchor_label: redactSensitiveText(value.focused_anchor_label || value.anchor_label || value.focusedAnchorLabel, 80) || null,
+    hit_distance_meters: sanitizeNumber(value.hit_distance_meters ?? value.hitDistanceMeters, 0, 20),
+    ray_reported: rayReported,
+    voice_text_present: sanitizeBoolean(value.voice_text_present ?? value.voiceTextPresent) === true
+  };
+}
+
+function summarizeInputFrame(inputFrame) {
+  if (!inputFrame) {
+    return {
+      reported: false,
+      ray_reported: false,
+      focused_anchor_id: null,
+      pointable_ui_focus: false
+    };
+  }
+  return {
+    reported: true,
+    source: inputFrame.source || "unknown",
+    sequence: inputFrame.sequence ?? null,
+    command: inputFrame.command || "none",
+    focused_anchor_id: inputFrame.focused_anchor_id || null,
+    anchor_hit: inputFrame.anchor_hit === true,
+    pointable_ui_focus: inputFrame.pointable_ui_focus === true,
+    hit_distance_meters: inputFrame.hit_distance_meters ?? null,
+    ray_reported: inputFrame.ray_reported === true,
+    gaze_select_held: inputFrame.buttons?.gaze_select_held === true,
+    confirm_down: inputFrame.buttons?.confirm_down === true,
+    confirm_held: inputFrame.buttons?.confirm_held === true
   };
 }
 
@@ -1468,6 +1555,7 @@ export function createDeviceRuntimeStore({
       last_health_severity: previous?.last_health_severity || (capabilityStatus.ok ? "ok" : "warn"),
       last_active_anchor: previous?.last_active_anchor || null,
       last_battery: previous?.last_battery || null,
+      last_input_frame: previous?.last_input_frame || null,
       sdk_binding_status: sdkBindingStatus || previous?.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
       network
     };
@@ -1494,6 +1582,7 @@ export function createDeviceRuntimeStore({
         last_health_severity: session.last_health_severity || "unknown",
         last_active_anchor: session.last_active_anchor || null,
         last_battery: session.last_battery || null,
+        last_input_frame: session.last_input_frame || null,
         sdk_binding_status: session.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
         network: session.network || null
       });
@@ -1609,6 +1698,7 @@ export function createDeviceRuntimeStore({
       last_health_severity: capabilityStatus.ok ? "ok" : "warn",
       last_active_anchor: null,
       last_battery: null,
+      last_input_frame: null,
       last_pose_present: false,
       sdk_binding_status: sdkBindingStatus,
       pairing_status: pairing.status,
@@ -1706,6 +1796,7 @@ export function createDeviceRuntimeStore({
     const battery = sanitizeBattery(body.battery);
     const network = sanitizeNetwork(body.network);
     const pose = sanitizePose(body.pose);
+    const inputFrame = sanitizeInputFrame(body.input_frame || body.inputFrame || body.input);
     const activeAnchor = sanitizeEnumText(body.active_anchor, 32);
     const sdkBindingStatus = body.sdk_binding_status || body.adapter_binding || body.binding_status
       ? sanitizeSdkBindingStatus(body.sdk_binding_status || body.adapter_binding || body.binding_status)
@@ -1728,6 +1819,7 @@ export function createDeviceRuntimeStore({
     session.heartbeat_count += 1;
     session.network = network;
     session.last_battery = battery;
+    session.last_input_frame = inputFrame;
     session.last_active_anchor = activeAnchor;
     session.last_pose_present = Boolean(pose);
     session.last_health_severity = healthSeverity;
@@ -1740,6 +1832,7 @@ export function createDeviceRuntimeStore({
       device.last_health_severity = healthSeverity;
       device.last_active_anchor = activeAnchor;
       device.last_battery = battery;
+      device.last_input_frame = inputFrame;
       device.sdk_binding_status = sdkBindingStatus;
       device.network = network;
     }
@@ -1756,6 +1849,7 @@ export function createDeviceRuntimeStore({
         battery_level_percent: battery?.level_percent ?? null,
         network_online: network?.online ?? null,
         pose_present: Boolean(pose),
+        input_frame: summarizeInputFrame(inputFrame),
         sdk_binding: summarizeSdkBindingStatus(sdkBindingStatus),
         pairing_status: session.pairing_status || "unpaired",
         hardware_acceptance_eligible: session.hardware_acceptance_eligible === true
@@ -1783,6 +1877,8 @@ export function createDeviceRuntimeStore({
         battery,
         network,
         pose_status: pose ? "received" : "not_reported",
+        input_frame_status: inputFrame ? "received" : "not_reported",
+        input_frame: summarizeInputFrame(inputFrame),
         active_anchor_known: activeAnchorKnown,
         missing_required_capabilities: capabilityStatus.missing_required,
         sdk_binding_status: sdkBindingStatus,
@@ -1820,6 +1916,7 @@ export function createDeviceRuntimeStore({
         health_severity: session.last_health_severity,
         missing_required_capabilities: session.capability_status.missing_required,
         active_anchor: session.last_active_anchor,
+        input_frame: summarizeInputFrame(session.last_input_frame),
         battery_level_percent: session.last_battery?.level_percent ?? null,
         network: {
           online: session.network?.online ?? null,
@@ -1846,6 +1943,7 @@ export function createDeviceRuntimeStore({
         health_severity: device.last_health_severity,
         missing_required_capabilities: device.capability_status?.missing_required || [],
         active_anchor: device.last_active_anchor,
+        input_frame: summarizeInputFrame(device.last_input_frame),
         battery_level_percent: device.last_battery?.level_percent ?? null,
         sdk_binding_status: device.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported"),
         paired_session_count: Array.from(sessions.values()).filter((session) => {
@@ -1888,7 +1986,7 @@ export function createDeviceRuntimeStore({
         session_limit: SESSION_RETENTION_LIMIT,
         event_limit: EVENT_RETENTION_LIMIT
       },
-      privacy: "Device runtime summaries and snapshots omit serials, tokens, phone numbers, addresses, SSID, MAC, and raw pose."
+      privacy: "Device runtime summaries and snapshots omit serials, tokens, phone numbers, addresses, SSID, MAC, private IPs, raw pose streams, raw ray vectors, and camera frames."
     };
   }
 
