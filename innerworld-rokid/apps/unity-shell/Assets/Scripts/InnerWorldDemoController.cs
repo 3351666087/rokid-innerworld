@@ -3073,8 +3073,7 @@ namespace InnerWorld.Rokid
         {
             RokidPose fallbackPose = CurrentRokidPose();
             RokidInputFrame frame;
-            bool hasFrame = rokidInputSource != null && rokidInputSource.TryReadFrame(out frame);
-            if (!hasFrame)
+            if (rokidInputSource == null || !rokidInputSource.TryReadFrame(out frame))
             {
                 frame = new RokidInputFrame(
                     0,

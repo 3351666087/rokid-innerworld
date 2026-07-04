@@ -2,6 +2,14 @@
 
 ## Latest Checkpoint
 
+2026-07-04 17:55 Asia/Shanghai:
+
+- GitHub was synced first as requested: branch `codex/rokid-real-device-sync` tracks origin, PR #1 is open/clean, and CI `Node / Space Server` is green at `a45c173d` before the next hardware slice.
+- Restarted the LAN Space Server on current code at `0.0.0.0:5177`, rebuilt the current Unity/Rokid APK after fixing a Unity compile error, and installed/launched/paired it on the connected Station Pro. Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,727,279 bytes, SHA256 `19733d32b2bdbd347895a319e55a051c7c3722d1329f823baf78ce61e9978955`.
+- `station:apk:pair-smoke` passed for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and raw serial/session/pairing/private-network identifiers stayed out of evidence.
+- `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:device`, `field:live-pass -- --single`, `check:field-target-pass`, and expected-red `field:target-pass:strict` were rerun on the new APK. The strict gate still blocks correctly on `trusted_a1_a2_a3_observations_missing`; hardware-ready remains false.
+- Fixed `tools/build-unity-android.ps1` post-check execution so `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` no longer hangs after Unity success and now reports the current APK evidence cleanly.
+
 2026-07-04 16:32 Asia/Shanghai:
 
 - Carver re-audited the current physical-pass lane and found no hardware-ready misclaim or P0 drift. Local record: `.agents/carver/carver-target-session-wrapper-audit-2026-07-04-1632.md`.
@@ -11,7 +19,7 @@
 2026-07-04 16:17 Asia/Shanghai:
 
 - GitHub sync was current before this hardware step: branch `codex/rokid-real-device-sync` and PR #1 had CI green. Local build artifacts and LAN machine config churn were not pushed as source changes.
-- Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` is now the current Station Pro smoke artifact: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`.
+- Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` was the then-current Station Pro smoke artifact for this checkpoint: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`. It is now superseded by the 17:55 `19733d32b2bd...` APK.
 - `npm run station:apk:pair-smoke` passed on the connected Station Pro for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and private identifiers/pairing code stayed out of evidence.
 - `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-live-pass`, `check:field-target-pass`, `check:unity`, `check:contract`, `check:mainline`, and `context:export` passed after the smoke. `field:target-pass:strict` still fails correctly because trusted A1/A2/A3 observations, A2 read/service/write-back mission steps, A3 TimeMark, and User B readback are still missing.
 - Hardware-ready remains false. The next real proof is a fresh physical A1/A2/A3 scan under the current live-bound operator-paired session, followed by A2 read, controlled service action, A3 TimeMark write-back, User B readback, and `/api/field/acceptance`.

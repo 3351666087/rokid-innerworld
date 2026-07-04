@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 17:28 Asia/Shanghai
+Updated: 2026-07-04 17:55 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -99,6 +99,14 @@ Trusted mission provenance checkpoint on 2026-07-04 17:28 Asia/Shanghai:
 - SQLite and `/api/field/acceptance` now require trusted mission provenance for `mission_loop`; scripts/manual/simulator can rehearse but cannot make strict physical acceptance green.
 - `field-live-pass` and `field-target-pass` now expose `trusted_mission_provenance_ready`; strict target pass remains red with `trusted_mission_provenance_missing` until the real live Rokid loop completes.
 
+Current-APK Station Pro rebuild/smoke checkpoint on 2026-07-04 17:55 Asia/Shanghai:
+
+- GitHub branch `codex/rokid-real-device-sync` was pushed and PR #1 was clean/CI-green before this hardware slice continued.
+- The LAN Space Server was restarted on current code, a Unity compile blocker in `BuildDeviceInputFramePayload` was fixed, and the current APK now supersedes the earlier `9ddf...` fact: `output/unity-android/InnerWorldRokid.apk`, 45,727,279 bytes, SHA256 `19733d32b2bdbd347895a319e55a051c7c3722d1329f823baf78ce61e9978955`.
+- `station:apk:pair-smoke` passed for that exact APK on the connected Station Pro: install, cold launch, process observation, UXR app acceptance, and operator pairing are verified with raw identifiers/pairing code excluded from evidence.
+- The bus remains strict: this proves the current package/install/pairing lane, not hardware acceptance. `field:target-pass:strict` still blocks on missing trusted A1/A2/A3 observations, and the next proof is the real wall A1 -> A2 -> A3 TimeMark -> User B loop.
+- `tools/build-unity-android.ps1` post-check execution now uses a direct timeout-bounded .NET process runner instead of a PowerShell Job wrapper; `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` passes for the current APK.
+
 Per-anchor trust diagnostics checkpoint on 2026-07-04 15:43 Asia/Shanghai:
 
 - `field-live-pass` and `field-target-pass` now read `/api/calibration/wall` trust details and add sanitized `trust_issues_by_anchor` plus an `Untrusted Hardware Observations` report section.
@@ -114,7 +122,7 @@ Trusted-observation rescan barrier checkpoint on 2026-07-04 16:01 Asia/Shanghai:
 Current-APK Station Pro smoke checkpoint on 2026-07-04 16:17 Asia/Shanghai:
 
 - GitHub branch `codex/rokid-real-device-sync` and PR #1 were synced before the next hardware slice.
-- The current APK is `output/unity-android/InnerWorldRokid.apk`, 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`.
+- The then-current APK for that checkpoint was `output/unity-android/InnerWorldRokid.apk`, 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`; it is now superseded by the 17:55 `19733d32b2bd...` APK.
 - `station:apk:pair-smoke` passed for that exact APK on the connected Station Pro with install, cold launch, process observation, UXR app acceptance, and operator pairing verified.
 - Readiness/package/live-window checks passed, while `field:target-pass:strict` still fails on missing trusted A1/A2/A3 observations and the A2->A3->User B mission loop. This is the correct hardware boundary.
 
@@ -178,9 +186,9 @@ These ideas are useful but cannot pull effort away from the hardware loop until 
 
 ## Current Bus Action
 
-The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The immediate build-hardening slice has advanced: the current Station Pro APK is SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`, includes `assets/RKImage.db`, `librokid_openxr_api.so`, and `libyuv.so`, passes current-APK Station Pro install/launch/operator-pairing smoke, and has aligned target diagnostics, UXR readiness, mutating launch, and A1/A2/A3 target-index preflight.
+The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The immediate build-hardening slice has advanced: the current Station Pro APK is SHA256 `19733d32b2bdbd347895a319e55a051c7c3722d1329f823baf78ce61e9978955`, includes `assets/RKImage.db`, `librokid_openxr_api.so`, and `libyuv.so`, passes current-APK Station Pro install/launch/operator-pairing smoke, and has aligned target diagnostics, UXR readiness, mutating launch, and A1/A2/A3 target-index preflight.
 
-The bus now moves to the physical trusted-observation pass: run `npm run check:field-live-pass` before scanning, use `npm run field:live-pass:watch` during the A1/A2/A3 target pass, point the live device at A1/A2/A3 targets, produce operator-paired trusted QR/image_tracking observations, complete A2 read -> A3 write-back -> User B readback, and only then allow `/api/field/acceptance` to turn hardware-ready. Current live-pass baseline is one online operator-paired live SDK session and `0/3` trusted A1/A2/A3 anchors; `npm run field:live-pass -- --require-trusted --require-mission-loop` must fail until that evidence exists. Gradle mirror/IDM fallback still needs durable non-generated hardening, but it is no longer the immediate runtime blocker.
+The bus now moves to the physical trusted-observation pass: run `npm run check:field-live-pass` before scanning, use `npm run field:live-pass:watch` during the A1/A2/A3 target pass, point the live device at A1/A2/A3 targets, produce operator-paired trusted QR/image_tracking observations, complete A2 read -> A3 write-back -> User B readback, and only then allow `/api/field/acceptance` to turn hardware-ready. Current live-pass baseline is one online operator-paired live SDK session and `0/3` trusted A1/A2/A3 anchors; mission/User B/provenance ledger readiness does not override the missing physical observations. `npm run field:live-pass -- --require-trusted --require-mission-loop` must fail until that evidence exists. Gradle mirror/IDM fallback still needs durable non-generated hardening, but it is no longer the immediate runtime blocker.
 
 The bus accepts teammate modules only when they pass these questions:
 

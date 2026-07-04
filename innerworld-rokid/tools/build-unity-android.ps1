@@ -586,6 +586,16 @@ function Redact-BuildOutput {
   return $redacted
 }
 
+function Convert-ToProcessArgument {
+  param([AllowNull()][string]$Value)
+
+  if ($null -eq $Value) { return '""' }
+  $text = "$Value"
+  if ($text.Length -eq 0) { return '""' }
+  if ($text -notmatch '[\s"]') { return $text }
+  return '"' + ($text -replace '"', '\"') + '"'
+}
+
 function Invoke-ExternalForReport {
   param(
     [string]$Name,
@@ -598,51 +608,42 @@ function Invoke-ExternalForReport {
   $exitCode = $null
   $timedOut = $false
   $text = ""
-  $job = $null
+  $process = $null
+  $stdoutTask = $null
+  $stderrTask = $null
 
   try {
-    $job = Start-Job -ArgumentList $FilePath, $Arguments, $WorkingDirectory -ScriptBlock {
-      param(
-        [string]$JobFilePath,
-        [string[]]$JobArguments,
-        [string]$JobWorkingDirectory
-      )
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = (@($Arguments) | ForEach-Object { Convert-ToProcessArgument $_ }) -join " "
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.CreateNoWindow = $true
 
-      Push-Location $JobWorkingDirectory
-      try {
-        $output = & $JobFilePath @JobArguments 2>&1
-        $jobExitCode = $LASTEXITCODE
-        $jobText = (@($output | ForEach-Object { "$_" }) -join "`n")
-      } catch {
-        $jobExitCode = $null
-        $jobText = $_.Exception.Message
-      } finally {
-        Pop-Location
-      }
-
-      [pscustomobject]@{
-        exit_code = $jobExitCode
-        output = $jobText
-      }
-    }
-    $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
-    if ($null -eq $completed) {
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $exited = $process.WaitForExit($TimeoutSeconds * 1000)
+    if (!$exited) {
       $timedOut = $true
-      try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch {}
+      try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch {}
     } else {
-      $result = Receive-Job -Job $job
-      $exitCode = $result.exit_code
-      $text = "$($result.output)"
+      try { $process.WaitForExit() } catch {}
+      try { $process.Refresh() } catch {}
+      $exitCode = $process.ExitCode
     }
+    $stdout = if ($stdoutTask) { $stdoutTask.Result } else { "" }
+    $stderr = if ($stderrTask) { $stderrTask.Result } else { "" }
+    $text = (@($stdout, $stderr) | Where-Object { ![string]::IsNullOrWhiteSpace($_) }) -join "`n"
     if ($timedOut) {
       $text = "timed out after $TimeoutSeconds seconds`n$text"
     }
   } catch {
     $text = "$($_.Exception.Message)`n$text"
-  } finally {
-    if ($job) {
-      try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch {}
-    }
   }
 
   $redacted = Redact-BuildOutput -Text $text

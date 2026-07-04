@@ -1183,9 +1183,10 @@ async function assertUnityAndroidBuildSkeleton() {
   assert(tool.includes("Invoke-ExternalForReport"), "Unity Android build external report wrapper missing");
   assert(tool.includes("[int]$TimeoutSeconds = 300"), "Unity Android build external report timeout missing");
   assert(tool.includes("!$SkipRokidImageDbBuild -and !$SkipUnityBuild"), "Unity Android build report refresh must not rebuild image DB");
-  assert(tool.includes("Start-Job") && tool.includes("Wait-Job -Job $job -Timeout $TimeoutSeconds"), "Unity Android build post-check wrapper must be timeout-bounded");
+  assert(tool.includes("System.Diagnostics.ProcessStartInfo") && tool.includes("WaitForExit($TimeoutSeconds * 1000)"), "Unity Android build post-check wrapper must be timeout-bounded");
+  assert(tool.includes("RedirectStandardOutput") && tool.includes("RedirectStandardError"), "Unity Android build post-check wrapper must capture external output safely");
   assert(tool.includes("timed_out = [bool]$timedOut") && tool.includes("timeout_seconds = $TimeoutSeconds"), "Unity Android build report must expose external command timeout evidence");
-  assert(tool.includes("Stop-Job -Job $job") && tool.includes("Remove-Job -Job $job"), "Unity Android build timeout cleanup missing");
+  assert(tool.includes("Stop-Process -Id $process.Id") && tool.includes("CreateNoWindow = $true"), "Unity Android build timeout cleanup missing");
   assert(tool.includes("Redact-BuildOutput") && tool.includes("private_ips_included = $false"), "Unity Android build privacy redaction guard missing");
   return "verified";
 }
