@@ -234,8 +234,26 @@ function Copy-RokidNativeLibsToGradleProject {
     "jni/arm64-v8a/libyuv.so"
   )
   $destDir = Join-Path $GradleRoot "unityLibrary\src\main\jniLibs\arm64-v8a"
+  $projectDefaultLoaderPath = Join-Path $destDir "libopenxr_loader.so"
+  $generatedOpenXrLoaderAarPath = Join-Path $GradleRoot "unityLibrary\libs\openxr_loader.aar"
   $copied = @()
   $missing = @()
+  $removedProjectDefaultLoader = [pscustomobject]@{
+    attempted = $false
+    removed = $false
+    path = $projectDefaultLoaderPath
+    sha256_prefix = $null
+    reason = $null
+  }
+  $replacedOpenXrLoaderAar = [pscustomobject]@{
+    attempted = $false
+    replaced = $false
+    path = $generatedOpenXrLoaderAarPath
+    source_sha256_prefix = $null
+    previous_sha256_prefix = $null
+    new_sha256_prefix = $null
+    reason = $null
+  }
 
   if ([string]::IsNullOrWhiteSpace($aarPath)) {
     return [pscustomobject]@{
@@ -245,12 +263,37 @@ function Copy-RokidNativeLibsToGradleProject {
       destination = $destDir
       copied = @()
       missing = $requiredEntries
+      removed_project_default_loader = $removedProjectDefaultLoader
+      replaced_openxr_loader_aar = $replacedOpenXrLoaderAar
       error = "openxr_loader_aar_not_found"
     }
   }
 
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $generatedOpenXrLoaderAarPath) | Out-Null
+  $replacedOpenXrLoaderAar.attempted = $true
+  if (Test-Path -LiteralPath $generatedOpenXrLoaderAarPath) {
+    $previousHash = Get-FileHash -LiteralPath $generatedOpenXrLoaderAarPath -Algorithm SHA256
+    $replacedOpenXrLoaderAar.previous_sha256_prefix = $previousHash.Hash.ToLowerInvariant().Substring(0, 12)
+  } else {
+    $replacedOpenXrLoaderAar.reason = "generated_openxr_loader_aar_not_present"
+  }
+  $sourceHash = Get-FileHash -LiteralPath $aarPath -Algorithm SHA256
+  $replacedOpenXrLoaderAar.source_sha256_prefix = $sourceHash.Hash.ToLowerInvariant().Substring(0, 12)
+  Copy-Item -LiteralPath $aarPath -Destination $generatedOpenXrLoaderAarPath -Force
+  $newHash = Get-FileHash -LiteralPath $generatedOpenXrLoaderAarPath -Algorithm SHA256
+  $replacedOpenXrLoaderAar.new_sha256_prefix = $newHash.Hash.ToLowerInvariant().Substring(0, 12)
+  $replacedOpenXrLoaderAar.replaced = [bool]($replacedOpenXrLoaderAar.new_sha256_prefix -eq $replacedOpenXrLoaderAar.source_sha256_prefix)
+  $removedProjectDefaultLoader.attempted = $true
+  if (Test-Path -LiteralPath $projectDefaultLoaderPath) {
+    $hash = Get-FileHash -LiteralPath $projectDefaultLoaderPath -Algorithm SHA256
+    $removedProjectDefaultLoader.sha256_prefix = $hash.Hash.ToLowerInvariant().Substring(0, 12)
+    Remove-Item -LiteralPath $projectDefaultLoaderPath -Force
+    $removedProjectDefaultLoader.removed = $true
+  } else {
+    $removedProjectDefaultLoader.reason = "project_default_loader_not_present"
+  }
   $zip = [System.IO.Compression.ZipFile]::OpenRead($aarPath)
   try {
     foreach ($entryName in $requiredEntries) {
@@ -280,12 +323,14 @@ function Copy-RokidNativeLibsToGradleProject {
 
   return [pscustomobject]@{
     attempted = $true
-    ok = [bool]($missing.Count -eq 0 -and $copied.Count -eq $requiredEntries.Count)
+    ok = [bool]($missing.Count -eq 0 -and $copied.Count -eq $requiredEntries.Count -and $replacedOpenXrLoaderAar.replaced)
     source_aar = $aarPath
     destination = $destDir
     copied = @($copied)
     missing = @($missing)
-    error = if ($missing.Count -eq 0) { $null } else { "required_native_lib_entries_missing" }
+    removed_project_default_loader = $removedProjectDefaultLoader
+    replaced_openxr_loader_aar = $replacedOpenXrLoaderAar
+    error = if ($missing.Count -gt 0) { "required_native_lib_entries_missing" } elseif (!$replacedOpenXrLoaderAar.replaced) { "generated_openxr_loader_aar_replace_failed" } else { $null }
   }
 }
 
@@ -521,9 +566,13 @@ function Get-ApkRokidNativeLibraryEvidence {
             expected_path = $_.path
             found = $false
             size_bytes = 0
+            required_for_rokid_runtime_discovery = [bool]($_.name -eq "libopenxr_loader.so")
+            contains_rokid_runtime_package_marker = $false
           }
         })
       missing_reason = "apk_not_found"
+      rokid_loader_ready = $false
+      rokid_loader_marker = "com.rokid.openxr.runtime"
     }
   }
 
@@ -533,11 +582,36 @@ function Get-ApkRokidNativeLibraryEvidence {
     $libraries = @()
     foreach ($item in $expected) {
       $entry = @($zip.Entries | Where-Object { $_.FullName -eq $item.path }) | Select-Object -First 1
+      $sha256Prefix = $null
+      $containsRokidRuntimePackageMarker = $false
+      if ($entry) {
+        $memory = New-Object System.IO.MemoryStream
+        $stream = $entry.Open()
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+          $stream.CopyTo($memory)
+          $bytes = $memory.ToArray()
+          $hash = $sha.ComputeHash($bytes)
+        } finally {
+          $sha.Dispose()
+          $stream.Dispose()
+          $memory.Dispose()
+        }
+        $hex = [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+        $sha256Prefix = $hex.Substring(0, [Math]::Min(12, $hex.Length))
+        if ($item.name -eq "libopenxr_loader.so" -and $bytes) {
+          $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+          $containsRokidRuntimePackageMarker = [bool]$ascii.Contains("com.rokid.openxr.runtime")
+        }
+      }
       $libraries += [pscustomobject]@{
         name = $item.name
         expected_path = $item.path
         found = [bool]$entry
         size_bytes = if ($entry) { [int64]$entry.Length } else { 0 }
+        sha256_prefix = $sha256Prefix
+        required_for_rokid_runtime_discovery = [bool]($item.name -eq "libopenxr_loader.so")
+        contains_rokid_runtime_package_marker = $containsRokidRuntimePackageMarker
       }
     }
   } finally {
@@ -545,13 +619,17 @@ function Get-ApkRokidNativeLibraryEvidence {
   }
 
   $missing = @($libraries | Where-Object { !$_.found })
+  $loader = @($libraries | Where-Object { $_.name -eq "libopenxr_loader.so" }) | Select-Object -First 1
+  $rokidLoaderReady = [bool]($loader -and $loader.found -and $loader.contains_rokid_runtime_package_marker)
   return [pscustomobject]@{
     required_for_live_rokid_openxr = $true
     abi = $abi
     found_all = [bool]($missing.Count -eq 0)
+    rokid_loader_ready = $rokidLoaderReady
+    rokid_loader_marker = "com.rokid.openxr.runtime"
     missing_names = @($missing | ForEach-Object { $_.name })
     libraries = @($libraries)
-    missing_reason = if ($missing.Count -eq 0) { $null } else { "required_rokid_native_libraries_missing" }
+    missing_reason = if ($missing.Count -gt 0) { "required_rokid_native_libraries_missing" } elseif (!$rokidLoaderReady) { "rokid_openxr_loader_runtime_marker_missing" } else { $null }
   }
 }
 
@@ -822,9 +900,9 @@ if (!$SkipUnityBuild -and $unityProcess.exit_code -ne 0 -and !$SkipGradleFallbac
   }
 }
 
-if (!$SkipUnityBuild -and $unityProcess.exit_code -eq 0 -and (Test-Path -LiteralPath $apkPath) -and !$SkipGradleFallback) {
+if ((Test-Path -LiteralPath $apkPath) -and !$SkipGradleFallback) {
   $preRepackNativeLibs = Get-ApkRokidNativeLibraryEvidence -Path $apkPath
-  if (!$preRepackNativeLibs.found_all) {
+  if (!$preRepackNativeLibs.found_all -or !$preRepackNativeLibs.rokid_loader_ready) {
     $nativeLibRepack = [pscustomobject]@{
       attempted = $true
       needed = $true
@@ -859,9 +937,9 @@ $finishedAt = (Get-Date).ToString("o")
 $apkEvidence = Get-ApkEvidence -Path $apkPath
 $apkNativeLibraries = Get-ApkRokidNativeLibraryEvidence -Path $apkPath
 $apkExists = $apkEvidence.exists
-$buildOk = [bool]((($unityProcess.exit_code -eq 0 -and $apkExists) -or ($gradleFallback.ok -and $apkExists)) -and $apkNativeLibraries.found_all)
+$buildOk = [bool]((($unityProcess.exit_code -eq 0 -and $apkExists) -or ($gradleFallback.ok -and $apkExists)) -and $apkNativeLibraries.found_all -and $apkNativeLibraries.rokid_loader_ready)
 $finalOk = $buildOk
-$finalExitCode = if ($buildOk) { 0 } elseif (!$apkNativeLibraries.found_all) { 4 } elseif ($gradleFallback.attempted) { $gradleFallback.exit_code } else { $unityProcess.exit_code }
+$finalExitCode = if ($buildOk) { 0 } elseif (!$apkNativeLibraries.found_all -or !$apkNativeLibraries.rokid_loader_ready) { 4 } elseif ($gradleFallback.attempted) { $gradleFallback.exit_code } else { $unityProcess.exit_code }
 $postChecks = [pscustomobject]@{
   attempted = $false
   ok = $false
@@ -932,6 +1010,7 @@ $markdown = @(
   "- Native lib repack attempted: $($report.native_lib_repack.attempted)",
   "- Native lib repack OK: $($report.native_lib_repack.ok)",
   "- Rokid native libs packaged: $($report.apk_native_libraries.found_all)",
+  "- Rokid OpenXR loader ready: $($report.apk_native_libraries.rokid_loader_ready)",
   "- Rokid native libs missing: $(@($report.apk_native_libraries.missing_names) -join ', ')",
   "- Gradle fallback log: $($report.gradle_fallback.log_path)",
   "- IDM fallback attempted: $($idmSummary.attempted)",
@@ -965,6 +1044,7 @@ Write-Output "Gradle fallback OK: $($report.gradle_fallback.ok)"
 Write-Output "Native lib repack attempted: $($report.native_lib_repack.attempted)"
 Write-Output "Native lib repack OK: $($report.native_lib_repack.ok)"
 Write-Output "Rokid native libs packaged: $($report.apk_native_libraries.found_all)"
+Write-Output "Rokid OpenXR loader ready: $($report.apk_native_libraries.rokid_loader_ready)"
 Write-Output "IDM fallback attempted: $($idmSummary.attempted)"
 Write-Output "IDM URL count: $($idmSummary.url_count)"
 Write-Output "IDM downloaded count: $($idmSummary.downloaded_count)"

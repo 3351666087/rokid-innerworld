@@ -2,6 +2,15 @@
 
 ## Latest Checkpoint
 
+2026-07-04 20:11 Asia/Shanghai:
+
+- Fixed the reported black-screen launch blocker in the Unity/Rokid APK path. Root cause was the final APK packaging Unity's default `libopenxr_loader.so`, which looked for the Khronos runtime broker instead of the Rokid runtime package.
+- `innerworld-rokid/tools/build-unity-android.ps1` now replaces the generated Gradle `unityLibrary/libs/openxr_loader.aar` with the Rokid package AAR, removes the generated project default naked loader before repack, stages `librokid_openxr_api.so` / `libyuv.so`, and requires a Rokid runtime marker before a build can be considered OK.
+- `station:apk:inspect`, `station:apk:smoke`, and `check-station-pro-apk-smoke` now verify that the APK loader contains `com.rokid.openxr.runtime`; wrong-loader packages fail with `apk_rokid_openxr_loader_not_from_rokid_package`.
+- Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,798,669 bytes, SHA256 `5b1d4641616dfc75bee98f1772af5c592820b07ba90c0e38413dff2bdd253029`. The packaged `libopenxr_loader.so` SHA prefix is `b7e723e8017e` and contains the Rokid runtime marker.
+- Fresh Station Pro smoke passed for this APK: install OK, cold launch OK, process observed, `is_uxr_app=true`. Fresh logcat no longer shows `XR_ERROR_RUNTIME_UNAVAILABLE` or Khronos broker failure, and does show Rokid runtime manifest/load success.
+- Remaining blocker is physical display/glasses detection, not the previous OpenXR-loader runtime failure: `dumpsys display` still shows only the Station Pro internal display, and runtime logs include `getGlassName failed: glass not detected` plus repeated head-pose failures. Hardware-ready remains false until trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` pass on the real wall.
+
 2026-07-04 17:55 Asia/Shanghai:
 
 - GitHub was synced first as requested: branch `codex/rokid-real-device-sync` tracks origin, PR #1 is open/clean, and CI `Node / Space Server` is green at `a45c173d` before the next hardware slice.
@@ -19,7 +28,7 @@
 2026-07-04 16:17 Asia/Shanghai:
 
 - GitHub sync was current before this hardware step: branch `codex/rokid-real-device-sync` and PR #1 had CI green. Local build artifacts and LAN machine config churn were not pushed as source changes.
-- Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` was the then-current Station Pro smoke artifact for this checkpoint: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`. It is now superseded by the 17:55 `19733d32b2bd...` APK.
+- Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` was the then-current Station Pro smoke artifact for this checkpoint: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`. It is now superseded by the 20:11 `5b1d4641616d...` APK.
 - `npm run station:apk:pair-smoke` passed on the connected Station Pro for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and private identifiers/pairing code stayed out of evidence.
 - `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-live-pass`, `check:field-target-pass`, `check:unity`, `check:contract`, `check:mainline`, and `context:export` passed after the smoke. `field:target-pass:strict` still fails correctly because trusted A1/A2/A3 observations, A2 read/service/write-back mission steps, A3 TimeMark, and User B readback are still missing.
 - Hardware-ready remains false. The next real proof is a fresh physical A1/A2/A3 scan under the current live-bound operator-paired session, followed by A2 read, controlled service action, A3 TimeMark write-back, User B readback, and `/api/field/acceptance`.

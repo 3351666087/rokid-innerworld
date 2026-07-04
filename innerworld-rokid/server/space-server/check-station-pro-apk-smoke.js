@@ -70,7 +70,12 @@ function assertRokidNativeLibraries(report) {
     assert(Number(library.size_bytes) > 0, `${name} must not be empty`);
     assert(/^[0-9a-f]{8,16}$/i.test(library.sha256_prefix || ""), `${name} short SHA missing`);
   }
+  const loader = byName.get("libopenxr_loader.so");
+  assert(loader.required_for_rokid_runtime_discovery === true, "OpenXR loader must be marked required for Rokid runtime discovery");
+  assert(loader.contains_rokid_runtime_package_marker === true, "OpenXR loader must come from Rokid package and contain the Rokid runtime marker");
   assert(nativeLibraries.found_all === true, "all required Rokid native libraries must be packaged");
+  assert(nativeLibraries.rokid_loader_ready === true, "Rokid OpenXR loader must be ready");
+  assert(nativeLibraries.rokid_loader_marker === "com.rokid.openxr.runtime", "Rokid OpenXR loader marker mismatch");
 }
 
 async function main() {
@@ -184,6 +189,7 @@ async function main() {
     rkimage_db_target_index_map_ready: report.apk.rokid_image_db.target_index_map?.ready === true,
     require_rkimage_db: requireRkImageDb,
     rokid_native_libs_packaged: report.apk.native_libraries.found_all,
+    rokid_openxr_loader_ready: report.apk.native_libraries.rokid_loader_ready,
     rokid_native_libs_missing: report.apk.native_libraries.missing_names,
     require_rokid_native_libs: requireRokidNativeLibs,
     require_lan_config: requireLan,

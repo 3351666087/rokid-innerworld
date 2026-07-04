@@ -598,9 +598,13 @@ function Get-ApkNativeLibraries {
             path = $null
             size_bytes = 0
             sha256_prefix = $null
+            required_for_rokid_runtime_discovery = [bool]($_.name -eq "libopenxr_loader.so")
+            contains_rokid_runtime_package_marker = $false
           }
         })
       missing_reason = "apk_not_found"
+      rokid_loader_ready = $false
+      rokid_loader_marker = "com.rokid.openxr.runtime"
     }
   }
 
@@ -617,6 +621,8 @@ function Get-ApkNativeLibraries {
           path = $null
           size_bytes = 0
           sha256_prefix = $null
+          required_for_rokid_runtime_discovery = [bool]($item.name -eq "libopenxr_loader.so")
+          contains_rokid_runtime_package_marker = $false
         }
         continue
       }
@@ -626,13 +632,20 @@ function Get-ApkNativeLibraries {
       $sha = [System.Security.Cryptography.SHA256]::Create()
       try {
         $stream.CopyTo($memory)
-        $hash = $sha.ComputeHash($memory.ToArray())
+        $bytes = $memory.ToArray()
+        $hash = $sha.ComputeHash($bytes)
       } finally {
         $sha.Dispose()
         $stream.Dispose()
         $memory.Dispose()
       }
       $hex = [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+      $isRokidLoader = [bool]($item.name -eq "libopenxr_loader.so")
+      $containsRokidRuntimePackageMarker = $false
+      if ($isRokidLoader -and $bytes) {
+        $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+        $containsRokidRuntimePackageMarker = [bool]$ascii.Contains("com.rokid.openxr.runtime")
+      }
       $libraries += [pscustomobject]@{
         name = $item.name
         expected_path = $item.path
@@ -640,6 +653,8 @@ function Get-ApkNativeLibraries {
         path = $entry.FullName
         size_bytes = [int64]$entry.Length
         sha256_prefix = $hex.Substring(0, [Math]::Min(12, $hex.Length))
+        required_for_rokid_runtime_discovery = $isRokidLoader
+        contains_rokid_runtime_package_marker = $containsRokidRuntimePackageMarker
       }
     }
   } finally {
@@ -647,15 +662,19 @@ function Get-ApkNativeLibraries {
   }
 
   $missing = @($libraries | Where-Object { !$_.found })
+  $loader = @($libraries | Where-Object { $_.name -eq "libopenxr_loader.so" }) | Select-Object -First 1
+  $rokidLoaderReady = [bool]($loader -and $loader.found -and $loader.contains_rokid_runtime_package_marker)
   return [pscustomobject]@{
     required_for_live_rokid_openxr = $true
     abi = $abi
     found_all = [bool]($missing.Count -eq 0)
+    rokid_loader_ready = $rokidLoaderReady
+    rokid_loader_marker = "com.rokid.openxr.runtime"
     expected_paths = @($expected | ForEach-Object { $_.path })
     missing_names = @($missing | ForEach-Object { $_.name })
     missing_paths = @($missing | ForEach-Object { $_.expected_path })
     libraries = @($libraries)
-    missing_reason = if ($missing.Count -eq 0) { $null } else { "required_rokid_native_libraries_missing" }
+    missing_reason = if ($missing.Count -gt 0) { "required_rokid_native_libraries_missing" } elseif (!$rokidLoaderReady) { "rokid_openxr_loader_runtime_marker_missing" } else { $null }
   }
 }
 
@@ -913,6 +932,7 @@ elseif (!$apk.rokid_image_db.contains_image_db_core) { [void]$warnings.Add("apk_
 elseif ($apk.rokid_image_db.image_db_core_bytes -lt 1024) { [void]$warnings.Add("apk_rkimage_db_core_too_small") }
 if ($apk.rokid_image_db.found -and !$apk.rokid_image_db.contains_data_json) { [void]$warnings.Add("apk_rkimage_db_data_json_missing") }
 if (!$apk.native_libraries.found_all) { [void]$errors.Add("apk_rokid_native_libs_missing") }
+elseif (!$apk.native_libraries.rokid_loader_ready) { [void]$errors.Add("apk_rokid_openxr_loader_not_from_rokid_package") }
 if (!$apk.config.found) { [void]$errors.Add("apk_innerworld_config_missing") }
 if ($apk.config.space_id -ne "innerworld_campus_wall") { [void]$errors.Add("apk_space_id_mismatch") }
 if ($PairWithOperator -and !$InstallAndLaunch) { [void]$errors.Add("operator_pairing_requires_install_and_launch") }
@@ -1160,6 +1180,7 @@ $markdown = @(
   "- RKImage.db target index map ready: $($report.apk.rokid_image_db.target_index_map.ready)",
   "- RKImage.db target index map: $(@($report.apk.rokid_image_db.target_index_map.actual | ForEach-Object { "$($_.index)->$($_.anchor_id)" }) -join ', ')",
   "- Rokid native libs packaged: $($report.apk.native_libraries.found_all)",
+  "- Rokid OpenXR loader ready: $($report.apk.native_libraries.rokid_loader_ready)",
   "- Rokid native libs missing: $(@($report.apk.native_libraries.missing_names) -join ', ')",
   "- Install/launch intent accepted: $($report.readiness.install_launch_intent_accepted)",
   "- Process observed: $($report.readiness.process_observed)",

@@ -29,6 +29,8 @@ npm run check:uxr-readiness:ready
 
 Pass means install OK, cold launch OK, process observed, UXR app accepted, operator pairing verified, `assets/RKImage.db` contains target map `1:A1, 2:A2, 3:A3`, and evidence stays sanitized. This is still only APK/live-session proof, not hardware acceptance.
 
+For the current black-screen fix line, APK smoke must also show `rokid_loader_ready=true`: the packaged `libopenxr_loader.so` must contain marker `com.rokid.openxr.runtime`. If smoke/logcat no longer shows `XR_ERROR_RUNTIME_UNAVAILABLE` but the glasses still show black, stop treating it as an APK loader issue and check physical display/glasses detection first. The current known residual symptoms are internal display only, `getGlassName failed: glass not detected`, and head-pose failures.
+
 ## 2. Open The Field Watch
 
 Start the combined read-only live + target watcher before anyone scans the wall:
@@ -100,6 +102,8 @@ Stop and rescan or rerun smoke if any of these appear:
 
 - `live_operator_paired_sdk_session_missing`
 - `current_target_diagnostics_apk_preflight_missing`
+- `apk_rokid_openxr_loader_not_from_rokid_package`
+- `getGlassName failed: glass not detected`
 - `trusted_a1_a2_a3_observations_missing`
 - `mission_loop_waiting_for_trusted_a1_a2_a3`
 - `p0_mission_writeback_user_b_loop_missing`
