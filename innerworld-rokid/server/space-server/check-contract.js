@@ -1068,6 +1068,7 @@ async function assertFieldLivePassCheckSkeleton() {
   assert(tool.includes("user_b_readback_ready"), "field live pass User B readback evidence missing");
   assert(tool.includes("mission_loop_ready: field.mission_loop_ready === true"), "field live pass mission loop must follow field acceptance gate");
   assert(tool.includes("mission_ledger_ready"), "field live pass mission ledger evidence missing");
+  assert(tool.includes("Mission ledger ready") && tool.includes("Mission trusted A1/A2/A3 prerequisite ready"), "field live pass mission ledger/physical prerequisite markdown missing");
   assert(tool.includes("mission_loop_waiting_for_trusted_a1_a2_a3"), "field live pass trusted A1/A2/A3 mission blocker missing");
   assert(tool.includes("latest.field_acceptance.trusted_mission_provenance_ready !== true"), "field live pass mission loop must require trusted mission provenance");
   assert(tool.includes("trusted_mission_provenance_missing"), "field live pass trusted mission provenance blocker missing");
@@ -1146,6 +1147,7 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("Missing live binding items"), "field target pass live adapter checklist diagnostics missing");
   assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
   assert(tool.includes("snapshot.mission_loop_ready = snapshot.field_acceptance.mission_loop_ready === true"), "field target pass mission loop must follow field acceptance gate");
+  assert(tool.includes("Mission ledger ready") && tool.includes("Mission trusted A1/A2/A3 prerequisite ready"), "field target pass mission ledger/physical prerequisite markdown missing");
   assert(tool.includes("mission_loop_waiting_for_trusted_a1_a2_a3"), "field target pass trusted A1/A2/A3 mission blocker missing");
   assert(tool.includes("snapshot.field_acceptance.trusted_mission_provenance_ready !== true"), "field target pass mission loop must require trusted mission provenance");
   assert(tool.includes("trusted_mission_provenance_missing"), "field target pass trusted mission provenance blocker missing");

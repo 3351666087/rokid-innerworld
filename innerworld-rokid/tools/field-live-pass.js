@@ -381,6 +381,13 @@ function buildNextRequiredActions(snapshot) {
     }
   }
 
+  if (
+    snapshot.field_acceptance.mission_ledger_ready === true
+    && snapshot.field_acceptance.mission_missing_trusted_anchor_ids.length
+  ) {
+    actions.push(`Mission ledger/User B/provenance is complete; do not treat it as physical acceptance until trusted anchors are rescanned: ${snapshot.field_acceptance.mission_missing_trusted_anchor_ids.join(",")}.`);
+  }
+
   for (const stepId of snapshot.field_acceptance.missing_mission_steps) {
     if (stepId === "read") actions.push("Complete the A2 memory read mission step.");
     else if (stepId === "find_year") actions.push("Complete the A2 mission clue step.");
@@ -528,7 +535,11 @@ function buildMarkdown(report) {
     `- Trusted A1/A2/A3 ready: ${latest.trusted_a1_a2_a3_ready}`,
     `- Hardware A1/A2/A3 ready: ${latest.hardware_a1_a2_a3_ready}`,
     `- Mission loop ready: ${latest.mission_loop_ready}`,
+    `- Mission ledger ready: ${latest.field_acceptance.mission_ledger_ready}`,
+    `- Mission trusted A1/A2/A3 prerequisite ready: ${latest.field_acceptance.mission_trusted_a1_a2_a3_ready}`,
+    `- Mission missing trusted anchors: ${latest.field_acceptance.mission_missing_trusted_anchor_ids.join(",") || "none"}`,
     `- User B readback ready: ${latest.mission.user_b_readback_ready}`,
+    `- Trusted mission provenance ready: ${latest.field_acceptance.trusted_mission_provenance_ready}`,
     `- Field acceptance ready: ${latest.field_acceptance_ready}`,
     `- Online sessions: ${latest.session.online_count}`,
     `- Live operator-paired sessions: ${latest.session.live_operator_paired_ready_count}`,

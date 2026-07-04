@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 18:15 Asia/Shanghai
+Updated: 2026-07-04 18:22 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -83,6 +83,7 @@ Mission-loop physical prerequisite checkpoint on 2026-07-04 18:15 Asia/Shanghai:
 
 - The bus now treats mission ledger/User B/provenance readiness as necessary but not sufficient. `mission_loop_ready` must remain false until trusted A1/A2/A3 physical observations are also present, so teammate SDK/image-target material still enters through the real wall scan path instead of a script-completed mission ledger.
 - Current strict blocker wording is `mission_loop_waiting_for_trusted_a1_a2_a3` alongside `trusted_a1_a2_a3_observations_missing`. This is still not hardware-ready acceptance.
+- The field live/target Markdown reports now surface this split directly for现场 use, and the runbook fail-fast list includes the new blocker. That keeps teammate image-target/UXR work attached to real A1/A2/A3 scanning rather than ledger-only completion.
 
 Target readiness operator panel checkpoint on 2026-07-04 16:52 Asia/Shanghai:
 

@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 18:15 Asia/Shanghai
+Updated: 2026-07-04 18:22 Asia/Shanghai
 
 ## Objective
 
@@ -41,6 +41,7 @@ Current Station Pro live APK checkpoint:
 - Current Unity/field-watch diagnostics now expose stable `IW_TARGET_*` log tokens for the next physical wall pass: target event received, unknown image index, live-pairing/session gate reason, throttle, POST start/result/failure, and mission-assist outcome. `field:live-pass:watch --logcat` counts these tokens only as diagnostics and still writes no raw logcat, pairing codes, session ids, serials, private IPs, or MAC addresses.
 - Current `field:target-pass` also records a `target_diagnostics_preflight` guard. It verifies the current APK SHA prefix, APK `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, UXR readiness, and APK target index map all match before strict physical acceptance. The preflight is green for the current `19733d32b2bd...` APK, while strict acceptance still correctly blocks on missing trusted A1/A2/A3 observations and the P0 mission/User B loop.
 - Current target reports now split evidence freshness from physical acceptance: `precheck_ok=true` can mean APK/session/diagnostics are aligned, while `physical_acceptance_ready=false` and `physical_blockers` still show missing trusted A1/A2/A3, mission/User B loop, and field acceptance. This prevents a green precheck from being read as hardware-ready.
+- Current live/target Markdown reports now expose the mission split at the top: `mission_ledger_ready`, trusted A1/A2/A3 prerequisite readiness, missing trusted anchors, and trusted mission provenance. The runbook fail-fast list includes `mission_loop_waiting_for_trusted_a1_a2_a3`, so现场 operators do not treat a completed ledger as physical acceptance.
 - Current Web/operator console also exposes this split through read-only `/api/field/target-readiness`, derived from `/api/field/acceptance`. It shows `precheck_ok`, `physical_acceptance_ready`, trusted A1/A2/A3 count, mission/User B state, and blockers, but it does not read `output/*.json`, run ADB/logcat, create simulator/manual observations, or mutate mission/write-back state. Hardware Runtime now calls wall-lock evidence a lock candidate, not final hardware readiness.
 - Current Unity heartbeat now carries a sanitized RKInput/PointableUI `input_frame` from `RokidInputFrame`: source, sequence, command/buttons, focused A1/A2/A3 anchor, hit distance, `ray_reported`, and `pointable_ui_focus`. The Space Server stores only the summary in device health/sessions and uses it for the `rk_input_3dof_ray` checklist check; raw ray vectors and raw pose streams stay out of API summaries.
 - This input-frame checkpoint is live-adapter observability only. Hardware-ready remains false until fresh operator-paired trusted A1/A2/A3 observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance.ready=true` are all present.

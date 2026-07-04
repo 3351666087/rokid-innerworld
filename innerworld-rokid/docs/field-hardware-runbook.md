@@ -99,10 +99,11 @@ Stop and rescan or rerun smoke if any of these appear:
 - `live_operator_paired_sdk_session_missing`
 - `current_target_diagnostics_apk_preflight_missing`
 - `trusted_a1_a2_a3_observations_missing`
+- `mission_loop_waiting_for_trusted_a1_a2_a3`
 - `p0_mission_writeback_user_b_loop_missing`
 - `trusted_A2_missing`
 - `trusted_A3_or_service_action_missing`
 - `field_acceptance_ready=false`
 - any report, console capture, or copied text contains raw serials, raw private IPs, raw pairing codes, or raw logcat
 
-Passing `check:field-live-pass` or `field:acceptance-session` without trusted A1/A2/A3 and the User B loop is only a clean precheck. It is not hardware-ready.
+Passing `check:field-live-pass` or `field:acceptance-session` without trusted A1/A2/A3 and the User B loop is only a clean precheck. If a report shows `mission_ledger_ready=true` but `mission_loop_ready=false`, the next action is still physical trusted A1/A2/A3 scanning, not a hardware-ready claim.
