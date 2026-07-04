@@ -2,6 +2,14 @@
 
 ## Latest Checkpoint
 
+2026-07-04 16:17 Asia/Shanghai:
+
+- GitHub sync is current before the next hardware step: branch `codex/rokid-real-device-sync` and PR #1 both point to commit `8f61417e` with CI green. Local build artifacts and LAN machine config churn were not pushed as source changes.
+- Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` is now the current Station Pro smoke artifact: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`.
+- `npm run station:apk:pair-smoke` passed on the connected Station Pro for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and private identifiers/pairing code stayed out of evidence.
+- `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-live-pass`, `check:field-target-pass`, `check:unity`, `check:contract`, `check:mainline`, and `context:export` passed after the smoke. `field:target-pass:strict` still fails correctly because trusted A1/A2/A3 observations, A2 read/service/write-back mission steps, A3 TimeMark, and User B readback are still missing.
+- Hardware-ready remains false. The next real proof is a fresh physical A1/A2/A3 scan under the current live-bound operator-paired session, followed by A2 read, controlled service action, A3 TimeMark write-back, User B readback, and `/api/field/acceptance`.
+
 2026-07-04 16:01 Asia/Shanghai:
 
 - Carver audited the trusted-observation checkpoint in `.agents/carver/carver-trusted-observation-checkpoint-2026-07-04.md`: current package/live adapter evidence may be ready, but A2/A3 old observations cannot be retroactively trusted. The next proof is a fresh physical A1/A2/A3 scan under the current live-bound session.

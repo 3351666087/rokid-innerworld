@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 16:01 Asia/Shanghai
+Updated: 2026-07-04 16:17 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -92,6 +92,13 @@ Trusted-observation rescan barrier checkpoint on 2026-07-04 16:01 Asia/Shanghai:
 - Unity now queues one latest target event per A1/A2/A3 anchor until a same-session heartbeat acknowledges operator pairing, hardware eligibility, and input/overlay/live SDK binding, then retries through the normal trusted observation POST path.
 - Field live/target reports expose live adapter checklist gaps; current latest operator-paired session is live-bound with no adapter checklist gaps. The bus still requires fresh trusted A1/A2/A3 plus A3 write-back/User B readback before hardware acceptance.
 
+Current-APK Station Pro smoke checkpoint on 2026-07-04 16:17 Asia/Shanghai:
+
+- GitHub branch `codex/rokid-real-device-sync` and PR #1 are synced at commit `8f61417e` before the next hardware slice.
+- The current APK is `output/unity-android/InnerWorldRokid.apk`, 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`.
+- `station:apk:pair-smoke` passed for that exact APK on the connected Station Pro with install, cold launch, process observation, UXR app acceptance, and operator pairing verified.
+- Readiness/package/live-window checks passed, while `field:target-pass:strict` still fails on missing trusted A1/A2/A3 observations and the A2->A3->User B mission loop. This is the correct hardware boundary.
+
 Already merged into the mainline:
 
 - A1 spatial entry, including physical anchor/QR/logo, recognition lock frame, deliberate confirmation, and entry transition language.
@@ -146,7 +153,7 @@ These ideas are useful but cannot pull effort away from the hardware loop until 
 
 ## Current Bus Action
 
-The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The immediate build-hardening slice has advanced: the current Station Pro APK is SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, includes `assets/RKImage.db`, `librokid_openxr_api.so`, and `libyuv.so`, passes current-APK Station Pro install/launch/operator-pairing smoke, and no longer reproduces the `rokid_openxr_api` `DllNotFoundException` after a clean logcat relaunch.
+The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The immediate build-hardening slice has advanced: the current Station Pro APK is SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`, includes `assets/RKImage.db`, `librokid_openxr_api.so`, and `libyuv.so`, passes current-APK Station Pro install/launch/operator-pairing smoke, and has aligned target diagnostics, UXR readiness, mutating launch, and A1/A2/A3 target-index preflight.
 
 The bus now moves to the physical trusted-observation pass: run `npm run check:field-live-pass` before scanning, use `npm run field:live-pass:watch` during the A1/A2/A3 target pass, point the live device at A1/A2/A3 targets, produce operator-paired trusted QR/image_tracking observations, complete A2 read -> A3 write-back -> User B readback, and only then allow `/api/field/acceptance` to turn hardware-ready. Current live-pass baseline is one online operator-paired live SDK session and `0/3` trusted A1/A2/A3 anchors; `npm run field:live-pass -- --require-trusted --require-mission-loop` must fail until that evidence exists. Gradle mirror/IDM fallback still needs durable non-generated hardening, but it is no longer the immediate runtime blocker.
 
