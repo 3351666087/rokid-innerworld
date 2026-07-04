@@ -818,13 +818,20 @@ namespace InnerWorld.Rokid
             if (string.IsNullOrWhiteSpace(anchorId))
             {
                 wallCalibrationObservationLine = "trusted image observation ignored | unknown image index " + imageIndex;
+                Debug.LogWarning("IW_TARGET_IGNORED_UNKNOWN_INDEX image_index=" + imageIndex
+                    + " event=" + SafeLabel(eventType, "event"));
                 RefreshHud();
                 return;
             }
 
-            if (!CanSubmitTrustedRokidHardwareObservation())
+            string trustedGateReason = TrustedRokidHardwareObservationGateReason();
+            if (!string.IsNullOrEmpty(trustedGateReason))
             {
                 wallCalibrationObservationLine = "trusted image observation pending | live paired session required | anchor " + anchorId;
+                Debug.Log("IW_TARGET_GATE_LIVE_PAIRING_REQUIRED anchor=" + SafeLabel(anchorId, "unknown")
+                    + " image_index=" + imageIndex
+                    + " event=" + SafeLabel(eventType, "event")
+                    + " reason=" + trustedGateReason);
                 RefreshHud();
                 return;
             }
@@ -859,6 +866,10 @@ namespace InnerWorld.Rokid
             bool shouldAdvanceTrustedMission = false;
             wallCalibrationObservationInFlight = true;
             wallCalibrationObservationLine = "trusted " + mode + " observation posting | anchor " + anchorId + " | image " + imageIndex;
+            Debug.Log("IW_TARGET_POST_START anchor=" + SafeLabel(anchorId, "unknown")
+                + " image_index=" + imageIndex
+                + " mode=" + SafeLabel(mode, "unknown")
+                + " event=" + SafeLabel(eventType, "event"));
             SetRokidConnection(RokidConnectionStatus.Connecting, wallCalibrationObservationLine);
 
             using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
@@ -906,12 +917,21 @@ namespace InnerWorld.Rokid
                         SetStatus("Trusted image observation posted", wallCalibrationObservationLine);
                         SetRokidConnection(RokidConnectionStatus.Connected, wallCalibrationObservationLine);
                         shouldAdvanceTrustedMission = IsTrustedAcceptedHardwareObservation(lastWallCalibrationObservation);
+                        Debug.Log("IW_TARGET_POST_RESULT anchor=" + SafeLabel(anchorId, "unknown")
+                            + " status=" + SafeLabel(lastWallCalibrationObservation != null ? lastWallCalibrationObservation.status : null, "missing")
+                            + " trusted=" + BoolLabel(lastWallCalibrationObservation != null
+                                && lastWallCalibrationObservation.acceptance != null
+                                && lastWallCalibrationObservation.acceptance.hardware_observation_trusted)
+                            + " mission_assist_candidate=" + BoolLabel(shouldAdvanceTrustedMission));
                     }
                     catch (Exception error)
                     {
                         lastWallCalibrationObservationResult = null;
                         lastWallCalibrationObservation = null;
                         wallCalibrationObservationLine = "trusted image observation parse failed | anchor " + anchorId;
+                        Debug.LogWarning("IW_TARGET_POST_FAIL anchor=" + SafeLabel(anchorId, "unknown")
+                            + " stage=parse"
+                            + " error=" + SafeLabel(error.GetType().Name, "parse_error"));
                         Debug.LogWarning(wallCalibrationObservationLine + ": " + error.Message + " | " + url);
                         SetStatus("Trusted image observation failed", error.Message);
                         SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
@@ -920,6 +940,9 @@ namespace InnerWorld.Rokid
                 else
                 {
                     wallCalibrationObservationLine = "trusted image observation failed | anchor " + anchorId + " | http " + request.responseCode;
+                    Debug.LogWarning("IW_TARGET_POST_FAIL anchor=" + SafeLabel(anchorId, "unknown")
+                        + " stage=http"
+                        + " status_code=" + request.responseCode);
                     Debug.LogWarning(wallCalibrationObservationLine + ": " + request.error + " | " + url);
                     SetStatus("Trusted image observation failed", request.error + " " + url);
                     SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
@@ -1089,12 +1112,14 @@ namespace InnerWorld.Rokid
             if (!IsTrustedAcceptedHardwareObservation(observation))
             {
                 trustedHardwareMissionAssistLine = "trusted target mission assist gated | anchor " + SafeLabel(cleanAnchorId, "unknown");
+                LogTargetMissionAssist(cleanAnchorId, "gated_untrusted_observation");
                 yield break;
             }
 
             if (IsA1EntryAnchor(cleanAnchorId))
             {
                 trustedHardwareMissionAssistLine = "trusted A1 target locked | deliberate entry confirmation still required";
+                LogTargetMissionAssist(cleanAnchorId, "a1_deliberate_confirmation_required");
                 yield break;
             }
 
@@ -1115,6 +1140,7 @@ namespace InnerWorld.Rokid
                 trustedHardwareMissionAssistLine = postedRead
                     ? "trusted A2 mission assist posted read/find_year"
                     : "trusted A2 mission assist already complete";
+                LogTargetMissionAssist(cleanAnchorId, postedRead ? "a2_read_find_year_posted" : "a2_read_find_year_already_complete");
                 yield break;
             }
 
@@ -1125,6 +1151,7 @@ namespace InnerWorld.Rokid
                 if (!serviceReady)
                 {
                     trustedHardwareMissionAssistLine = "trusted A3 target locked | service action required before TimeMark";
+                    LogTargetMissionAssist(cleanAnchorId, "a3_service_action_required");
                     yield break;
                 }
 
@@ -1133,11 +1160,19 @@ namespace InnerWorld.Rokid
                     string text = "Rokid trusted TimeMark " + DateTime.Now.ToString("HH:mm:ss");
                     yield return PostWriteBack(text);
                     trustedHardwareMissionAssistLine = "trusted A3 mission assist posted TimeMark write-back";
+                    LogTargetMissionAssist(cleanAnchorId, "a3_timemark_write_back_posted");
                     yield break;
                 }
 
                 trustedHardwareMissionAssistLine = "trusted A3 mission assist write-back already complete";
+                LogTargetMissionAssist(cleanAnchorId, "a3_timemark_write_back_already_complete");
             }
+        }
+
+        private void LogTargetMissionAssist(string anchorId, string action)
+        {
+            Debug.Log("IW_TARGET_MISSION_ASSIST anchor=" + SafeLabel(anchorId, "unknown")
+                + " action=" + SafeLabel(action, "unknown"));
         }
 
         private void RefreshHud()
@@ -2650,21 +2685,39 @@ namespace InnerWorld.Rokid
 
         private bool CanSubmitTrustedRokidHardwareObservation()
         {
+            return string.IsNullOrEmpty(TrustedRokidHardwareObservationGateReason());
+        }
+
+        private string TrustedRokidHardwareObservationGateReason()
+        {
             if (deviceSession == null || !deviceSession.ok || string.IsNullOrWhiteSpace(deviceSessionId))
             {
-                return false;
+                return "device_session_missing";
             }
             if (!deviceSession.hardware_acceptance_eligible)
             {
-                return false;
+                return "hardware_acceptance_not_eligible";
             }
             if (deviceSession.pairing == null || !deviceSession.pairing.paired)
             {
-                return false;
+                return "operator_pairing_missing";
             }
 
             RokidSdkBindingReport report = CurrentSdkBindingReport();
-            return report.LiveBindingReady && report.InputBindingReady && report.OverlayBindingReady;
+            if (!report.InputBindingReady)
+            {
+                return "input_binding_not_ready";
+            }
+            if (!report.OverlayBindingReady)
+            {
+                return "overlay_binding_not_ready";
+            }
+            if (!report.LiveBindingReady)
+            {
+                return "live_binding_not_ready";
+            }
+
+            return string.Empty;
         }
 
         private bool IsTrustedAcceptedHardwareObservation(WallCalibrationObservation observation)
@@ -2724,6 +2777,9 @@ namespace InnerWorld.Rokid
             if (trustedHardwareObservationPostedAt.TryGetValue(key, out lastPostedAt)
                 && now - lastPostedAt < TrustedHardwareObservationMinIntervalSeconds)
             {
+                Debug.Log("IW_TARGET_THROTTLED anchor=" + cleanAnchorId
+                    + " event=" + SafeLabel(eventType, "event")
+                    + " min_interval_sec=" + TrustedHardwareObservationMinIntervalSeconds.ToString("0.0"));
                 return false;
             }
 

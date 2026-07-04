@@ -7,6 +7,22 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
+const LOGCAT_PATTERNS = [
+  "DllNotFoundException",
+  "rokid_openxr_api",
+  "UnsatisfiedLinkError",
+  "TryOpenImageTracker",
+  "Open Marker",
+  "ImageDB",
+  "IW_TARGET_EVENT",
+  "IW_TARGET_IGNORED_UNKNOWN_INDEX",
+  "IW_TARGET_GATE_LIVE_PAIRING_REQUIRED",
+  "IW_TARGET_THROTTLED",
+  "IW_TARGET_POST_START",
+  "IW_TARGET_POST_RESULT",
+  "IW_TARGET_POST_FAIL",
+  "IW_TARGET_MISSION_ASSIST"
+];
 
 const args = process.argv.slice(2);
 const options = {
@@ -274,19 +290,11 @@ function findAdb() {
 
 function adbLogcatCounts({ clear = false, read = false } = {}) {
   const adb = findAdb();
-  const patterns = [
-    "DllNotFoundException",
-    "rokid_openxr_api",
-    "UnsatisfiedLinkError",
-    "TryOpenImageTracker",
-    "Open Marker",
-    "ImageDB"
-  ];
   if (!adb) {
     return {
       adb_found: false,
       raw_log_included: false,
-      pattern_counts: patterns.map((pattern) => ({ pattern, count: 0 }))
+      pattern_counts: LOGCAT_PATTERNS.map((pattern) => ({ pattern, count: 0 }))
     };
   }
 
@@ -298,7 +306,7 @@ function adbLogcatCounts({ clear = false, read = false } = {}) {
     return {
       adb_found: true,
       raw_log_included: false,
-      pattern_counts: patterns.map((pattern) => ({ pattern, count: 0 }))
+      pattern_counts: LOGCAT_PATTERNS.map((pattern) => ({ pattern, count: 0 }))
     };
   }
 
@@ -307,7 +315,7 @@ function adbLogcatCounts({ clear = false, read = false } = {}) {
   return {
     adb_found: true,
     raw_log_included: false,
-    pattern_counts: patterns.map((pattern) => ({
+    pattern_counts: LOGCAT_PATTERNS.map((pattern) => ({
       pattern,
       count: (text.match(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length
     }))
@@ -369,6 +377,9 @@ function buildMarkdown(report) {
   const blockers = report.blockers.length
     ? report.blockers.map((item) => `- ${item}`)
     : ["- none"];
+  const targetLogCounts = (report.logcat?.pattern_counts || [])
+    .filter((item) => String(item.pattern || "").startsWith("IW_TARGET_"))
+    .map((item) => `- ${item.pattern}: ${item.count}`);
   return [
     "# Field Live Pass",
     "",
@@ -403,6 +414,11 @@ function buildMarkdown(report) {
     "## Next Required Actions",
     "",
     ...(latest.next_required_actions.length ? latest.next_required_actions.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "## Target Logcat Diagnostics",
+    "",
+    "- Diagnostic counts only; raw logcat is not written.",
+    ...(targetLogCounts.length ? targetLogCounts : ["- IW_TARGET tokens: 0"]),
     "",
     "## Boundary",
     "",

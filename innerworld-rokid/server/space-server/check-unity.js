@@ -39,8 +39,9 @@ async function readText(relativePath) {
 }
 
 async function assertUnityAdapterBoundary() {
-  const [controller, presentationMode, missionState, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
+  const [controller, imageTrackingObserver, presentationMode, missionState, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/InnerWorldDemoController.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/InnerWorldRokidImageTrackingObserver.cs"),
     readText("apps/unity-shell/Assets/Scripts/Runtime/RokidPresentationMode.cs"),
     readText("apps/unity-shell/Assets/Scripts/Runtime/InnerWorldMissionState.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
@@ -176,6 +177,14 @@ async function assertUnityAdapterBoundary() {
   assert(/bool serviceReady = IsMissionStepComplete\("service_action"\)\s*\|\|\s*MissionStateIs\(InnerWorldMissionStates\.ServiceReady\);/.test(controller), "Unity trusted A3 image target must require completed service_action or service_ready state before TimeMark write-back");
   assert(!/bool serviceReady =[\s\S]{0,220}(Writing|WritebackReady)/.test(controller), "Unity trusted A3 TimeMark gate must not accept loose writing/writeback-ready labels without service_action");
   assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*service action required before TimeMark[\s\S]*PostWriteBack\(text\)/.test(controller), "Unity trusted A3 image target must gate TimeMark write-back behind service action");
+  assert(imageTrackingObserver.includes("IW_TARGET_EVENT") && imageTrackingObserver.includes("image_index=") && imageTrackingObserver.includes("size_m=") && imageTrackingObserver.includes("pose_position_m="), "Rokid image tracking observer must log stable IW_TARGET_EVENT diagnostics");
+  assert(controller.includes("IW_TARGET_IGNORED_UNKNOWN_INDEX") && controller.includes("IW_TARGET_GATE_LIVE_PAIRING_REQUIRED") && controller.includes("IW_TARGET_THROTTLED"), "Unity trusted target diagnostics must expose unknown-index, live-pairing gate, and throttle tokens");
+  assert(controller.includes("IW_TARGET_POST_START") && controller.includes("IW_TARGET_POST_RESULT") && controller.includes("IW_TARGET_POST_FAIL"), "Unity trusted target diagnostics must expose POST start/result/fail tokens");
+  assert(controller.includes("IW_TARGET_MISSION_ASSIST") && controller.includes("a2_read_find_year_posted") && controller.includes("a3_service_action_required") && controller.includes("a3_timemark_write_back_posted"), "Unity trusted target diagnostics must expose mission assist outcomes");
+  assert(controller.includes("TrustedRokidHardwareObservationGateReason") && controller.includes("device_session_missing") && controller.includes("operator_pairing_missing") && controller.includes("live_binding_not_ready"), "Unity target diagnostics must preserve specific live-pairing gate reasons");
+  const targetLogLines = `${controller}\n${imageTrackingObserver}`.split(/\r?\n/).filter((line) => line.includes("IW_TARGET_"));
+  assert(targetLogLines.length >= 8, "Unity target diagnostics token coverage too small");
+  assert(!targetLogLines.some((line) => /(operatorPairingCode|pairing_code|CleanOperatorPairingCode|deviceSessionId|session_id)/.test(line)), "Unity IW_TARGET diagnostics must not log raw pairing codes or session ids");
   const rehearsalObservationStart = controller.indexOf("private IEnumerator SubmitWallCalibrationObservation(string trackingMode)");
   const trustedObservationStart = controller.indexOf("public void SubmitRokidTrackedImageObservation");
   const rehearsalObservationBody = rehearsalObservationStart >= 0 && trustedObservationStart > rehearsalObservationStart

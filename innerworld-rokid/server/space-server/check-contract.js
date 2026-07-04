@@ -1014,6 +1014,9 @@ async function assertFieldLivePassCheckSkeleton() {
   assert(tool.includes("missing_mission_step_ids"), "field live pass missing mission step evidence missing");
   assert(tool.includes("next_required_actions"), "field live pass next required actions missing");
   assert(tool.includes("Scan A1 QR entry") && tool.includes("Scan A2 image target") && tool.includes("Scan A3 image target"), "field live pass physical target action prompts missing");
+  assert(tool.includes("IW_TARGET_EVENT") && tool.includes("IW_TARGET_POST_RESULT") && tool.includes("IW_TARGET_MISSION_ASSIST"), "field live pass target logcat diagnostic tokens missing");
+  assert(tool.includes("Target Logcat Diagnostics") && tool.includes("Diagnostic counts only; raw logcat is not written."), "field live pass target logcat diagnostics boundary missing");
+  assert(tool.includes("raw_logcat_included: false") && tool.includes("raw_log_included: false"), "field live pass raw logcat privacy guards missing");
   return "verified";
 }
 

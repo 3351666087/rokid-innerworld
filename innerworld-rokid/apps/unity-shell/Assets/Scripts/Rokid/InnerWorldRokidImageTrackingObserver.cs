@@ -1,4 +1,5 @@
 #if ROKID_UXR
+using System.Globalization;
 using Rokid.UXR.Module;
 using UnityEngine;
 
@@ -49,11 +50,28 @@ namespace InnerWorld.Rokid
                 return;
             }
 
+            Debug.Log("IW_TARGET_EVENT event=" + CleanEventType(eventType)
+                + " image_index=" + trackedImage.index
+                + " size_m=" + MeterLabel(trackedImage.size.x) + "x" + MeterLabel(trackedImage.size.y)
+                + " pose_position_m=" + MeterLabel(trackedImage.pose.position.x)
+                + "," + MeterLabel(trackedImage.pose.position.y)
+                + "," + MeterLabel(trackedImage.pose.position.z));
+
             controller.SubmitRokidTrackedImageObservation(
                 trackedImage.index,
                 trackedImage.pose,
                 trackedImage.size,
                 eventType);
+        }
+
+        private static string MeterLabel(float value)
+        {
+            return value.ToString("0.000", CultureInfo.InvariantCulture);
+        }
+
+        private static string CleanEventType(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "event" : value.Trim();
         }
     }
 }
