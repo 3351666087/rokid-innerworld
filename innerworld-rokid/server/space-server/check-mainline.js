@@ -25,7 +25,8 @@ const files = {
   spaceData: path.join(root, "data", "space_demo.json"),
   hardwareManifest: path.join(root, "data", "hardware_manifest.json"),
   fieldMarkers: path.join(root, "data", "field_markers.json"),
-  fieldAcceptanceCheck: path.join(root, "server", "space-server", "check-field-acceptance.js")
+  fieldAcceptanceCheck: path.join(root, "server", "space-server", "check-field-acceptance.js"),
+  fieldOperatorPlanTool: path.join(root, "tools", "field-operator-plan.js")
 };
 
 const requiredGoalDirection = [
@@ -105,6 +106,20 @@ const requiredCombinedDirection = [
   "/api/device/pairing",
   "INNERWORLD_OPERATOR_PIN",
   "device_pairing_operator_gate_failed"
+];
+
+const requiredOperatorPlanTokens = [
+  "/api/field/operator-plan",
+  "field:operator-plan",
+  "innerworld-field-operator-plan-report/v1",
+  "output/field-operator-plan",
+  "current_phase",
+  "phase_table",
+  "source_of_truth",
+  "p0_scope_guard",
+  "simulator_or_manual_observations_created",
+  "adb_or_logcat_run",
+  "hardware_ready_claim_allowed"
 ];
 
 const requiredWebModules = [
@@ -225,6 +240,7 @@ async function main() {
   const hardwareConnectedChecks = includesAll(sources.goal, requiredHardwareConnectedTokens);
   const teammateDocsBusChecks = includesAll(`${sources.goal}\n${sources.teammateDocsBus}`, requiredTeammateDocsBusTokens);
   const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}\n${sources.apiRouter}\n${sources.deviceRuntime}`, requiredCombinedDirection);
+  const operatorPlanChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldOperatorPlanTool}`, requiredOperatorPlanTokens);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
   const unityChecks = includesAll(sources.unityController, requiredUnityTokens);
@@ -255,6 +271,7 @@ async function main() {
     ...hardwareConnectedChecks.filter((item) => !item.ok).map((item) => `hardware-connected phase missing: ${item.needle}`),
     ...teammateDocsBusChecks.filter((item) => !item.ok).map((item) => `teammate docs bus missing: ${item.needle}`),
     ...combinedDirectionChecks.filter((item) => !item.ok).map((item) => `mainline contract missing: ${item.needle}`),
+    ...operatorPlanChecks.filter((item) => !item.ok).map((item) => `operator plan mainline missing: ${item.needle}`),
     ...webChecks.filter((item) => !item.ok).map((item) => `web module missing: ${item.needle}`),
     ...contractChecks.filter((item) => !item.ok).map((item) => `contract token missing: ${item.needle}`),
     ...unityChecks.filter((item) => !item.ok).map((item) => `unity controller token missing: ${item.needle}`),
@@ -293,6 +310,7 @@ async function main() {
     hardware_connected_tokens: requiredHardwareConnectedTokens.length,
     hardware_connected_checkpoint: "station_pro_trusted_hardware_session",
     teammate_docs_bus_tokens: requiredTeammateDocsBusTokens.length,
+    operator_plan_tokens: requiredOperatorPlanTokens.length,
     long_modules: [
       "a1_spatial_entry_experience",
       "story_graph_mission_runtime_v2",

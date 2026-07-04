@@ -16,6 +16,8 @@ The Web operator console now reads `/api/field/target-readiness`, a read-only Sp
 
 The operator console now has a first-class Field Pass panel backed by read-only `/api/field/operator-plan`. It compresses the commercial P0现场 flow into six phases: preflight, A1 spatial entry, A2 memory read, A3 TimeMark write-back, User B readback, and closeout. The endpoint and UI expose current phase, next actions, required evidence, blockers, state-mutating phase flags, readiness booleans, scope guards, and privacy guards. It never runs ADB/logcat, never creates simulator/manual observations, never writes evidence files, and never exposes raw serials, USB ids, session ids, device ids, private IPs, pairing codes, raw pose/ray, logcat, or dumpsys.
 
+Use `npm run field:operator-plan` after `npm run dev` or `npm run dev:lan` to write the same plan as a local/LAN operator handoff under `output/field-operator-plan/field-operator-plan-latest.*`. The command is read-only and is meant for field execution flow, not hardware acceptance by itself.
+
 Unity heartbeat now sends a sanitized `input_frame` summary for the RKInput 3DoF ray / PointableUI focus path: source, sequence, command/buttons, focused A1/A2/A3 anchor, hit distance, `ray_reported`, and `pointable_ui_focus`. The Space Server stores only the summary and never returns raw ray vectors. This is field evidence for the live adapter path, not a hardware-ready shortcut.
 
 Mission/write-back acceptance now also requires trusted mission provenance and trusted A1/A2/A3 physical prerequisites. Unity/Rokid interaction, service action, TimeMark write-back, and User B readback requests carry session/device/anchor inputs for server-side proof, while public ledger/API output keeps raw session ids, raw device ids, private network identifiers, pairing codes, raw pose streams, and raw ray vectors out. The field reports expose `mission_ledger_ready` separately; `mission_loop_ready` stays false while trusted A1/A2/A3 observations are missing, even when ledger/User B/provenance evidence is complete.
@@ -119,6 +121,7 @@ npm run env:doctor
 npm run ops:monitor:once
 npm run evidence:rehearsal -- --reset-after
 npm run field:preflight
+npm run field:operator-plan
 npm run field:live-pass
 npm run check:field-live-pass
 npm run pdf:fieldkit

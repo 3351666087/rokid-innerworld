@@ -1,6 +1,8 @@
 # Active Goal
 
-Updated: 2026-07-04 21:59 Asia/Shanghai
+Updated: 2026-07-04 22:31 Asia/Shanghai
+
+Latest execution slice: `field:operator-plan` is now the lightweight local/LAN operator-plan capture command for the productized field lane. It reads only `/api/field/operator-plan`, writes sanitized `output/field-operator-plan/field-operator-plan-latest.json` and `.md`, and keeps the same P0 boundary: one real wall, A1 entry, A2 read, A3 TimeMark write-back, User B readback, with no guide/PPT/phone-only/open-UGC/backend/route expansion and no hardware-ready claim without physical `/api/field/acceptance`.
 
 ## Objective
 

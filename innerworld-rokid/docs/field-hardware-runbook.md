@@ -50,6 +50,14 @@ Green report generation with `glasses_display_ready=false` is useful diagnostic 
 
 ## 2. Open The Field Watch
 
+Capture the current operator plan before the physical pass:
+
+```powershell
+npm run field:operator-plan
+```
+
+This writes `output/field-operator-plan/field-operator-plan-latest.json` and `.md` with the current phase, next actions, readiness, phase table, source-of-truth endpoints, P0 scope guard, and blockers. It is read-only and does not create evidence, run ADB/logcat, mutate mission state, or claim hardware-ready.
+
 Start the combined read-only live + target watcher before anyone scans the wall:
 
 ```powershell
