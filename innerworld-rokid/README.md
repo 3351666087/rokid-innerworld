@@ -14,6 +14,8 @@ Unity now converts trusted Rokid image-target observations into the narrow P0 mi
 
 Use `npm run field:live-pass` for a read-only live field snapshot, `npm run check:field-live-pass` to verify the current operator-paired live session window, and `npm run field:live-pass -- --require-trusted --require-mission-loop` during final physical acceptance. The live-pass report now lists missing trusted anchors, missing raw hardware anchors, missing mission steps, and next required field actions. `npm run field:acceptance-session` wraps the non-mutating device/APK/live-pass prechecks into one field report; `npm run field:acceptance-session:live` adds the explicit mutating Station Pro pair smoke plus live watch for the physical pass. These commands do not post simulator/manual observations.
 
+Use `npm run field:target-pass` during the physical wall pass to get the phase-by-phase A1/A2/A3/User B checklist as sanitized JSON/MD. It is read-only by default. `npm run field:target-pass:apply` may post A2 mission progress, the controlled service action, and A3 TimeMark only after trusted A2/A3 evidence exists; `npm run field:target-pass:strict` also requires explicit User B readback confirmation and must stay red until the real hardware loop is complete.
+
 ## Quick Start
 
 ```powershell

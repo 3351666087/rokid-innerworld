@@ -1039,6 +1039,31 @@ async function assertFieldAcceptanceSessionSkeleton() {
   return "verified";
 }
 
+async function assertFieldTargetPassSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/field-target-pass.js"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"field:target-pass\""), "package field target pass script missing");
+  assert(packageJson.includes("\"field:target-pass:apply\""), "package field target pass apply script missing");
+  assert(packageJson.includes("\"field:target-pass:strict\""), "package strict field target pass script missing");
+  assert(packageJson.includes("\"check:field-target-pass\""), "package field target pass check script missing");
+  assert(tool.includes("innerworld-field-target-pass/v1"), "field target pass schema missing");
+  assert(tool.includes("/api/field/acceptance") && tool.includes("/api/device/sessions") && tool.includes("/api/state"), "field target pass endpoint coverage missing");
+  assert(tool.includes("--apply-mission-actions") && tool.includes("--confirm-user-b-readback"), "field target pass explicit mutation flags missing");
+  assert(tool.includes("simulator_or_manual_observations_created: false"), "field target pass simulator/manual guard missing");
+  assert(tool.includes("hardware_ready_claim_allowed: false"), "field target pass hardware-ready claim guard missing");
+  assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
+  assert(tool.includes("const a2Complete = hasTrustedAnchor(afterA2, \"A2\")"), "field target pass service action must require trusted A2");
+  assert(tool.includes("hasTrustedAnchor(afterService, \"A3\") && hasMissionStep(afterService, \"service_action\")"), "field target pass A3 write-back gate missing");
+  assert(tool.includes("const canConfirm = hasTrustedAnchor(snapshot, \"A3\")"), "field target pass User B readback must require trusted A3");
+  assert(tool.includes("confirm_user_b_readback_flag_not_set"), "field target pass User B explicit confirmation guard missing");
+  assert(tool.includes("source: \"field_target_pass_operator_confirmed_user_b_readback\""), "field target pass User B evidence source missing");
+  assert(tool.includes("raw_pairing_codes_included: false") && tool.includes("raw_session_ids_included: false"), "field target pass privacy guards missing");
+  return "verified";
+}
+
 async function main() {
   const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
     readJson("data/space_demo.json"),
@@ -1063,6 +1088,7 @@ async function main() {
   const fieldAcceptanceCheck = await assertFieldAcceptanceCheckSkeleton();
   const fieldLivePassCheck = await assertFieldLivePassCheckSkeleton();
   const fieldAcceptanceSessionCheck = await assertFieldAcceptanceSessionSkeleton();
+  const fieldTargetPassCheck = await assertFieldTargetPassSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
 
@@ -1118,6 +1144,7 @@ async function main() {
     field_acceptance_check: fieldAcceptanceCheck,
     field_live_pass_check: fieldLivePassCheck,
     field_acceptance_session_check: fieldAcceptanceSessionCheck,
+    field_target_pass_check: fieldTargetPassCheck,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,

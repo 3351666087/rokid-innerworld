@@ -2,6 +2,12 @@
 
 ## Latest Checkpoint
 
+2026-07-04 13:54 Asia/Shanghai:
+
+- Added `field:target-pass` as the guided real-wall A1/A2/A3/User B runner. Default mode is read-only and writes a sanitized JSON/MD phase report; `field:target-pass:apply` can post A2 read/find_year, service_action, and A3 TimeMark only after trusted A2/A3 gates exist; `field:target-pass:strict` also requires operator-confirmed User B readback and must fail until trusted hardware plus mission loop are complete.
+- Verified `check:field-target-pass` passes with the current operator-paired live session, while `field:target-pass:strict` fails as expected because trusted A1/A2/A3, mission steps, A3 write-back, and User B readback are still missing. No simulator/manual observations were created and `/api/state` remains User A / `entered` / no completed steps.
+- Hardware-ready remains false; the next physical action is still to scan/re-bind A1/A2/A3 through the live Rokid SDK session, then use the runner during the real wall pass.
+
 2026-07-04 13:35 Asia/Shanghai:
 
 - Unity/Rokid image tracking now has a trusted-target mission assist bridge: only server-returned `hardware_observation_trusted=true` observations can advance A2 `read/find_year`; A1 still requires deliberate entry confirmation, and A3 TimeMark write-back stays gated behind `service_action`.
