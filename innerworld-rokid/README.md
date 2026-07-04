@@ -18,6 +18,8 @@ Use `npm run field:target-pass` during the physical wall pass to get the phase-b
 
 `field:target-pass:strict` also verifies the current target-diagnostics APK preflight before acceptance: current APK SHA prefix, `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, and UXR readiness must all match. This is a package/evidence freshness guard only; it does not replace trusted A1/A2/A3 observations or User B readback.
 
+Use `npm run field:target-pass:watch` during the live wall scan. It is read-only by default, records repeated API snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; counts stay zero until the glasses actually see A1/A2/A3 target events.
+
 ## Quick Start
 
 ```powershell

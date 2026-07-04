@@ -1049,6 +1049,7 @@ async function assertFieldTargetPassSkeleton() {
   ]);
 
   assert(packageJson.includes("\"field:target-pass\""), "package field target pass script missing");
+  assert(packageJson.includes("\"field:target-pass:watch\""), "package field target pass watch script missing");
   assert(packageJson.includes("\"field:target-pass:apply\""), "package field target pass apply script missing");
   assert(packageJson.includes("\"field:target-pass:strict\""), "package strict field target pass script missing");
   assert(packageJson.includes("\"check:field-target-pass\""), "package field target pass check script missing");
@@ -1061,6 +1062,9 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("station-pro-apk-smoke-latest-mutating-launch.json") && tool.includes("uxr-readiness-latest.json"), "field target pass current APK evidence guards missing");
   assert(tool.includes("target_diagnostics_preflight") && tool.includes("current_target_diagnostics_apk_preflight_missing"), "field target pass diagnostics preflight blocker missing");
   assert(packageJson.includes("--require-target-diagnostics"), "strict field target pass must require current target diagnostics preflight");
+  assert(packageJson.includes("\"field:target-pass:watch\"") && packageJson.includes("--watch --require-live-session --require-target-diagnostics"), "field target pass watch script must require live session and target diagnostics");
+  assert(tool.includes("captureWatchSnapshots") && tool.includes("duration_sec") && tool.includes("snapshot_count"), "field target pass watch snapshots missing");
+  assert(tool.includes("adbLogcatCounts") && tool.includes("Target Logcat Diagnostics") && tool.includes("raw_logcat_included: false"), "field target pass logcat diagnostic privacy guard missing");
   assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
   assert(tool.includes("const a2Complete = hasTrustedAnchor(afterA2, \"A2\")"), "field target pass service action must require trusted A2");
   assert(tool.includes("hasTrustedAnchor(afterService, \"A3\") && hasMissionStep(afterService, \"service_action\")"), "field target pass A3 write-back gate missing");

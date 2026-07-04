@@ -17,7 +17,11 @@ const options = {
   requireLiveSession: false,
   requireTrusted: false,
   requireMissionLoop: false,
-  requireTargetDiagnostics: false
+  requireTargetDiagnostics: false,
+  durationSec: 1,
+  intervalSec: 2,
+  includeLogcatCounts: false,
+  clearLogcat: false
 };
 
 for (let index = 0; index < args.length; index += 1) {
@@ -41,6 +45,21 @@ for (let index = 0; index < args.length; index += 1) {
     options.requireMissionLoop = true;
   } else if (arg === "--require-target-diagnostics") {
     options.requireTargetDiagnostics = true;
+  } else if (arg === "--watch") {
+    options.durationSec = 120;
+    options.includeLogcatCounts = true;
+  } else if (arg === "--single") {
+    options.durationSec = 1;
+  } else if (arg === "--duration-sec" && next) {
+    options.durationSec = Number(next);
+    index += 1;
+  } else if (arg === "--interval-sec" && next) {
+    options.intervalSec = Number(next);
+    index += 1;
+  } else if (arg === "--logcat") {
+    options.includeLogcatCounts = true;
+  } else if (arg === "--clear-logcat") {
+    options.clearLogcat = true;
   }
 }
 
@@ -56,7 +75,20 @@ const REQUIRED_TARGET_DIAGNOSTIC_TOKENS = [
   "IW_TARGET_POST_FAIL",
   "IW_TARGET_MISSION_ASSIST"
 ];
+const LOGCAT_PATTERNS = [
+  "DllNotFoundException",
+  "rokid_openxr_api",
+  "UnsatisfiedLinkError",
+  "TryOpenImageTracker",
+  "Open Marker",
+  "ImageDB",
+  ...REQUIRED_TARGET_DIAGNOSTIC_TOKENS
+];
 const SPACE_ID = "innerworld_campus_wall";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function normalizeBaseUrl(value) {
   return String(value || "http://127.0.0.1:5177").trim().replace(/\/+$/, "");
@@ -110,6 +142,50 @@ function hostKind(value) {
   } catch {
     return "invalid";
   }
+}
+
+function findAdb() {
+  const candidates = [
+    process.env.ADB,
+    "C:\\Program Files (x86)\\Android\\android-sdk\\platform-tools\\adb.exe",
+    "C:\\Program Files\\Android\\android-sdk\\platform-tools\\adb.exe",
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Android", "Sdk", "platform-tools", "adb.exe") : null
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate)) || null;
+}
+
+function adbLogcatCounts({ clear = false, read = false } = {}) {
+  const adb = findAdb();
+  if (!adb) {
+    return {
+      adb_found: false,
+      raw_log_included: false,
+      pattern_counts: LOGCAT_PATTERNS.map((pattern) => ({ pattern, count: 0 }))
+    };
+  }
+
+  if (clear) {
+    spawnSync(adb, ["logcat", "-b", "all", "-c"], { encoding: "utf8", windowsHide: true });
+  }
+
+  if (!read) {
+    return {
+      adb_found: true,
+      raw_log_included: false,
+      pattern_counts: LOGCAT_PATTERNS.map((pattern) => ({ pattern, count: 0 }))
+    };
+  }
+
+  const result = spawnSync(adb, ["logcat", "-d", "-v", "brief"], { encoding: "utf8", windowsHide: true });
+  const text = `${result.stdout || ""}\n${result.stderr || ""}`;
+  return {
+    adb_found: true,
+    raw_log_included: false,
+    pattern_counts: LOGCAT_PATTERNS.map((pattern) => ({
+      pattern,
+      count: (text.match(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length
+    }))
+  };
 }
 
 async function requestJson(baseUrl, apiPath, { method = "GET", body = null } = {}) {
@@ -468,6 +544,21 @@ async function captureSnapshot(baseUrl) {
   return snapshot;
 }
 
+async function captureWatchSnapshots(baseUrl) {
+  const snapshots = [];
+  const durationMs = Math.max(1, Number(options.durationSec) || 1) * 1000;
+  const intervalMs = Math.max(1, Number(options.intervalSec) || 2) * 1000;
+  const deadline = Date.now() + durationMs;
+
+  do {
+    snapshots.push(await captureSnapshot(baseUrl));
+    if (Date.now() + intervalMs > deadline) break;
+    await sleep(intervalMs);
+  } while (Date.now() < deadline);
+
+  return snapshots;
+}
+
 function skippedAction(id, reason) {
   return {
     id,
@@ -582,12 +673,17 @@ function buildMarkdown(report) {
   const blockerLines = report.blockers.length ? report.blockers.map((item) => `- ${item}`) : ["- none"];
   const targetDiagnostics = report.target_diagnostics_preflight;
   const tokenLines = targetDiagnostics.target_diagnostic_tokens.tokens.map((item) => `- ${item.token}: found=${item.found}${item.entry ? `, entry=${item.entry}` : ""}`);
+  const targetLogcatLines = (report.logcat.pattern_counts || [])
+    .filter((item) => String(item.pattern || "").startsWith("IW_TARGET_"))
+    .map((item) => `- ${item.pattern}: ${item.count}`);
   return [
     "# Field Target Pass",
     "",
     `- Generated: ${report.generated_at}`,
     `- OK: ${report.ok}`,
     `- API host kind: ${report.api.host_kind}`,
+    `- Watch duration seconds: ${report.watch.duration_sec}`,
+    `- Snapshot count: ${report.watch.snapshot_count}`,
     `- Apply mission actions: ${report.mutation_policy.apply_mission_actions}`,
     `- Confirm User B readback: ${report.mutation_policy.confirm_user_b_readback}`,
     `- Target diagnostics preflight ready: ${targetDiagnostics.ready}`,
@@ -623,6 +719,13 @@ function buildMarkdown(report) {
     "",
     ...tokenLines,
     "",
+    "## Target Logcat Diagnostics",
+    "",
+    "- Diagnostic counts only; raw logcat is not written.",
+    `- ADB found: ${report.logcat.adb_found}`,
+    `- Raw log included: ${report.logcat.raw_log_included}`,
+    ...(targetLogcatLines.length ? targetLogcatLines : ["- IW_TARGET tokens: 0"]),
+    "",
     "## Blockers",
     "",
     ...blockerLines,
@@ -635,6 +738,7 @@ function buildMarkdown(report) {
 
 async function main() {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
+  adbLogcatCounts({ clear: options.clearLogcat, read: false });
   const targetDiagnosticsPreflight = collectTargetDiagnosticsPreflight();
   const initialSnapshot = await captureSnapshot(baseUrl);
   const actions = [
@@ -642,8 +746,10 @@ async function main() {
   ];
   const afterMission = await captureSnapshot(baseUrl);
   actions.push(...await maybeConfirmUserBReadback(baseUrl, afterMission));
-  const latestSnapshot = await captureSnapshot(baseUrl);
+  const snapshots = await captureWatchSnapshots(baseUrl);
+  const latestSnapshot = snapshots[snapshots.length - 1];
   const blockers = buildBlockers(latestSnapshot, targetDiagnosticsPreflight);
+  const logcat = adbLogcatCounts({ clear: false, read: options.includeLogcatCounts });
   const report = {
     schema: "innerworld-field-target-pass/v1",
     generated_at: new Date().toISOString(),
@@ -665,19 +771,31 @@ async function main() {
     },
     requirements: {
       require_live_session: options.requireLiveSession,
+      require_target_diagnostics: options.requireTargetDiagnostics,
       require_trusted_a1_a2_a3: options.requireTrusted,
       require_mission_loop: options.requireMissionLoop
     },
+    watch: {
+      duration_sec: Math.max(1, Number(options.durationSec) || 1),
+      interval_sec: Math.max(1, Number(options.intervalSec) || 2),
+      snapshot_count: snapshots.length,
+      logcat_counts_requested: options.includeLogcatCounts,
+      clear_logcat_requested: options.clearLogcat,
+      read_only_by_default: !options.applyMissionActions && !options.confirmUserBReadback
+    },
     initial_snapshot: initialSnapshot,
     latest_snapshot: latestSnapshot,
+    snapshots,
     target_diagnostics_preflight: targetDiagnosticsPreflight,
+    logcat,
     actions,
     blockers,
     privacy: {
       raw_session_ids_included: false,
       raw_device_ids_included: false,
       private_ips_included: false,
-      raw_pairing_codes_included: false
+      raw_pairing_codes_included: false,
+      raw_logcat_included: false
     }
   };
 
@@ -701,6 +819,9 @@ async function main() {
     check: "field-target-pass",
     live_session_ready: latestSnapshot.live_session_ready,
     target_diagnostics_preflight_ready: targetDiagnosticsPreflight.ready,
+    watch_duration_sec: report.watch.duration_sec,
+    snapshot_count: report.watch.snapshot_count,
+    raw_logcat_included: false,
     current_apk_sha256_prefix: targetDiagnosticsPreflight.apk.sha256_prefix,
     target_diagnostic_tokens_found: targetDiagnosticsPreflight.target_diagnostic_tokens.all_found,
     mutating_launch_matches_current_apk: targetDiagnosticsPreflight.mutating_launch.matches_current_apk,
