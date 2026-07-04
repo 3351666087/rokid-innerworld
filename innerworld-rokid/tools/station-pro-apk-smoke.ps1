@@ -3,6 +3,7 @@ param(
   [string]$PackageName = "com.innerworld.rokid.prototype",
   [switch]$InstallAndLaunch,
   [switch]$RequireDevice,
+  [switch]$RequireGlassesDisplay,
   [switch]$PairWithOperator,
   [string]$ApiBaseUrl = "http://127.0.0.1:5177",
   [int]$PairingVerifyTimeoutSeconds = 12,
@@ -877,6 +878,177 @@ function Get-LaunchDiagnostics {
   }
 }
 
+function Get-DisplayNameHint {
+  param([AllowNull()][string]$Name)
+  if ([string]::IsNullOrWhiteSpace($Name)) { return "unknown" }
+  $value = "$Name"
+  if ($value -match "(?i)rokid") { return "rokid" }
+  if ($value -match "(?i)max") { return "max" }
+  if ($value -match "(?i)glass|glasses") { return "glasses" }
+  if ($value -match "(?i)hdmi") { return "hdmi" }
+  if ($value -match "(?i)external|wireless|virtual") { return "external" }
+  if ($value -match "(?i)built.?in|internal|default|local|内置") { return "internal" }
+  return "unknown"
+}
+
+function New-DisplayDiagnostics {
+  param([bool]$Requested)
+  return [pscustomobject]@{
+    requested = $Requested
+    query_ok = $false
+    display_count = 0
+    external_display_detected = $false
+    internal_only = $false
+    display_summaries = @()
+    raw_dumpsys_included = $false
+    error = if ($Requested) { "not_attempted" } else { $null }
+  }
+}
+
+function Get-StationDisplayDiagnostics {
+  param(
+    [AllowNull()][string]$AdbPath,
+    [string[]]$KnownDeviceIds = @()
+  )
+  if ([string]::IsNullOrWhiteSpace($AdbPath)) {
+    $diagnostics = New-DisplayDiagnostics -Requested $true
+    $diagnostics.error = "adb_not_available"
+    return $diagnostics
+  }
+
+  $result = Invoke-Capture -Command $AdbPath -Arguments @("shell", "dumpsys", "display") -KnownDeviceIds $KnownDeviceIds
+  $text = "$($result.text)"
+  $displayLines = @($text -split "`r?`n" | Where-Object { $_ -match "DisplayDeviceInfo\{" })
+  $summaries = @()
+  foreach ($line in $displayLines) {
+    $name = $null
+    $type = $null
+    $state = $null
+    if ($line -match 'DisplayDeviceInfo\{"([^"]*)"') { $name = $Matches[1] }
+    if ($line -match '\btype\s+([A-Z_]+)') { $type = $Matches[1] }
+    if ($line -match '\bstate\s+([A-Z_]+)') { $state = $Matches[1] }
+    $hint = Get-DisplayNameHint -Name $name
+    $externalCandidate = [bool](
+      ($type -and $type -match "EXTERNAL|OVERLAY|VIRTUAL") -or
+      ($hint -in @("rokid", "max", "glasses", "hdmi", "external"))
+    )
+    $summaries += [pscustomobject]@{
+      name_hint = $hint
+      name_hash_prefix = if (![string]::IsNullOrWhiteSpace($name)) { Get-Sha256Prefix $name } else { $null }
+      type = $type
+      state = $state
+      external_candidate = $externalCandidate
+    }
+  }
+
+  $externalDetected = [bool](@($summaries | Where-Object { $_.external_candidate }).Count -gt 0)
+  return [pscustomobject]@{
+    requested = $true
+    query_ok = [bool]$result.ok
+    display_count = $summaries.Count
+    external_display_detected = $externalDetected
+    internal_only = [bool]($summaries.Count -gt 0 -and !$externalDetected)
+    display_summaries = @($summaries)
+    raw_dumpsys_included = $false
+    error = if ($result.ok) { $null } else { $result.text }
+  }
+}
+
+function Count-TextRegex {
+  param(
+    [AllowNull()][string]$Text,
+    [string]$Pattern
+  )
+  if ([string]::IsNullOrWhiteSpace($Text)) { return 0 }
+  return [regex]::Matches($Text, $Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase).Count
+}
+
+function New-RokidRuntimeLogDiagnostics {
+  param([bool]$Requested)
+  return [pscustomobject]@{
+    requested = $Requested
+    query_ok = $false
+    raw_logcat_included = $false
+    runtime_unavailable_count = 0
+    runtime_broker_failure_count = 0
+    rokid_runtime_manifest_count = 0
+    runtime_load_success_count = 0
+    glass_name_failure_count = 0
+    head_pose_failure_count = 0
+    rokid_runtime_loaded = $false
+    runtime_unavailable_detected = $false
+    glasses_detection_blocked = $false
+    error = if ($Requested) { "not_attempted" } else { $null }
+  }
+}
+
+function Get-RokidRuntimeLogDiagnostics {
+  param(
+    [AllowNull()][string]$AdbPath,
+    [string[]]$KnownDeviceIds = @()
+  )
+  if ([string]::IsNullOrWhiteSpace($AdbPath)) {
+    $diagnostics = New-RokidRuntimeLogDiagnostics -Requested $true
+    $diagnostics.error = "adb_not_available"
+    return $diagnostics
+  }
+
+  $result = Invoke-Capture -Command $AdbPath -Arguments @("logcat", "-d", "-v", "brief") -KnownDeviceIds $KnownDeviceIds
+  $text = "$($result.text)"
+  $runtimeUnavailableCount = Count-TextRegex -Text $text -Pattern "XR_ERROR_RUNTIME_UNAVAILABLE"
+  $runtimeBrokerFailureCount = Count-TextRegex -Text $text -Pattern "runtime_broker|Could access neither the installable nor system runtime broker|Failed to find provider info for org\.khronos\.openxr\.runtime_broker"
+  $rokidRuntimeManifestCount = Count-TextRegex -Text $text -Pattern "GetRokidRuntimeManifest"
+  $runtimeLoadSuccessCount = Count-TextRegex -Text $text -Pattern "RuntimeInterface::LoadRuntime succeeded|LoadRuntime succeeded"
+  $glassNameFailureCount = Count-TextRegex -Text $text -Pattern "getGlassName failed|glass not detected"
+  $headPoseFailureCount = Count-TextRegex -Text $text -Pattern "oxr_getHeadPose[^\r\n]*(result\s*=\s*-101|-101)"
+  $rokidRuntimeLoaded = [bool]($rokidRuntimeManifestCount -gt 0 -or $runtimeLoadSuccessCount -gt 0)
+  $runtimeUnavailableDetected = [bool]($runtimeUnavailableCount -gt 0 -or $runtimeBrokerFailureCount -gt 0)
+  $glassesDetectionBlocked = [bool]($glassNameFailureCount -gt 0 -or $headPoseFailureCount -gt 0)
+
+  return [pscustomobject]@{
+    requested = $true
+    query_ok = [bool]$result.ok
+    raw_logcat_included = $false
+    runtime_unavailable_count = $runtimeUnavailableCount
+    runtime_broker_failure_count = $runtimeBrokerFailureCount
+    rokid_runtime_manifest_count = $rokidRuntimeManifestCount
+    runtime_load_success_count = $runtimeLoadSuccessCount
+    glass_name_failure_count = $glassNameFailureCount
+    head_pose_failure_count = $headPoseFailureCount
+    rokid_runtime_loaded = $rokidRuntimeLoaded
+    runtime_unavailable_detected = $runtimeUnavailableDetected
+    glasses_detection_blocked = $glassesDetectionBlocked
+    error = if ($result.ok) { $null } else { $result.text }
+  }
+}
+
+function Get-GlassesDisplayReadiness {
+  param(
+    [object]$DisplayDiagnostics,
+    [object]$RuntimeLogDiagnostics
+  )
+  $blockers = New-Object 'System.Collections.Generic.List[string]'
+  if (!$DisplayDiagnostics.requested) { [void]$blockers.Add("display_diagnostics_not_requested") }
+  if (!$DisplayDiagnostics.query_ok) { [void]$blockers.Add("display_dumpsys_unavailable") }
+  if (!$DisplayDiagnostics.external_display_detected) { [void]$blockers.Add("rokid_external_display_not_detected") }
+  if (!$RuntimeLogDiagnostics.requested) { [void]$blockers.Add("runtime_log_diagnostics_not_requested") }
+  if (!$RuntimeLogDiagnostics.query_ok) { [void]$blockers.Add("runtime_logcat_unavailable") }
+  if ($RuntimeLogDiagnostics.runtime_unavailable_detected) { [void]$blockers.Add("rokid_openxr_runtime_unavailable_detected") }
+  if (!$RuntimeLogDiagnostics.rokid_runtime_loaded) { [void]$blockers.Add("rokid_runtime_load_success_not_seen") }
+  if ($RuntimeLogDiagnostics.glass_name_failure_count -gt 0) { [void]$blockers.Add("rokid_glass_name_not_detected") }
+  if ($RuntimeLogDiagnostics.head_pose_failure_count -gt 0) { [void]$blockers.Add("rokid_head_pose_failure_detected") }
+  return [pscustomobject]@{
+    requested = [bool]($DisplayDiagnostics.requested -or $RuntimeLogDiagnostics.requested)
+    ready = [bool]($blockers.Count -eq 0)
+    external_display_detected = [bool]$DisplayDiagnostics.external_display_detected
+    rokid_runtime_loaded = [bool]$RuntimeLogDiagnostics.rokid_runtime_loaded
+    runtime_unavailable_detected = [bool]$RuntimeLogDiagnostics.runtime_unavailable_detected
+    glasses_detection_blocked = [bool]$RuntimeLogDiagnostics.glasses_detection_blocked
+    blocker_ids = @($blockers)
+    boundary = "This is display/glasses runtime evidence only; it is not A1/A2/A3 hardware acceptance."
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 
 $adbPath = Find-Adb
@@ -936,6 +1108,7 @@ elseif (!$apk.native_libraries.rokid_loader_ready) { [void]$errors.Add("apk_roki
 if (!$apk.config.found) { [void]$errors.Add("apk_innerworld_config_missing") }
 if ($apk.config.space_id -ne "innerworld_campus_wall") { [void]$errors.Add("apk_space_id_mismatch") }
 if ($PairWithOperator -and !$InstallAndLaunch) { [void]$errors.Add("operator_pairing_requires_install_and_launch") }
+if ($RequireGlassesDisplay -and !$InstallAndLaunch) { [void]$errors.Add("glasses_display_check_requires_install_and_launch") }
 
 $stationDevices = @($adb.devices | Where-Object {
     $_.state -eq "device" -and
@@ -963,8 +1136,12 @@ if ($PairWithOperator -and $errors.Count -eq 0) {
 
 $install = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
 $forceStop = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
+$clearLogcat = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
 $launch = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; method = $null; output = $null }
 $pidof = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
+$displayDiagnostics = New-DisplayDiagnostics -Requested $false
+$runtimeLogDiagnostics = New-RokidRuntimeLogDiagnostics -Requested $false
+$glassesDisplayReadiness = Get-GlassesDisplayReadiness -DisplayDiagnostics $displayDiagnostics -RuntimeLogDiagnostics $runtimeLogDiagnostics
 $launchDiagnostics = [pscustomobject]@{
   requested = [bool]$InstallAndLaunch
   query_ok = $false
@@ -996,6 +1173,15 @@ if ($InstallAndLaunch -and $errors.Count -eq 0) {
       output = $forceStopResult.text
     }
     if (!$forceStop.ok) { [void]$warnings.Add("adb_force_stop_failed") }
+
+    $clearLogcatResult = Invoke-Capture -Command $adbPath -Arguments @("logcat", "-b", "all", "-c") -KnownDeviceIds $knownIds -KnownPairingCodes $knownPairingCodes
+    $clearLogcat = [pscustomobject]@{
+      requested = $true
+      ok = [bool]$clearLogcatResult.ok
+      exit_code = $clearLogcatResult.exit_code
+      output = $clearLogcatResult.text
+    }
+    if (!$clearLogcat.ok) { [void]$warnings.Add("adb_logcat_clear_failed") }
 
     $launchDiagnostics = Get-LaunchDiagnostics -AdbPath $adbPath -PackageName $PackageName -KnownDeviceIds $knownIds
     $launchArgs = if ($apk.launchable_activity) {
@@ -1043,6 +1229,16 @@ if ($InstallAndLaunch -and $errors.Count -eq 0) {
     }
     if (!$pidof.ok) { [void]$warnings.Add("apk_process_not_observed_after_launch") }
     if (!$pidof.ok) { [void]$errors.Add("apk_process_not_observed_after_launch") }
+    $displayDiagnostics = Get-StationDisplayDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
+    $runtimeLogDiagnostics = Get-RokidRuntimeLogDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
+    $glassesDisplayReadiness = Get-GlassesDisplayReadiness -DisplayDiagnostics $displayDiagnostics -RuntimeLogDiagnostics $runtimeLogDiagnostics
+    if (!$displayDiagnostics.external_display_detected) { [void]$warnings.Add("rokid_external_display_not_detected") }
+    if ($runtimeLogDiagnostics.runtime_unavailable_detected) { [void]$warnings.Add("rokid_openxr_runtime_unavailable_detected") }
+    if ($runtimeLogDiagnostics.glass_name_failure_count -gt 0) { [void]$warnings.Add("rokid_glass_name_not_detected") }
+    if ($runtimeLogDiagnostics.head_pose_failure_count -gt 0) { [void]$warnings.Add("rokid_head_pose_failure_detected") }
+    if ($RequireGlassesDisplay -and !$glassesDisplayReadiness.ready) {
+      [void]$errors.Add("rokid_glasses_display_not_detected")
+    }
     if ($PairWithOperator -and $pairingLaunchExtraInjected) {
       $pairingVerification = Test-OperatorPairedSession -BaseUrl $ApiBaseUrl -PairingId $operatorPairingId -TimeoutSeconds $PairingVerifyTimeoutSeconds
       if (!$pairingVerification.ok) {
@@ -1055,7 +1251,7 @@ if ($InstallAndLaunch -and $errors.Count -eq 0) {
 $installLaunchIntentAccepted = [bool]($install.ok -and $launch.ok)
 $processObserved = [bool]$pidof.ok
 $installRunSmoke = [bool]($installLaunchIntentAccepted -and $processObserved)
-$evidenceKind = if ($InstallAndLaunch) { "mutating_launch" } else { "inspect_only" }
+$evidenceKind = if ($RequireGlassesDisplay) { "display_gate" } elseif ($InstallAndLaunch) { "mutating_launch" } else { "inspect_only" }
 $pairingLaunchExtraKeys = [string[]]@()
 if ($pairingLaunchExtraInjected) {
   $pairingLaunchExtraKeys = [string[]]@("innerworld_pairing_code", "com.innerworld.rokid.OPERATOR_PAIRING_CODE")
@@ -1098,6 +1294,8 @@ $report = [pscustomobject]@{
     operator_pairing_issue_ok = [bool]$pairingIssue.ok
     operator_pairing_launch_extra_injected = [bool]$pairingLaunchExtraInjected
     operator_pairing_verified = [bool]$pairingVerification.ok
+    glasses_display_ready = [bool]$glassesDisplayReadiness.ready
+    external_display_detected = [bool]$glassesDisplayReadiness.external_display_detected
     live_heartbeat_ready = $false
     hardware_acceptance_ready = $false
     note = "APK install/run smoke and operator pairing proof are not field acceptance. Trusted A1/A2/A3 QR/image_tracking/SLAM observations are still required."
@@ -1115,11 +1313,15 @@ $report = [pscustomobject]@{
   actions = [pscustomobject]@{
     install = $install
     force_stop = $forceStop
+    clear_logcat = $clearLogcat
     launch = $launch
     pidof = $pidof
   }
   diagnostics = [pscustomobject]@{
     launch = $launchDiagnostics
+    display = $displayDiagnostics
+    runtime_log = $runtimeLogDiagnostics
+    glasses_display = $glassesDisplayReadiness
   }
   warnings = @($warnings)
   errors = @($errors)
@@ -1129,12 +1331,16 @@ $jsonPath = Join-Path $OutputRoot "station-pro-apk-smoke-$stamp.json"
 $latestJson = Join-Path $OutputRoot "station-pro-apk-smoke-latest.json"
 $mdPath = Join-Path $OutputRoot "station-pro-apk-smoke-$stamp.md"
 $latestMd = Join-Path $OutputRoot "station-pro-apk-smoke-latest.md"
-$kindLatestJson = if ($InstallAndLaunch) {
+$kindLatestJson = if ($RequireGlassesDisplay) {
+  Join-Path $OutputRoot "station-pro-apk-smoke-latest-display-gate.json"
+} elseif ($InstallAndLaunch) {
   Join-Path $OutputRoot "station-pro-apk-smoke-latest-mutating-launch.json"
 } else {
   Join-Path $OutputRoot "station-pro-apk-smoke-latest-inspect.json"
 }
-$kindLatestMd = if ($InstallAndLaunch) {
+$kindLatestMd = if ($RequireGlassesDisplay) {
+  Join-Path $OutputRoot "station-pro-apk-smoke-latest-display-gate.md"
+} elseif ($InstallAndLaunch) {
   Join-Path $OutputRoot "station-pro-apk-smoke-latest-mutating-launch.md"
 } else {
   Join-Path $OutputRoot "station-pro-apk-smoke-latest-inspect.md"
@@ -1185,12 +1391,26 @@ $markdown = @(
   "- Install/launch intent accepted: $($report.readiness.install_launch_intent_accepted)",
   "- Process observed: $($report.readiness.process_observed)",
   "- Install/run smoke: $($report.readiness.install_run_smoke)",
+  "- Logcat cleared before launch: $($report.actions.clear_logcat.ok)",
   "- Operator pairing issue OK: $($report.readiness.operator_pairing_issue_ok)",
   "- Operator pairing launch extra injected: $($report.readiness.operator_pairing_launch_extra_injected)",
   "- Operator pairing verified: $($report.readiness.operator_pairing_verified)",
+  "- Glasses display ready: $($report.readiness.glasses_display_ready)",
+  "- External display detected: $($report.readiness.external_display_detected)",
   "- Activity is UXR app: $($report.diagnostics.launch.is_uxr_app)",
   "- Activity can launch by default: $($report.diagnostics.launch.can_launch_by_default)",
   "- Launch error code: $($report.diagnostics.launch.launch_error_code)",
+  "- Display diagnostics requested: $($report.diagnostics.display.requested)",
+  "- Display count: $($report.diagnostics.display.display_count)",
+  "- Runtime log diagnostics requested: $($report.diagnostics.runtime_log.requested)",
+  "- Rokid runtime loaded: $($report.diagnostics.runtime_log.rokid_runtime_loaded)",
+  "- Runtime unavailable count: $($report.diagnostics.runtime_log.runtime_unavailable_count)",
+  "- Runtime broker failure count: $($report.diagnostics.runtime_log.runtime_broker_failure_count)",
+  "- Glass name failure count: $($report.diagnostics.runtime_log.glass_name_failure_count)",
+  "- Head pose failure count: $($report.diagnostics.runtime_log.head_pose_failure_count)",
+  "- Glasses display blockers: $(@($report.diagnostics.glasses_display.blocker_ids) -join ', ')",
+  "- Raw dumpsys included: $($report.diagnostics.display.raw_dumpsys_included)",
+  "- Raw logcat included: $($report.diagnostics.runtime_log.raw_logcat_included)",
   "- Live heartbeat ready: false",
   "- Hardware acceptance ready: false",
   "",

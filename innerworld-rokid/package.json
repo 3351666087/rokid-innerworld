@@ -35,6 +35,7 @@
     "station:apk:inspect": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-apk-smoke.ps1",
     "station:apk:patch-lan": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/patch-apk-config.ps1",
     "station:apk:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-apk-smoke.ps1 -RequireDevice -InstallAndLaunch",
+    "station:apk:display-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-apk-smoke.ps1 -RequireDevice -InstallAndLaunch -RequireGlassesDisplay",
     "station:apk:pair-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-apk-smoke.ps1 -RequireDevice -InstallAndLaunch -PairWithOperator",
     "env:doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/env-doctor.ps1",
     "evidence:rehearsal": "node server/space-server/capture-rehearsal.js",

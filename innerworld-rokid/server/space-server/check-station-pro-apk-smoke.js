@@ -168,9 +168,16 @@ async function main() {
   assert(report.readiness?.hardware_acceptance_ready === false, "inspect cannot claim hardware acceptance readiness");
   assert(report.readiness?.install_run_smoke === false, "inspect cannot claim install/run smoke");
   assert(report.readiness?.operator_pairing_requested === false, "inspect cannot request operator pairing");
+  assert(report.readiness?.glasses_display_ready === false, "inspect cannot claim glasses display readiness");
+  assert(report.readiness?.external_display_detected === false, "inspect cannot claim external display detection");
   assert(report.pairing?.issue?.raw_pairing_code_included === false, "pairing issue report must not include raw codes");
   assert(report.pairing?.launch_extra?.raw_pairing_code_included === false, "pairing launch report must not include raw codes");
   assert(report.pairing?.verification?.raw_session_ids_included === false, "pairing verification report must not include raw session ids");
+  assert(report.diagnostics?.display?.requested === false, "inspect must not run display dumpsys diagnostics");
+  assert(report.diagnostics?.display?.raw_dumpsys_included === false, "display diagnostics must not include raw dumpsys");
+  assert(report.diagnostics?.runtime_log?.requested === false, "inspect must not read runtime logcat diagnostics");
+  assert(report.diagnostics?.runtime_log?.raw_logcat_included === false, "runtime diagnostics must not include raw logcat");
+  assert(report.diagnostics?.glasses_display?.ready === false, "inspect cannot mark glasses display ready");
 
   console.log(JSON.stringify({
     ok: true,
@@ -192,6 +199,8 @@ async function main() {
     rokid_openxr_loader_ready: report.apk.native_libraries.rokid_loader_ready,
     rokid_native_libs_missing: report.apk.native_libraries.missing_names,
     require_rokid_native_libs: requireRokidNativeLibs,
+    glasses_display_ready: report.readiness.glasses_display_ready,
+    external_display_detected: report.readiness.external_display_detected,
     require_lan_config: requireLan,
     station_pro_devices: stationDevices.length,
     install_and_launch: report.install_and_launch

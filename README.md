@@ -2,6 +2,13 @@
 
 ## Latest Checkpoint
 
+2026-07-04 20:30 Asia/Shanghai:
+
+- Added the Station Pro display/glasses gate after the OpenXR loader fix. `station:apk:smoke` now clears logcat before launch, installs/launches the APK, then records sanitized `dumpsys display` and logcat pattern evidence without storing raw dumpsys or raw logcat.
+- Fresh smoke still passes APK install/cold-launch/process: current APK `5b1d4641616d...`, `is_uxr_app=true`, `rokid_runtime_loaded=true`, `runtime_unavailable_count=0`, `runtime_broker_failure_count=0`.
+- The new evidence makes the remaining blocker concrete: `display_count=1`, `external_display_detected=false`, `internal_only=true`, `glass_name_failure_count=2`. The strict command `npm run station:apk:display-smoke` fails as expected with `rokid_glasses_display_not_detected`.
+- This is not hardware-ready. It cleanly separates "APK/runtime path works" from "Rokid glasses are physically detected and displaying", and the next field action remains fixing the Station Pro -> Max/HDMI/glasses detection chain before A1/A2/A3/User B acceptance.
+
 2026-07-04 20:11 Asia/Shanghai:
 
 - Fixed the reported black-screen launch blocker in the Unity/Rokid APK path. Root cause was the final APK packaging Unity's default `libopenxr_loader.so`, which looked for the Khronos runtime broker instead of the Rokid runtime package.

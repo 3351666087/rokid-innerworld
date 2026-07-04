@@ -31,6 +31,14 @@ Pass means install OK, cold launch OK, process observed, UXR app accepted, opera
 
 For the current black-screen fix line, APK smoke must also show `rokid_loader_ready=true`: the packaged `libopenxr_loader.so` must contain marker `com.rokid.openxr.runtime`. If smoke/logcat no longer shows `XR_ERROR_RUNTIME_UNAVAILABLE` but the glasses still show black, stop treating it as an APK loader issue and check physical display/glasses detection first. The current known residual symptoms are internal display only, `getGlassName failed: glass not detected`, and head-pose failures.
 
+Before physical A1/A2/A3 scanning, require the glasses display chain:
+
+```powershell
+npm run station:apk:display-smoke
+```
+
+This command is expected to fail until Station Pro detects the Rokid glasses/external display. Passing APK smoke alone is not enough; the strict display smoke must be green before the physical target pass.
+
 ## 2. Open The Field Watch
 
 Start the combined read-only live + target watcher before anyone scans the wall:

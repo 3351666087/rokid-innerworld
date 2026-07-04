@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 20:11 Asia/Shanghai
+Updated: 2026-07-04 20:30 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -199,6 +199,8 @@ These ideas are useful but cannot pull effort away from the hardware loop until 
 The next implementation checkpoint remains `station_pro_trusted_hardware_session`. The immediate build-hardening slice has advanced again for the user-reported black screen: the current Station Pro APK is SHA256 `5b1d4641616dfc75bee98f1772af5c592820b07ba90c0e38413dff2bdd253029`, includes `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`, and the packaged OpenXR loader is verified as the Rokid package loader with marker `com.rokid.openxr.runtime`. Station Pro install/cold-launch/process smoke is green and fresh logcat no longer shows `XR_ERROR_RUNTIME_UNAVAILABLE` or Khronos broker failure.
 
 The bus now treats the remaining black-screen risk as physical display/glasses detection, not the previous APK loader/runtime-broker failure. Current evidence still shows only the Station Pro internal display plus `getGlassName failed: glass not detected` / head-pose failures, so hardware-ready remains false and the next implementation slice should add a display/glasses detection gate before the physical target pass.
+
+That display/glasses detection gate is now implemented. `station:apk:smoke` records sanitized display/runtime evidence, and `station:apk:display-smoke` is the strict local gate. Current strict result is expected-red on `rokid_glasses_display_not_detected`; teammate SDK/image-target work must not proceed to physical A1/A2/A3 acceptance until this gate is green.
 
 The bus now moves to the physical trusted-observation pass: run `npm run check:field-live-pass` before scanning, use `npm run field:live-pass:watch` during the A1/A2/A3 target pass, point the live device at A1/A2/A3 targets, produce operator-paired trusted QR/image_tracking observations, complete A2 read -> A3 write-back -> User B readback, and only then allow `/api/field/acceptance` to turn hardware-ready. Current live-pass baseline is one online operator-paired live SDK session and `0/3` trusted A1/A2/A3 anchors; mission/User B/provenance ledger readiness does not override the missing physical observations. `npm run field:live-pass -- --require-trusted --require-mission-loop` must fail until that evidence exists. Gradle mirror/IDM fallback still needs durable non-generated hardening, but it is no longer the immediate runtime blocker.
 

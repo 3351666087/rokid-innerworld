@@ -53,6 +53,8 @@ Current checkpoint: the current APK is SHA256 `5b1d4641616dfc75bee98f1772af5c592
 
 Clean logcat relaunch for the same checkpoint showed `DllNotFoundException=0`, `UnsatisfiedLinkError=0`, `XR_ERROR_RUNTIME_UNAVAILABLE=0`, Khronos broker failure `0`, and Rokid runtime manifest/load success. This fixes the APK-loader black-screen root cause. The remaining display blocker is physical glasses/external-display detection: current evidence still shows internal display only plus `getGlassName failed: glass not detected` / head-pose failures. This is APK runtime evidence for the P0 lane, not field acceptance.
 
+Display/glasses detection is now tool-gated. `station:apk:smoke` clears logcat before launch and records sanitized display summaries plus runtime pattern counts; `station:apk:display-smoke` adds `-RequireGlassesDisplay` and must pass before a physical target scan. Current strict result is expected-red with `rokid_glasses_display_not_detected`, one internal display, no external display, Rokid runtime loaded, and no runtime-unavailable errors.
+
 Current remaining boundary: this still is not hardware-ready. The project cannot claim RKCameraRig/RKInput/PointableUI/image target/SLAM trusted hardware readiness until trusted A1/A2/A3 physical observations, mission write-back, User B readback, and `/api/field/acceptance` readiness all pass.
 
 UXR live-binding instruction: keep the UXR manifest gate, then install `com.rokid.xr.unity`, run Rokid Environment Fix, OpenXR Feature Groups, and Project Validation. Bind RKCameraRig/RKInput/PointableUI/image target/SLAM into the existing adapter boundary and heartbeat contract instead of creating a parallel runtime.
