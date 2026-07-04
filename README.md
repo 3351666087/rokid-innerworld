@@ -2,9 +2,15 @@
 
 ## Latest Checkpoint
 
+2026-07-04 16:32 Asia/Shanghai:
+
+- Carver re-audited the current physical-pass lane and found no hardware-ready misclaim or P0 drift. Local record: `.agents/carver/carver-target-session-wrapper-audit-2026-07-04-1632.md`.
+- Field target reporting now separates `precheck_ok` from `physical_acceptance_ready`, and always lists `physical_blockers`. Current target precheck is green for APK/session/diagnostics, but physical acceptance remains false on missing trusted A1/A2/A3, mission/User B loop, and `/api/field/acceptance`.
+- `field:acceptance-session:target` is now the combined on-site precheck/watch command; `field:acceptance-session:target-strict` is the strict A1/A2/A3 -> A3 TimeMark -> User B closeout command and remains red until the real wall pass is complete. Runbook: `innerworld-rokid/docs/field-hardware-runbook.md`.
+
 2026-07-04 16:17 Asia/Shanghai:
 
-- GitHub sync is current before the next hardware step: branch `codex/rokid-real-device-sync` and PR #1 both point to commit `8f61417e` with CI green. Local build artifacts and LAN machine config churn were not pushed as source changes.
+- GitHub sync was current before this hardware step: branch `codex/rokid-real-device-sync` and PR #1 had CI green. Local build artifacts and LAN machine config churn were not pushed as source changes.
 - Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` is now the current Station Pro smoke artifact: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`.
 - `npm run station:apk:pair-smoke` passed on the connected Station Pro for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and private identifiers/pairing code stayed out of evidence.
 - `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-live-pass`, `check:field-target-pass`, `check:unity`, `check:contract`, `check:mainline`, and `context:export` passed after the smoke. `field:target-pass:strict` still fails correctly because trusted A1/A2/A3 observations, A2 read/service/write-back mission steps, A3 TimeMark, and User B readback are still missing.

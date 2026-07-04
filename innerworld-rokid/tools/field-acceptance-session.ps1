@@ -5,6 +5,9 @@ param(
   [switch]$SkipApkInspect,
   [switch]$PairSmoke,
   [switch]$Watch,
+  [switch]$TargetPass,
+  [switch]$ApplyMissionActions,
+  [switch]$ConfirmUserBReadback,
   [switch]$RequireTrusted,
   [switch]$RequireMissionLoop,
   [int]$WatchDurationSec = 120,
@@ -326,8 +329,18 @@ function Write-SessionMarkdown {
     "- $action"
   }
   if (!$actionLines) { $actionLines = @("- none") }
+  $targetBlockerLines = foreach ($blocker in @($Report.target_pass.blockers)) {
+    "- $blocker"
+  }
+  if (!$targetBlockerLines) { $targetBlockerLines = @("- none") }
+  $targetPhysicalBlockerLines = foreach ($blocker in @($Report.target_pass.physical_blockers)) {
+    "- $blocker"
+  }
+  if (!$targetPhysicalBlockerLines) { $targetPhysicalBlockerLines = @("- none") }
   $commandsBlock = $commandLines -join "`n"
   $actionsBlock = $actionLines -join "`n"
+  $targetBlockersBlock = $targetBlockerLines -join "`n"
+  $targetPhysicalBlockersBlock = $targetPhysicalBlockerLines -join "`n"
 
   $md = @"
 # Field Acceptance Session
@@ -344,11 +357,25 @@ function Write-SessionMarkdown {
 - Trusted A1/A2/A3 ready: $($Report.live_pass.trusted_a1_a2_a3_ready)
 - Mission loop ready: $($Report.live_pass.mission_loop_ready)
 - Field acceptance ready: $($Report.live_pass.field_acceptance_ready)
+- Target pass requested: $($Report.target_pass.requested)
+- Target diagnostics preflight ready: $($Report.target_pass.target_diagnostics_preflight_ready)
+- Target precheck OK: $($Report.target_pass.precheck_ok)
+- Target physical acceptance ready: $($Report.target_pass.physical_acceptance_ready)
+- Target mutating launch matches APK: $($Report.target_pass.mutating_launch_matches_current_apk)
+- Target pass command OK: $($Report.target_pass.command_ok)
 - Hardware-ready claim allowed: $($Report.hardware_ready_claim_allowed)
 
 ## Commands
 
 $commandsBlock
+
+## Target Pass Blockers
+
+$targetBlockersBlock
+
+## Target Physical Acceptance Blockers
+
+$targetPhysicalBlockersBlock
 
 ## Next Required Actions
 
@@ -356,7 +383,7 @@ $actionsBlock
 
 ## Boundary
 
-This session runner does not create simulator/manual observations, mission progress, service actions, or write-back records. Pair-smoke and watch modes only install/launch/pair the APK and observe live gates. Hardware-ready remains false until trusted A1/A2/A3, A3 write-back, User B readback, and /api/field/acceptance are all ready.
+This session runner does not create simulator/manual observations. Pair-smoke and watch modes only install/launch/pair the APK and observe live/target gates. Mission/service/write-back/User B mutations only happen when the explicit target-pass action switches are used, and those actions remain gated by trusted A2/A3 evidence. Hardware-ready remains false until trusted A1/A2/A3, A3 write-back, User B readback, and /api/field/acceptance are all ready.
 "@
   $md | Set-Content -Encoding UTF8 -Path $Path
 }
@@ -431,10 +458,46 @@ if ($Watch) {
   $commands += New-SkippedCommand -Name "field-live-pass-watch" -Reason "Watch switch not set"
 }
 
+$targetPassCommand = $null
+$targetPassJson = $null
+$targetAppliedActions = @()
+if ($TargetPass) {
+  $targetArgs = @("tools/field-target-pass.js", "--base-url", $BaseUrl, "--require-live-session", "--require-target-diagnostics")
+  if ($Watch) {
+    $targetArgs += @("--watch", "--duration-sec", "$WatchDurationSec", "--interval-sec", "$WatchIntervalSec", "--logcat")
+  } else {
+    $targetArgs += "--single"
+  }
+  if ($ApplyMissionActions) { $targetArgs += "--apply-mission-actions" }
+  if ($ConfirmUserBReadback) { $targetArgs += "--confirm-user-b-readback" }
+  if ($RequireTrusted) { $targetArgs += "--require-trusted" }
+  if ($RequireMissionLoop) { $targetArgs += "--require-mission-loop" }
+
+  $targetPassCommand = Invoke-ProcessCapture `
+    -Name "field-target-pass" `
+    -FileName "node" `
+    -Arguments $targetArgs `
+    -TimeoutSec ([Math]::Max(90, $WatchDurationSec + 75))
+  $commands += $targetPassCommand
+  $targetPassJson = Convert-JsonOutput -Command $targetPassCommand
+  if ($targetPassJson -and $targetPassJson.ok -eq $false) {
+    $targetPassCommand.ok = $false
+    if ($null -eq $targetPassCommand.exit_code -or $targetPassCommand.exit_code -eq 0) {
+      $targetPassCommand.exit_code = 2
+    }
+  }
+  if ($targetPassJson -and $targetPassJson.actions) {
+    $targetAppliedActions = @($targetPassJson.actions | Where-Object { $_.applied -eq $true })
+  }
+} else {
+  $commands += New-SkippedCommand -Name "field-target-pass" -Reason "TargetPass switch not set"
+}
+
 $cFreeAfter = Get-CFreeGB
 $commandFailures = @($commands | Where-Object { !$_.ok })
 $healthOk = [bool]$apiSnapshots["/api/health"].ok
 $livePassOk = [bool]$livePassCommand.ok
+$targetPassOk = [bool]($null -eq $targetPassCommand -or $targetPassCommand.ok)
 $fieldAcceptanceReady = [bool]($livePassJson -and $livePassJson.field_acceptance_ready -eq $true)
 $trustedReady = [bool]($livePassJson -and $livePassJson.trusted_a1_a2_a3_ready -eq $true)
 $missionReady = [bool]($livePassJson -and $livePassJson.mission_loop_ready -eq $true)
@@ -469,8 +532,10 @@ $report = [pscustomobject]@{
   }
   mutating_actions = [pscustomobject]@{
     pair_smoke_requested = [bool]$PairSmoke
+    target_pass_apply_mission_actions_requested = [bool]$ApplyMissionActions
+    target_pass_confirm_user_b_readback_requested = [bool]$ConfirmUserBReadback
     simulator_or_manual_observations_created = $false
-    mission_or_writeback_mutated = $false
+    mission_or_writeback_mutated = [bool]($targetAppliedActions.Count -gt 0)
   }
   watch = [pscustomobject]@{
     requested = [bool]$Watch
@@ -489,6 +554,23 @@ $report = [pscustomobject]@{
     missing_hardware_anchor_ids = if ($livePassJson) { Convert-ToStringArray $livePassJson.missing_hardware_anchor_ids } else { Convert-ToStringArray $null }
     missing_mission_step_ids = if ($livePassJson) { Convert-ToStringArray $livePassJson.missing_mission_step_ids } else { Convert-ToStringArray $null }
     blockers = if ($livePassJson) { Convert-ToStringArray $livePassJson.blockers } else { Convert-ToStringArray "field_live_pass_summary_missing" }
+  }
+  target_pass = [pscustomobject]@{
+    requested = [bool]$TargetPass
+    command_ok = $targetPassOk
+    precheck_ok = [bool]($targetPassJson -and $targetPassJson.precheck_ok -eq $true)
+    physical_acceptance_ready = [bool]($targetPassJson -and $targetPassJson.physical_acceptance_ready -eq $true)
+    target_diagnostics_preflight_ready = [bool]($targetPassJson -and $targetPassJson.target_diagnostics_preflight_ready -eq $true)
+    mutating_launch_matches_current_apk = [bool]($targetPassJson -and $targetPassJson.mutating_launch_matches_current_apk -eq $true)
+    target_diagnostic_tokens_found = [bool]($targetPassJson -and $targetPassJson.target_diagnostic_tokens_found -eq $true)
+    live_session_ready = [bool]($targetPassJson -and $targetPassJson.live_session_ready -eq $true)
+    trusted_a1_a2_a3_ready = [bool]($targetPassJson -and $targetPassJson.trusted_a1_a2_a3_ready -eq $true)
+    mission_loop_ready = [bool]($targetPassJson -and $targetPassJson.mission_loop_ready -eq $true)
+    field_acceptance_ready = [bool]($targetPassJson -and $targetPassJson.field_acceptance_ready -eq $true)
+    missing_trusted_anchor_ids = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.missing_trusted_anchor_ids } else { Convert-ToStringArray $null }
+    missing_mission_step_ids = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.missing_mission_step_ids } else { Convert-ToStringArray $null }
+    blockers = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.blockers } else { Convert-ToStringArray $null }
+    physical_blockers = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.physical_blockers } else { Convert-ToStringArray $null }
   }
   hardware_ready_claim_allowed = $hardwareReadyClaimAllowed
   next_required_actions = [string[]]$nextActions

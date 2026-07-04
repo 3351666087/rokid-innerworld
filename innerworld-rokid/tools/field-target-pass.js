@@ -833,12 +833,23 @@ function buildBlockers(snapshot, targetDiagnostics) {
   return blockers;
 }
 
+function buildPhysicalBlockers(snapshot, targetDiagnostics) {
+  const blockers = [];
+  if (!snapshot.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
+  if (targetDiagnostics.ready !== true) blockers.push("current_target_diagnostics_apk_preflight_missing");
+  if (!snapshot.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
+  if (!snapshot.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (!snapshot.field_acceptance_ready) blockers.push("field_acceptance_not_ready");
+  return blockers;
+}
+
 function buildMarkdown(report) {
   const phaseLines = report.latest_snapshot.phases.map((phase) => `- ${phase.id}: ${phase.status} | ${phase.action}`);
   const actionLines = report.actions.length
     ? report.actions.map((action) => `- ${action.id}: applied=${action.applied}, ok=${action.ok}${action.skipped_reason ? `, skipped=${action.skipped_reason}` : ""}`)
     : ["- none"];
   const blockerLines = report.blockers.length ? report.blockers.map((item) => `- ${item}`) : ["- none"];
+  const physicalBlockerLines = report.physical_blockers.length ? report.physical_blockers.map((item) => `- ${item}`) : ["- none"];
   const targetDiagnostics = report.target_diagnostics_preflight;
   const tokenLines = targetDiagnostics.target_diagnostic_tokens.tokens.map((item) => `- ${item.token}: found=${item.found}${item.entry ? `, entry=${item.entry}` : ""}`);
   const targetLogcatLines = (report.logcat.pattern_counts || [])
@@ -863,6 +874,8 @@ function buildMarkdown(report) {
     "",
     `- Generated: ${report.generated_at}`,
     `- OK: ${report.ok}`,
+    `- Precheck OK: ${report.precheck_ok}`,
+    `- Physical acceptance ready: ${report.physical_acceptance_ready}`,
     `- API host kind: ${report.api.host_kind}`,
     `- Watch duration seconds: ${report.watch.duration_sec}`,
     `- Snapshot count: ${report.watch.snapshot_count}`,
@@ -929,6 +942,10 @@ function buildMarkdown(report) {
     "",
     ...blockerLines,
     "",
+    "## Physical Acceptance Blockers",
+    "",
+    ...physicalBlockerLines,
+    "",
     "## Boundary",
     "",
     "This runner never creates simulator/manual calibration observations and does not claim hardware readiness. Mission/service/write-back actions require --apply-mission-actions and are gated by trusted A2/A3 evidence. User B readback requires --confirm-user-b-readback after an operator has verified the new A3 memory through the glasses."
@@ -948,11 +965,19 @@ async function main() {
   const snapshots = await captureWatchSnapshots(baseUrl);
   const latestSnapshot = snapshots[snapshots.length - 1];
   const blockers = buildBlockers(latestSnapshot, targetDiagnosticsPreflight);
+  const physicalBlockers = buildPhysicalBlockers(latestSnapshot, targetDiagnosticsPreflight);
+  const physicalAcceptanceReady = physicalBlockers.length === 0
+    && latestSnapshot.field_acceptance_ready === true;
+  const precheckOk = latestSnapshot.live_session_ready === true
+    && targetDiagnosticsPreflight.ready === true
+    && targetDiagnosticsPreflight.mutating_launch.matches_current_apk === true;
   const logcat = adbLogcatCounts({ clear: false, read: options.includeLogcatCounts });
   const report = {
     schema: "innerworld-field-target-pass/v1",
     generated_at: new Date().toISOString(),
     ok: blockers.length === 0,
+    precheck_ok: precheckOk,
+    physical_acceptance_ready: physicalAcceptanceReady,
     api: {
       base_url_redacted: redactUrl(baseUrl),
       host_kind: hostKind(baseUrl),
@@ -989,6 +1014,7 @@ async function main() {
     logcat,
     actions,
     blockers,
+    physical_blockers: physicalBlockers,
     privacy: {
       raw_session_ids_included: false,
       raw_device_ids_included: false,
@@ -1015,6 +1041,8 @@ async function main() {
 
   console.log(JSON.stringify({
     ok: report.ok,
+    precheck_ok: report.precheck_ok,
+    physical_acceptance_ready: report.physical_acceptance_ready,
     check: "field-target-pass",
     live_session_ready: latestSnapshot.live_session_ready,
     target_diagnostics_preflight_ready: targetDiagnosticsPreflight.ready,
@@ -1037,6 +1065,7 @@ async function main() {
       skipped_reason: action.skipped_reason || null
     })),
     blockers,
+    physical_blockers: physicalBlockers,
     json: jsonPath,
     markdown: mdPath
   }, null, 2));

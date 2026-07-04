@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 16:17 Asia/Shanghai
+Updated: 2026-07-04 16:32 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -94,10 +94,16 @@ Trusted-observation rescan barrier checkpoint on 2026-07-04 16:01 Asia/Shanghai:
 
 Current-APK Station Pro smoke checkpoint on 2026-07-04 16:17 Asia/Shanghai:
 
-- GitHub branch `codex/rokid-real-device-sync` and PR #1 are synced at commit `8f61417e` before the next hardware slice.
+- GitHub branch `codex/rokid-real-device-sync` and PR #1 were synced before the next hardware slice.
 - The current APK is `output/unity-android/InnerWorldRokid.apk`, 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`.
 - `station:apk:pair-smoke` passed for that exact APK on the connected Station Pro with install, cold launch, process observation, UXR app acceptance, and operator pairing verified.
 - Readiness/package/live-window checks passed, while `field:target-pass:strict` still fails on missing trusted A1/A2/A3 observations and the A2->A3->User B mission loop. This is the correct hardware boundary.
+
+Field target session wrapper checkpoint on 2026-07-04 16:32 Asia/Shanghai:
+
+- Carver recorded the short audit in `.agents/carver/carver-target-session-wrapper-audit-2026-07-04-1632.md`: no hardware-ready misclaim, no P0 drift, and the correct next slice is reducing ambiguity in the physical-pass runner.
+- `field-target-pass` now separates `precheck_ok` from `physical_acceptance_ready` and lists `physical_blockers` even when a non-strict precheck exits green.
+- `field:acceptance-session:target` and `field:acceptance-session:target-strict` are now the recommended site commands for combined live/target evidence and strict closeout. The strict path remains blocked until fresh trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and `/api/field/acceptance`.
 
 Already merged into the mainline:
 

@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 16:17 Asia/Shanghai
+Updated: 2026-07-04 16:32 Asia/Shanghai
 
 ## Objective
 
@@ -39,6 +39,8 @@ Current Station Pro live APK checkpoint:
 - Current post-smoke checks are green for package/readiness/live-window evidence: `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-live-pass`, `check:field-target-pass`, `check:unity`, `check:contract`, `check:mainline`, and `context:export`. The strict field target gate still fails correctly on missing trusted A1/A2/A3 and the P0 mission/User B loop.
 - Current Unity/field-watch diagnostics now expose stable `IW_TARGET_*` log tokens for the next physical wall pass: target event received, unknown image index, live-pairing/session gate reason, throttle, POST start/result/failure, and mission-assist outcome. `field:live-pass:watch --logcat` counts these tokens only as diagnostics and still writes no raw logcat, pairing codes, session ids, serials, private IPs, or MAC addresses.
 - Current `field:target-pass` also records a `target_diagnostics_preflight` guard. It verifies the current APK SHA prefix, APK `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, UXR readiness, and APK target index map all match before strict physical acceptance. The preflight is green for the current `9ddf...` APK, while strict acceptance still correctly blocks on missing trusted A1/A2/A3 observations and the P0 mission/User B loop.
+- Current target reports now split evidence freshness from physical acceptance: `precheck_ok=true` can mean APK/session/diagnostics are aligned, while `physical_acceptance_ready=false` and `physical_blockers` still show missing trusted A1/A2/A3, mission/User B loop, and field acceptance. This prevents a green precheck from being read as hardware-ready.
+- Current field session wrapper has target-pass entrypoints: `field:acceptance-session:target` for the on-site precheck/watch and `field:acceptance-session:target-strict` for the final strict A1/A2/A3 -> A3 TimeMark -> User B closeout. The strict command is expected to fail until the real wall pass completes.
 - Current `field:target-pass:watch` is the preferred one-command companion during the physical scan. It is read-only by default, samples repeated API/phase snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; zero counts mean the glasses have not yet produced target events during the watch window.
 - Current Unity build wrapper is hardened after the target-diagnostics build exposed a post-Unity hang: `tools/build-unity-android.ps1` external checks are timeout-bounded and expose `timed_out` / `timeout_seconds`; `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` now refreshes build evidence for the current APK without rebuilding `RKImage.db`.
 - Current field acceptance runner now has a local/LAN executable wrapper: `npm run field:acceptance-session` records device probe, APK inspect, endpoint snapshots, and a single live-pass without creating simulator/manual observations; `npm run field:acceptance-session:live` adds the explicit mutating pair-smoke plus live watch for the physical target pass. The latest default runner pass is green as a precheck, with `hardware_ready_claim_allowed=false`.
