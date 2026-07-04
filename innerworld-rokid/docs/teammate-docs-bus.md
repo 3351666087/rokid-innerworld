@@ -70,6 +70,7 @@ Target-diagnostics APK checkpoint on 2026-07-04 14:31 Asia/Shanghai:
 
 - The current APK supersedes the earlier `bd852...` fact: `output/unity-android/InnerWorldRokid.apk`, 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`.
 - This APK includes the `IW_TARGET_*` target-observation diagnostics and passed Station Pro install/cold-launch/process/operator-pairing smoke. `field-live-pass --single --logcat` exposes the diagnostic counters without writing raw logcat.
+- `field:target-pass` strict mode now requires a target-diagnostics preflight that matches current APK SHA prefix, APK token scan, latest mutating launch evidence, and UXR readiness before the physical pass can be accepted. The guard is green for `e447...` and still leaves trusted A1/A2/A3 plus mission/User B as the remaining blockers.
 - `tools/build-unity-android.ps1` now timeout-bounds external post-build checks, so Unity success can refresh build evidence without hanging. This is build/evidence reliability only, not hardware-ready proof.
 - The bus remains unchanged: teammate SDK material still enters only through the single-wall A1/A2/A3/User B loop. Trusted A1/A2/A3 observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` are still the missing proof.
 

@@ -16,6 +16,8 @@ Use `npm run field:live-pass` for a read-only live field snapshot, `npm run chec
 
 Use `npm run field:target-pass` during the physical wall pass to get the phase-by-phase A1/A2/A3/User B checklist as sanitized JSON/MD. It is read-only by default. `npm run field:target-pass:apply` may post A2 mission progress, the controlled service action, and A3 TimeMark only after trusted A2/A3 evidence exists; `npm run field:target-pass:strict` also requires explicit User B readback confirmation and must stay red until the real hardware loop is complete.
 
+`field:target-pass:strict` also verifies the current target-diagnostics APK preflight before acceptance: current APK SHA prefix, `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, and UXR readiness must all match. This is a package/evidence freshness guard only; it does not replace trusted A1/A2/A3 observations or User B readback.
+
 ## Quick Start
 
 ```powershell

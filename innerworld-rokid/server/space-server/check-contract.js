@@ -1054,9 +1054,13 @@ async function assertFieldTargetPassSkeleton() {
   assert(packageJson.includes("\"check:field-target-pass\""), "package field target pass check script missing");
   assert(tool.includes("innerworld-field-target-pass/v1"), "field target pass schema missing");
   assert(tool.includes("/api/field/acceptance") && tool.includes("/api/device/sessions") && tool.includes("/api/state"), "field target pass endpoint coverage missing");
-  assert(tool.includes("--apply-mission-actions") && tool.includes("--confirm-user-b-readback"), "field target pass explicit mutation flags missing");
+  assert(tool.includes("--apply-mission-actions") && tool.includes("--confirm-user-b-readback") && tool.includes("--require-target-diagnostics"), "field target pass explicit mutation/diagnostic flags missing");
   assert(tool.includes("simulator_or_manual_observations_created: false"), "field target pass simulator/manual guard missing");
   assert(tool.includes("hardware_ready_claim_allowed: false"), "field target pass hardware-ready claim guard missing");
+  assert(tool.includes("REQUIRED_TARGET_DIAGNOSTIC_TOKENS") && tool.includes("IW_TARGET_EVENT") && tool.includes("IW_TARGET_MISSION_ASSIST"), "field target pass target diagnostic token guard missing");
+  assert(tool.includes("station-pro-apk-smoke-latest-mutating-launch.json") && tool.includes("uxr-readiness-latest.json"), "field target pass current APK evidence guards missing");
+  assert(tool.includes("target_diagnostics_preflight") && tool.includes("current_target_diagnostics_apk_preflight_missing"), "field target pass diagnostics preflight blocker missing");
+  assert(packageJson.includes("--require-target-diagnostics"), "strict field target pass must require current target diagnostics preflight");
   assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
   assert(tool.includes("const a2Complete = hasTrustedAnchor(afterA2, \"A2\")"), "field target pass service action must require trusted A2");
   assert(tool.includes("hasTrustedAnchor(afterService, \"A3\") && hasMissionStep(afterService, \"service_action\")"), "field target pass A3 write-back gate missing");

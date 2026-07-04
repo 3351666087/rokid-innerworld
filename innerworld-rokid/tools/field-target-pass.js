@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +16,8 @@ const options = {
   confirmUserBReadback: false,
   requireLiveSession: false,
   requireTrusted: false,
-  requireMissionLoop: false
+  requireMissionLoop: false,
+  requireTargetDiagnostics: false
 };
 
 for (let index = 0; index < args.length; index += 1) {
@@ -36,11 +39,23 @@ for (let index = 0; index < args.length; index += 1) {
     options.requireTrusted = true;
   } else if (arg === "--require-mission-loop") {
     options.requireMissionLoop = true;
+  } else if (arg === "--require-target-diagnostics") {
+    options.requireTargetDiagnostics = true;
   }
 }
 
 const REQUIRED_ANCHOR_IDS = ["A1", "A2", "A3"];
 const REQUIRED_MISSION_STEP_IDS = ["read", "find_year", "service_action", "write_back"];
+const REQUIRED_TARGET_DIAGNOSTIC_TOKENS = [
+  "IW_TARGET_EVENT",
+  "IW_TARGET_IGNORED_UNKNOWN_INDEX",
+  "IW_TARGET_GATE_LIVE_PAIRING_REQUIRED",
+  "IW_TARGET_THROTTLED",
+  "IW_TARGET_POST_START",
+  "IW_TARGET_POST_RESULT",
+  "IW_TARGET_POST_FAIL",
+  "IW_TARGET_MISSION_ASSIST"
+];
 const SPACE_ID = "innerworld_campus_wall";
 
 function normalizeBaseUrl(value) {
@@ -54,6 +69,20 @@ function list(value) {
 function shaPrefix(value, length = 12) {
   if (!value) return null;
   return createHash("sha256").update(String(value)).digest("hex").slice(0, length);
+}
+
+function shaFile(filePath) {
+  if (!existsSync(filePath)) return null;
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
+function readJsonFile(filePath) {
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+  } catch {
+    return null;
+  }
 }
 
 function redactUrl(value) {
@@ -178,6 +207,188 @@ function hasTrustedAnchor(snapshot, anchorId) {
 
 function hasMissionStep(snapshot, stepId) {
   return snapshot.state.completed_steps.includes(stepId);
+}
+
+function rawScanApkForTokens(apkPath, tokens) {
+  if (!existsSync(apkPath)) {
+    return tokens.map((token) => ({ token, found: false, entry: null }));
+  }
+  const text = readFileSync(apkPath).toString("latin1");
+  return tokens.map((token) => ({
+    token,
+    found: text.includes(token),
+    entry: "raw_apk_binary"
+  }));
+}
+
+function scanApkForTargetDiagnosticTokens(apkPath, tokens) {
+  if (!existsSync(apkPath)) {
+    return {
+      ok: false,
+      method: "apk_missing",
+      tokens: tokens.map((token) => ({ token, found: false, entry: null }))
+    };
+  }
+
+  if (process.platform === "win32") {
+    const script = `
+      $ErrorActionPreference = "Stop"
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+      $apkPath = $env:IW_TARGET_APK_PATH
+      $tokens = $env:IW_TARGET_TOKENS_JSON | ConvertFrom-Json
+      $zip = [System.IO.Compression.ZipFile]::OpenRead($apkPath)
+      try {
+        $hits = @{}
+        foreach ($token in $tokens) { $hits[$token] = $null }
+        foreach ($entry in $zip.Entries) {
+          if ($entry.Length -le 0 -or $entry.Length -gt 300MB) { continue }
+          $stream = $entry.Open()
+          try {
+            $memory = New-Object System.IO.MemoryStream
+            $stream.CopyTo($memory)
+            $text = [System.Text.Encoding]::ASCII.GetString($memory.ToArray())
+            foreach ($token in $tokens) {
+              if ($null -eq $hits[$token] -and $text.Contains($token)) {
+                $hits[$token] = $entry.FullName
+              }
+            }
+          } finally {
+            if ($memory) { $memory.Dispose() }
+            $stream.Dispose()
+          }
+        }
+        $tokens | ForEach-Object {
+          [pscustomobject]@{
+            token = $_
+            found = $null -ne $hits[$_]
+            entry = $hits[$_]
+          }
+        } | ConvertTo-Json -Depth 5
+      } finally {
+        $zip.Dispose()
+      }
+    `;
+    const encoded = Buffer.from(script, "utf16le").toString("base64");
+    const result = spawnSync("powershell", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encoded
+    ], {
+      encoding: "utf8",
+      windowsHide: true,
+      maxBuffer: 1024 * 1024 * 8,
+      env: {
+        ...process.env,
+        IW_TARGET_APK_PATH: apkPath,
+        IW_TARGET_TOKENS_JSON: JSON.stringify(tokens)
+      }
+    });
+    if (result.status === 0) {
+      try {
+        const parsed = JSON.parse(result.stdout);
+        const rows = Array.isArray(parsed) ? parsed : [parsed];
+        return {
+          ok: rows.every((row) => row.found === true),
+          method: "powershell_zip_entry_scan",
+          tokens: rows.map((row) => ({
+            token: row.token,
+            found: row.found === true,
+            entry: row.entry || null
+          }))
+        };
+      } catch {
+        // Fall through to raw binary scan below.
+      }
+    }
+  }
+
+  const rows = rawScanApkForTokens(apkPath, tokens);
+  return {
+    ok: rows.every((row) => row.found === true),
+    method: "raw_apk_binary_scan",
+    tokens: rows
+  };
+}
+
+function collectTargetDiagnosticsPreflight() {
+  const apkPath = path.join(root, "output", "unity-android", "InnerWorldRokid.apk");
+  const launchPath = path.join(root, "output", "station-pro-apk-smoke", "station-pro-apk-smoke-latest-mutating-launch.json");
+  const uxrPath = path.join(root, "output", "uxr-readiness", "uxr-readiness-latest.json");
+  const apkExists = existsSync(apkPath);
+  const apkSha256 = shaFile(apkPath);
+  const launch = readJsonFile(launchPath);
+  const uxr = readJsonFile(uxrPath);
+  const tokenScan = scanApkForTargetDiagnosticTokens(apkPath, REQUIRED_TARGET_DIAGNOSTIC_TOKENS);
+  const launchApkSha = launch?.apk?.sha256 || launch?.latest_mutating_launch?.apk_sha256 || null;
+  const uxrCurrentApkSha = uxr?.current_apk?.sha256 || uxr?.station_pro_evidence?.current_apk?.sha256 || null;
+  const uxrLaunchSha = uxr?.latest_mutating_launch?.apk_sha256 || uxr?.station_pro_evidence?.latest_mutating_launch?.apk_sha256 || null;
+  const uxrMinimalReady = uxr?.readiness?.minimal_uxr_project_ready === true || uxr?.minimal_uxr_project_ready === true;
+  const uxrHardwareReadyClaimAllowed = typeof uxr?.readiness?.hardware_ready_claim_allowed === "boolean"
+    ? uxr.readiness.hardware_ready_claim_allowed
+    : uxr?.hardware_ready_claim_allowed;
+  const launchMatchesCurrentApk = Boolean(apkSha256 && launchApkSha && apkSha256 === launchApkSha);
+  const uxrMatchesCurrentApk = Boolean(apkSha256 && uxrCurrentApkSha && apkSha256 === uxrCurrentApkSha);
+  const uxrLaunchMatchesCurrentApk = Boolean(apkSha256 && uxrLaunchSha && apkSha256 === uxrLaunchSha);
+  const operatorPairingVerified = launch?.readiness?.operator_pairing_verified === true
+    || launch?.pairing?.verification?.ok === true;
+  const pairSmokeReady = launch?.ok === true
+    && launch?.install_and_launch === true
+    && launch?.readiness?.install_run_smoke === true
+    && operatorPairingVerified;
+  const ready = apkExists
+    && tokenScan.ok === true
+    && launchMatchesCurrentApk
+    && uxrMatchesCurrentApk
+    && uxrLaunchMatchesCurrentApk
+    && pairSmokeReady
+    && uxrHardwareReadyClaimAllowed === false;
+
+  return {
+    ready,
+    apk: {
+      exists: apkExists,
+      path: apkExists ? "output/unity-android/InnerWorldRokid.apk" : null,
+      size_bytes: apkExists ? statSync(apkPath).size : 0,
+      sha256_prefix: apkSha256 ? apkSha256.slice(0, 12) : null,
+      full_sha256_included: false
+    },
+    target_diagnostic_tokens: {
+      required: REQUIRED_TARGET_DIAGNOSTIC_TOKENS,
+      scan_method: tokenScan.method,
+      all_found: tokenScan.ok === true,
+      tokens: tokenScan.tokens
+    },
+    mutating_launch: {
+      evidence_path: "output/station-pro-apk-smoke/station-pro-apk-smoke-latest-mutating-launch.json",
+      ok: launch?.ok === true,
+      evidence_kind: launch?.evidence_kind || null,
+      install_and_launch: launch?.install_and_launch === true,
+      install_run_smoke: launch?.readiness?.install_run_smoke === true,
+      operator_pairing_verified: operatorPairingVerified,
+      apk_sha256_prefix: launchApkSha ? launchApkSha.slice(0, 12) : null,
+      matches_current_apk: launchMatchesCurrentApk,
+      raw_pairing_codes_included: launch?.privacy?.raw_pairing_codes_included === true,
+      raw_session_ids_included: launch?.privacy?.raw_session_ids_included === true
+    },
+    uxr_readiness: {
+      evidence_path: "output/uxr-readiness/uxr-readiness-latest.json",
+      minimal_uxr_project_ready: uxrMinimalReady,
+      hardware_ready_claim_allowed: uxrHardwareReadyClaimAllowed === true,
+      current_apk_sha256_prefix: uxrCurrentApkSha ? uxrCurrentApkSha.slice(0, 12) : null,
+      latest_mutating_launch_apk_sha256_prefix: uxrLaunchSha ? uxrLaunchSha.slice(0, 12) : null,
+      current_apk_matches: uxrMatchesCurrentApk,
+      latest_mutating_launch_matches_current_apk: uxrLaunchMatchesCurrentApk
+    },
+    privacy: {
+      full_apk_sha256_included: false,
+      raw_pairing_codes_included: false,
+      raw_session_ids_included: false,
+      raw_logcat_included: false
+    },
+    note: "This preflight only proves the current APK and diagnostic tooling are aligned for the physical target pass. It is not hardware readiness."
+  };
 }
 
 function buildPhases(snapshot) {
@@ -354,9 +565,10 @@ async function maybeConfirmUserBReadback(baseUrl, snapshot) {
   return [{ id: "confirm_user_b_readback", ok: true, applied: true, guard: "operator_confirmed_after_write_back" }];
 }
 
-function buildBlockers(snapshot) {
+function buildBlockers(snapshot, targetDiagnostics) {
   const blockers = [];
   if (options.requireLiveSession && !snapshot.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
+  if (options.requireTargetDiagnostics && targetDiagnostics.ready !== true) blockers.push("current_target_diagnostics_apk_preflight_missing");
   if (options.requireTrusted && !snapshot.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
   if (options.requireMissionLoop && !snapshot.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
   return blockers;
@@ -368,6 +580,8 @@ function buildMarkdown(report) {
     ? report.actions.map((action) => `- ${action.id}: applied=${action.applied}, ok=${action.ok}${action.skipped_reason ? `, skipped=${action.skipped_reason}` : ""}`)
     : ["- none"];
   const blockerLines = report.blockers.length ? report.blockers.map((item) => `- ${item}`) : ["- none"];
+  const targetDiagnostics = report.target_diagnostics_preflight;
+  const tokenLines = targetDiagnostics.target_diagnostic_tokens.tokens.map((item) => `- ${item.token}: found=${item.found}${item.entry ? `, entry=${item.entry}` : ""}`);
   return [
     "# Field Target Pass",
     "",
@@ -376,6 +590,9 @@ function buildMarkdown(report) {
     `- API host kind: ${report.api.host_kind}`,
     `- Apply mission actions: ${report.mutation_policy.apply_mission_actions}`,
     `- Confirm User B readback: ${report.mutation_policy.confirm_user_b_readback}`,
+    `- Target diagnostics preflight ready: ${targetDiagnostics.ready}`,
+    `- Current APK SHA prefix: ${targetDiagnostics.apk.sha256_prefix || "missing"}`,
+    `- Mutating launch matches current APK: ${targetDiagnostics.mutating_launch.matches_current_apk}`,
     `- Trusted A1/A2/A3 ready: ${report.latest_snapshot.trusted_a1_a2_a3_ready}`,
     `- Mission loop ready: ${report.latest_snapshot.mission_loop_ready}`,
     `- Field acceptance ready: ${report.latest_snapshot.field_acceptance_ready}`,
@@ -391,6 +608,21 @@ function buildMarkdown(report) {
     "",
     ...actionLines,
     "",
+    "## Target Diagnostics Preflight",
+    "",
+    `- Ready: ${targetDiagnostics.ready}`,
+    `- APK exists: ${targetDiagnostics.apk.exists}`,
+    `- APK size bytes: ${targetDiagnostics.apk.size_bytes}`,
+    `- Token scan method: ${targetDiagnostics.target_diagnostic_tokens.scan_method}`,
+    `- All target diagnostic tokens found: ${targetDiagnostics.target_diagnostic_tokens.all_found}`,
+    `- Mutating launch install/run smoke: ${targetDiagnostics.mutating_launch.install_run_smoke}`,
+    `- Mutating launch operator pairing verified: ${targetDiagnostics.mutating_launch.operator_pairing_verified}`,
+    `- UXR current APK matches: ${targetDiagnostics.uxr_readiness.current_apk_matches}`,
+    `- UXR latest mutating launch matches current APK: ${targetDiagnostics.uxr_readiness.latest_mutating_launch_matches_current_apk}`,
+    `- Hardware-ready claim allowed: ${targetDiagnostics.uxr_readiness.hardware_ready_claim_allowed}`,
+    "",
+    ...tokenLines,
+    "",
     "## Blockers",
     "",
     ...blockerLines,
@@ -403,6 +635,7 @@ function buildMarkdown(report) {
 
 async function main() {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const targetDiagnosticsPreflight = collectTargetDiagnosticsPreflight();
   const initialSnapshot = await captureSnapshot(baseUrl);
   const actions = [
     ...await maybePostMissionActions(baseUrl, initialSnapshot)
@@ -410,7 +643,7 @@ async function main() {
   const afterMission = await captureSnapshot(baseUrl);
   actions.push(...await maybeConfirmUserBReadback(baseUrl, afterMission));
   const latestSnapshot = await captureSnapshot(baseUrl);
-  const blockers = buildBlockers(latestSnapshot);
+  const blockers = buildBlockers(latestSnapshot, targetDiagnosticsPreflight);
   const report = {
     schema: "innerworld-field-target-pass/v1",
     generated_at: new Date().toISOString(),
@@ -437,6 +670,7 @@ async function main() {
     },
     initial_snapshot: initialSnapshot,
     latest_snapshot: latestSnapshot,
+    target_diagnostics_preflight: targetDiagnosticsPreflight,
     actions,
     blockers,
     privacy: {
@@ -466,6 +700,10 @@ async function main() {
     ok: report.ok,
     check: "field-target-pass",
     live_session_ready: latestSnapshot.live_session_ready,
+    target_diagnostics_preflight_ready: targetDiagnosticsPreflight.ready,
+    current_apk_sha256_prefix: targetDiagnosticsPreflight.apk.sha256_prefix,
+    target_diagnostic_tokens_found: targetDiagnosticsPreflight.target_diagnostic_tokens.all_found,
+    mutating_launch_matches_current_apk: targetDiagnosticsPreflight.mutating_launch.matches_current_apk,
     trusted_a1_a2_a3_ready: latestSnapshot.trusted_a1_a2_a3_ready,
     mission_loop_ready: latestSnapshot.mission_loop_ready,
     field_acceptance_ready: latestSnapshot.field_acceptance_ready,

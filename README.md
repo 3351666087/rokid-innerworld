@@ -7,6 +7,7 @@
 - Rebuilt the current Unity APK with the `IW_TARGET_*` target-observation diagnostics included. Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`; APK metadata contains the target diagnostics tokens in `global-metadata.dat`.
 - Installed and cold-launched that APK on the connected Station Pro with operator pairing. `station:apk:pair-smoke`, `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `uxr:doctor`, `check:contract`, `check:mainline`, and `check:field-live-pass` passed.
 - `field-live-pass --single --logcat` now reports the `IW_TARGET_*` diagnostic counters with `raw_logcat_included=false`; counts are still `0` until a physical A1/A2/A3 scan occurs. Hardware-ready remains false because trusted A1/A2/A3, A3 write-back, User B readback, and `/api/field/acceptance` are not complete.
+- `field:target-pass:strict` now also requires the current target-diagnostics APK preflight: current APK SHA prefix, APK token scan, latest mutating Station Pro launch, and UXR readiness must all match before a physical pass can be accepted. The preflight is green for `e447...`; strict still fails correctly on missing trusted A1/A2/A3 and P0 mission/User B loop.
 - Fixed `tools/build-unity-android.ps1` so post-build external checks run through a timeout-bounded wrapper; `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` now writes a fresh build report for the current APK instead of hanging after Unity success.
 
 2026-07-04 13:54 Asia/Shanghai:

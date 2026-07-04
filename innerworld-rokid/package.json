@@ -43,7 +43,7 @@
     "field:live-pass:watch": "node tools/field-live-pass.js --duration-sec 120 --interval-sec 2 --logcat",
     "field:target-pass": "node tools/field-target-pass.js",
     "field:target-pass:apply": "node tools/field-target-pass.js --apply-mission-actions",
-    "field:target-pass:strict": "node tools/field-target-pass.js --apply-mission-actions --confirm-user-b-readback --require-live-session --require-trusted --require-mission-loop",
+    "field:target-pass:strict": "node tools/field-target-pass.js --apply-mission-actions --confirm-user-b-readback --require-live-session --require-target-diagnostics --require-trusted --require-mission-loop",
     "field:acceptance-session": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1",
     "field:acceptance-session:live": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch",
     "field:acceptance-session:strict": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch -RequireTrusted -RequireMissionLoop",
