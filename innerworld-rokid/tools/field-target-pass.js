@@ -333,6 +333,8 @@ function summarizeFieldAcceptance(payload) {
     missing_mission_steps: list(missionEvidence.missing_steps),
     write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
     user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
+    trusted_mission_provenance_ready: missionEvidence.trusted_mission_provenance_ready === true,
+    trusted_mission_provenance_missing: list(missionEvidence.trusted_mission_provenance?.missing),
     pending_gate_ids: list(payload.gates).filter((gate) => gate.status === "pending").map((gate) => gate.id)
   };
 }
@@ -706,7 +708,8 @@ async function captureSnapshot(baseUrl) {
   snapshot.trusted_a1_a2_a3_ready = REQUIRED_ANCHOR_IDS.every((anchorId) => hasTrustedAnchor(snapshot, anchorId));
   snapshot.mission_loop_ready = snapshot.state.missing_mission_steps.length === 0
     && snapshot.state.write_back_beacon_count > 0
-    && snapshot.state.user_b_readback_ready === true;
+    && snapshot.state.user_b_readback_ready === true
+    && snapshot.field_acceptance.trusted_mission_provenance_ready === true;
   snapshot.field_acceptance_ready = snapshot.field_acceptance.ready === true;
   snapshot.phases = buildPhases(snapshot);
   return snapshot;
@@ -830,6 +833,7 @@ function buildBlockers(snapshot, targetDiagnostics) {
   if (options.requireTargetDiagnostics && targetDiagnostics.ready !== true) blockers.push("current_target_diagnostics_apk_preflight_missing");
   if (options.requireTrusted && !snapshot.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
   if (options.requireMissionLoop && !snapshot.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (options.requireMissionLoop && snapshot.field_acceptance.trusted_mission_provenance_ready !== true) blockers.push("trusted_mission_provenance_missing");
   return blockers;
 }
 
@@ -839,6 +843,7 @@ function buildPhysicalBlockers(snapshot, targetDiagnostics) {
   if (targetDiagnostics.ready !== true) blockers.push("current_target_diagnostics_apk_preflight_missing");
   if (!snapshot.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
   if (!snapshot.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (snapshot.field_acceptance.trusted_mission_provenance_ready !== true) blockers.push("trusted_mission_provenance_missing");
   if (!snapshot.field_acceptance_ready) blockers.push("field_acceptance_not_ready");
   return blockers;
 }
@@ -1058,6 +1063,7 @@ async function main() {
     missing_trusted_anchor_ids: latestSnapshot.field_acceptance.missing_trusted_anchor_ids,
     missing_mission_step_ids: latestSnapshot.state.missing_mission_steps,
     user_b_readback_ready: latestSnapshot.state.user_b_readback_ready,
+    trusted_mission_provenance_ready: latestSnapshot.field_acceptance.trusted_mission_provenance_ready,
     actions: actions.map((action) => ({
       id: action.id,
       ok: action.ok,

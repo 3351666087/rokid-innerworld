@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 17:08 Asia/Shanghai
+Updated: 2026-07-04 17:28 Asia/Shanghai
 
 ## Objective
 
@@ -43,6 +43,8 @@ Current Station Pro live APK checkpoint:
 - Current Web/operator console also exposes this split through read-only `/api/field/target-readiness`, derived from `/api/field/acceptance`. It shows `precheck_ok`, `physical_acceptance_ready`, trusted A1/A2/A3 count, mission/User B state, and blockers, but it does not read `output/*.json`, run ADB/logcat, create simulator/manual observations, or mutate mission/write-back state. Hardware Runtime now calls wall-lock evidence a lock candidate, not final hardware readiness.
 - Current Unity heartbeat now carries a sanitized RKInput/PointableUI `input_frame` from `RokidInputFrame`: source, sequence, command/buttons, focused A1/A2/A3 anchor, hit distance, `ray_reported`, and `pointable_ui_focus`. The Space Server stores only the summary in device health/sessions and uses it for the `rk_input_3dof_ray` checklist check; raw ray vectors and raw pose streams stay out of API summaries.
 - This input-frame checkpoint is live-adapter observability only. Hardware-ready remains false until fresh operator-paired trusted A1/A2/A3 observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance.ready=true` are all present.
+- Current mission/write-back loop now has `trusted_mission_provenance_gate/v1`: A2 read/find_year, service action, A3 TimeMark write-back, and User B readback can satisfy `mission_loop` only when the server derives trusted proof from the current online operator-paired live Rokid session, live/input/overlay SDK binding, sanitized input-frame ray/focus, and confirm input over the action anchor.
+- Current scripts/manual/simulator can still rehearse mission state, but they cannot make `mission_loop_ready` true or hardware-ready without trusted mission provenance. Strict target pass now reports `trusted_mission_provenance_missing` as its own blocker.
 - Current field session wrapper has target-pass entrypoints: `field:acceptance-session:target` for the on-site precheck/watch and `field:acceptance-session:target-strict` for the final strict A1/A2/A3 -> A3 TimeMark -> User B closeout. The strict command is expected to fail until the real wall pass completes.
 - Current `field:target-pass:watch` is the preferred one-command companion during the physical scan. It is read-only by default, samples repeated API/phase snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; zero counts mean the glasses have not yet produced target events during the watch window.
 - Current Unity build wrapper is hardened after the target-diagnostics build exposed a post-Unity hang: `tools/build-unity-android.ps1` external checks are timeout-bounded and expose `timed_out` / `timeout_seconds`; `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` now refreshes build evidence for the current APK without rebuilding `RKImage.db`.

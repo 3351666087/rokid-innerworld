@@ -156,7 +156,7 @@ function trustedHardwareSessionGate(summary) {
   });
 }
 
-function missionLoopGate(space, state) {
+function missionLoopGate(space, state, ledgerSummary) {
   const runtimeState = state && typeof state === "object"
     ? {
         ...state,
@@ -179,7 +179,12 @@ function missionLoopGate(space, state) {
   const complete = runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
     && missingSteps.length === 0
     && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons
-    && userBReadbackReady;
+    && userBReadbackReady
+    && ledgerSummary?.trusted_mission_provenance?.ready === true;
+  const trustedProvenance = ledgerSummary?.trusted_mission_provenance || {
+    ready: false,
+    missing: ["trusted_mission_provenance_missing"]
+  };
 
   return gate({
     id: "mission_loop",
@@ -187,7 +192,7 @@ function missionLoopGate(space, state) {
     status: complete ? "ready" : "pending",
     summary: complete
       ? "Read, service action, write-back, and User B readback loop are complete."
-      : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons; User B readback ${userBReadbackReady ? "ready" : "pending"}.`,
+      : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons; User B readback ${userBReadbackReady ? "ready" : "pending"}; trusted mission provenance ${trustedProvenance.ready === true ? "ready" : "pending"}.`,
     source: "/api/state",
     required: [...requiredStepIds, "user_b_readback"],
     evidence: {
@@ -198,7 +203,9 @@ function missionLoopGate(space, state) {
       missing_steps: missingSteps,
       beacon_count: runtimeBeacons.length,
       write_back_beacons: writeBackBeacons.length,
-      user_b_readback_ready: userBReadbackReady
+      user_b_readback_ready: userBReadbackReady,
+      trusted_mission_provenance_ready: trustedProvenance.ready === true,
+      trusted_mission_provenance: trustedProvenance
     }
   });
 }
@@ -421,7 +428,7 @@ export function buildFieldAcceptance({
     wallRehearsalGate(summary),
     hardwareAlignmentGate(summary),
     trustedHardwareSessionGate(summary),
-    missionLoopGate(space, state),
+    missionLoopGate(space, state, ledgerSummary),
     ledgerGate(ledgerSummary),
     releaseGate(opsStatus),
     hardwareKitGate(opsStatus)

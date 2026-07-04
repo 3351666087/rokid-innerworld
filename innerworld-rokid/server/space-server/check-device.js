@@ -666,7 +666,54 @@ async function main() {
   assert(["none", "weak", "strong", "answer"].includes(hud.hint_level), "AI HUD hint level check failed");
   assert(hud.write_back_review?.tag === "time_capsule", "AI HUD write-back tag check failed");
 
+  const trustedA2Heartbeat = await postJson(endpoints.device_heartbeat.url, "device_heartbeat_trusted_a2", {
+    session_id: register.session_id,
+    device_id: register.device_id,
+    battery: { level_percent: 75, charging: false },
+    network: { online: true, transport: "wifi", rtt_ms: 25, lan_reachable: true, http_cleartext_allowed: true },
+    sdk_binding_status: {
+      schema: "innerworld-rokid-sdk-binding/v1",
+      define_symbol: "ROKID_UXR",
+      stage: "live_binding_ready",
+      boundary_compiled: true,
+      package_detected: true,
+      input_binding_ready: true,
+      overlay_binding_ready: true,
+      live_binding_ready: true,
+      adapter_checklist: {
+        rk_input_3dof_ray_ready: true,
+        input_ray_ready: true,
+        pointable_ui_ready: true,
+        uxr_overlay_renderer_ready: true,
+        overlay_binding_ready: true
+      }
+    },
+    pose: {
+      confidence: 0.95,
+      position: { x: 0, y: 1.5, z: 3 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    input_frame: {
+      schema: "innerworld-rokid-input-frame/v1",
+      source: "rokid-uxr-rkinput-3dof",
+      sequence: 31,
+      command: "confirm",
+      confirm_down: true,
+      anchor_hit: true,
+      focused_anchor_id: "A2",
+      hit_distance_meters: 1.4,
+      ray_origin: { x: 0, y: 1.5, z: 0 },
+      ray_direction: { x: 0, y: 0, z: 1 },
+      pointable_ui_focus: true
+    },
+    active_anchor: "A2",
+    current_user: "A"
+  });
+  assert(trustedA2Heartbeat.ok === true, "trusted A2 heartbeat failed");
+
   const interaction = await postJson(endpoints.interactions.url, "interaction_for_ledger", {
+    session_id: register.session_id,
+    device_id: register.device_id,
     user_id: "A",
     anchor_id: "A2",
     step_id: "read",
@@ -676,10 +723,15 @@ async function main() {
   });
   assert(interaction.ok === true, "ledger interaction ok failed");
   assert(interaction.ledger?.type === "interaction", "ledger interaction event missing");
+  assert(interaction.ledger?.payload?.trusted_mission_provenance?.trusted === true, "ledger interaction trusted provenance failed");
   assert(!JSON.stringify(interaction.ledger).includes("10.0.0.18"), "ledger interaction leaked IP");
   assert(!JSON.stringify(interaction.ledger).includes("real-token-secret"), "ledger interaction leaked token");
+  assert(!JSON.stringify(interaction.ledger).includes(register.session_id), "ledger interaction leaked raw session id");
+  assert(!JSON.stringify(interaction.ledger).includes(register.device_id), "ledger interaction leaked raw device id");
 
   const findYear = await postJson(endpoints.interactions.url, "find_year_for_ledger", {
+    session_id: register.session_id,
+    device_id: register.device_id,
     user_id: "A",
     anchor_id: "A2",
     step_id: "find_year",
@@ -689,6 +741,8 @@ async function main() {
   assert(findYear.ledger?.type === "interaction", "ledger find-year event missing");
 
   const service = await postJson(endpoints.service_actions.url, "service_action_for_ledger", {
+    session_id: register.session_id,
+    device_id: register.device_id,
     user_id: "A",
     anchor_id: "A2",
     action_id: "JOIN_EVENT_1430",
@@ -696,8 +750,58 @@ async function main() {
   });
   assert(service.ok === true, "ledger service action ok failed");
   assert(service.ledger?.type === "service_action", "ledger service action event missing");
+  assert(service.ledger?.payload?.trusted_mission_provenance?.trusted === true, "ledger service action trusted provenance failed");
+  assert(!JSON.stringify(service).includes(register.session_id), "service action response leaked raw session id");
+  assert(!JSON.stringify(service).includes(register.device_id), "service action response leaked raw device id");
+
+  const trustedA3Heartbeat = await postJson(endpoints.device_heartbeat.url, "device_heartbeat_trusted_a3", {
+    session_id: register.session_id,
+    device_id: register.device_id,
+    battery: { level_percent: 74, charging: false },
+    network: { online: true, transport: "wifi", rtt_ms: 24, lan_reachable: true, http_cleartext_allowed: true },
+    sdk_binding_status: {
+      schema: "innerworld-rokid-sdk-binding/v1",
+      define_symbol: "ROKID_UXR",
+      stage: "live_binding_ready",
+      boundary_compiled: true,
+      package_detected: true,
+      input_binding_ready: true,
+      overlay_binding_ready: true,
+      live_binding_ready: true,
+      adapter_checklist: {
+        rk_input_3dof_ray_ready: true,
+        input_ray_ready: true,
+        pointable_ui_ready: true,
+        uxr_overlay_renderer_ready: true,
+        overlay_binding_ready: true
+      }
+    },
+    pose: {
+      confidence: 0.95,
+      position: { x: 1.2, y: 1.5, z: 3 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 }
+    },
+    input_frame: {
+      schema: "innerworld-rokid-input-frame/v1",
+      source: "rokid-uxr-rkinput-3dof",
+      sequence: 32,
+      command: "confirm",
+      confirm_down: true,
+      anchor_hit: true,
+      focused_anchor_id: "A3",
+      hit_distance_meters: 1.5,
+      ray_origin: { x: 0, y: 1.5, z: 0 },
+      ray_direction: { x: 0, y: 0, z: 1 },
+      pointable_ui_focus: true
+    },
+    active_anchor: "A3",
+    current_user: "A"
+  });
+  assert(trustedA3Heartbeat.ok === true, "trusted A3 heartbeat failed");
 
   const writeBack = await postJson(endpoints.write_back.url, "write_back_for_ledger", {
+    session_id: register.session_id,
+    device_id: register.device_id,
     user_id: "A",
     anchor_id: "A3",
     text: "后来的人，别忘了抬头看这里。",
@@ -705,7 +809,19 @@ async function main() {
   });
   assert(writeBack.ok === true, "ledger write-back ok failed");
   assert(writeBack.ledger?.type === "write_back", "ledger write-back event missing");
+  assert(writeBack.ledger?.payload?.trusted_mission_provenance?.trusted === true, "ledger write-back trusted provenance failed");
   assert(!JSON.stringify(writeBack.ledger).includes("SN-ABC-SECRET"), "ledger write-back leaked serial");
+
+  const userBReadback = await postJson(endpoints.interactions.url, "user_b_readback_for_ledger", {
+    session_id: register.session_id,
+    device_id: register.device_id,
+    source: "device_check_operator_confirmed_user_b_readback",
+    user_id: "B",
+    anchor_id: "A3",
+    mission_state: "complete"
+  });
+  assert(userBReadback.ok === true, "ledger User B readback ok failed");
+  assert(userBReadback.ledger?.payload?.trusted_mission_provenance?.trusted === true, "ledger User B readback trusted provenance failed");
 
   const ledgerSummary = await fetchJson(endpoints.ledger_summary.url, "ledger_summary_after_writes");
   const ledgerEvents = await fetchJson(`${endpoints.ledger_events.url}?limit=12`, "ledger_events_after_writes");
@@ -713,6 +829,9 @@ async function main() {
   assert(ledgerSummary.checks?.has_interaction === true, "ledger summary interaction check failed");
   assert(ledgerSummary.checks?.has_service_action === true, "ledger summary service action check failed");
   assert(ledgerSummary.checks?.has_write_back === true, "ledger summary write-back check failed");
+  assert(ledgerSummary.checks?.has_trusted_mission_provenance === true, "ledger summary trusted provenance check failed");
+  assert(ledgerSummary.trusted_mission_provenance?.ready === true, "ledger trusted provenance summary failed");
+  assert(ledgerSummary.trusted_mission_provenance?.user_b_readback_trusted === true, "ledger trusted User B readback summary failed");
   assert(ledgerSummary.mission?.completed_steps?.includes("write_back"), "ledger mission completed steps failed");
   assert(ledgerSummary.mission?.completed_step_count >= 4, "ledger mission completed step count failed");
   assert(ledgerSummary.service_actions?.total >= 1, "ledger service action total failed");
@@ -722,6 +841,13 @@ async function main() {
   assert(!ledgerText.includes("10.0.0.18"), "ledger APIs leaked IP");
   assert(!ledgerText.includes("real-token-secret"), "ledger APIs leaked token");
   assert(!ledgerText.includes("SN-ABC-SECRET"), "ledger APIs leaked serial");
+  assert(!ledgerText.includes(register.session_id), "ledger APIs leaked raw session id");
+  assert(!ledgerText.includes(register.device_id), "ledger APIs leaked raw device id");
+
+  const fieldAcceptanceAfterMission = await fetchJson(endpoints.field_acceptance.url, "field_acceptance_after_trusted_mission");
+  const missionGateAfterMission = fieldAcceptanceAfterMission.gates?.find((gate) => gate.id === "mission_loop");
+  assert(missionGateAfterMission?.evidence?.trusted_mission_provenance_ready === true, "field acceptance mission trusted provenance failed");
+  assert(fieldAcceptanceAfterMission.ready === false, "trusted mission provenance alone must not claim hardware acceptance");
 
   console.log(JSON.stringify({
     ok: true,

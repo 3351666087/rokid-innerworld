@@ -129,6 +129,21 @@ function missionResultSummary(type, updated) {
   };
 }
 
+function missionActionAnchor(body = {}, fallback = "A1") {
+  return String(body.anchor_id || body.anchorId || fallback || "").trim();
+}
+
+function trustedMissionProvenance(deviceRuntime, body = {}, actionType, fallbackAnchorId = "A1") {
+  const anchorId = missionActionAnchor(body, fallbackAnchorId);
+  return deviceRuntime.resolveTrustedMissionProvenance({
+    sessionId: body.session_id || body.sessionId,
+    deviceId: body.device_id || body.deviceId,
+    anchorId,
+    actionType,
+    source: body.source
+  });
+}
+
 export function createApiRouter({
   aiPromptPath,
   aiSchemaPath,
@@ -667,11 +682,18 @@ export function createApiRouter({
       const updated = await updateState((state, latestSpace) => {
         return applyWriteBack({ state, space: latestSpace, body, text });
       });
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "write_back", "A3");
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "write_back",
         space: updated.space,
-        payload: body,
-        result: missionResultSummary("write_back", updated),
+        payload: {
+          ...body,
+          trusted_mission_provenance: provenance
+        },
+        result: {
+          ...missionResultSummary("write_back", updated),
+          trusted_mission_provenance: provenance
+        },
         state: updated.state
       }) || null;
       sendJson(res, 201, { ok: true, beacon: updated.result, state: updated.state, ledger });
@@ -683,11 +705,18 @@ export function createApiRouter({
       const updated = await updateState((state, space) => {
         return applyInteraction({ state, space, body });
       });
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "interaction", missionActionAnchor(body, body.user_id === "B" ? "A3" : "A2"));
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "interaction",
         space: updated.space,
-        payload: body,
-        result: missionResultSummary("interaction", updated),
+        payload: {
+          ...body,
+          trusted_mission_provenance: provenance
+        },
+        result: {
+          ...missionResultSummary("interaction", updated),
+          trusted_mission_provenance: provenance
+        },
         state: updated.state
       }) || null;
       sendJson(res, 200, { ok: true, state: updated.state, ledger });
@@ -744,19 +773,22 @@ export function createApiRouter({
         createdAt
       });
       const storedRecord = sqliteStore?.appendServiceActionRecord?.(record) || record;
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "service_action", missionActionAnchor(safeBody, "A3"));
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "service_action",
         space: updated.space,
         payload: {
           ...storedRecord.payload,
           action_record_id: storedRecord.action_record_id,
-          service_action_status: storedRecord.status
+          service_action_status: storedRecord.status,
+          trusted_mission_provenance: provenance
         },
         result: {
           ...missionResultSummary("service_action", updated),
           action_record_id: storedRecord.action_record_id,
           service_action_status: storedRecord.status,
-          created_at: storedRecord.created_at
+          created_at: storedRecord.created_at,
+          trusted_mission_provenance: provenance
         },
         state: updated.state
       }) || null;

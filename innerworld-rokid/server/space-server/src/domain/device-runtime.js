@@ -1660,6 +1660,84 @@ export function createDeviceRuntimeStore({
     };
   }
 
+  function resolveTrustedMissionProvenance({ sessionId, deviceId, anchorId, actionType, source, referenceTime = new Date() } = {}) {
+    hydratePersistentSessions();
+    const cleanSessionId = trimText(sessionId, 64);
+    const cleanDeviceId = sanitizeDeviceId(deviceId, { allowFallback: false });
+    const cleanAnchorId = sanitizeEnumText(anchorId, 32);
+    const cleanActionType = sanitizeEnumText(actionType, 48) || "mission_action";
+    const cleanSource = sanitizeEnumText(source, 80) || "unknown";
+    const issues = [];
+
+    if (!cleanSessionId) issues.push("session_id_missing");
+    if (!cleanDeviceId) issues.push("device_id_missing");
+    if (!cleanAnchorId) issues.push("anchor_id_missing");
+
+    const session = cleanSessionId
+      ? sessions.get(cleanSessionId) || rememberPersistentSession(sessionStore?.loadDeviceSession?.(cleanSessionId))
+      : null;
+    if (!session) {
+      issues.push("device_session_not_found");
+    }
+
+    const sdkBindingStatus = session?.sdk_binding_status || buildDefaultSdkBindingStatus("not_reported");
+    const inputFrame = summarizeInputFrame(session?.last_input_frame);
+    const sessionStatus = session ? getDeviceSessionStatus(session, referenceTime) : "missing";
+    if (session && cleanDeviceId && session.device_id !== cleanDeviceId) issues.push("device_id_mismatch");
+    if (session && sessionStatus !== "online") issues.push("device_session_not_online");
+    if (session && Number(session.heartbeat_count || 0) <= 0) issues.push("device_heartbeat_missing");
+    if (session && session.last_health_severity !== "ok") issues.push("device_health_not_ok");
+    if (session && !session.last_pose_present) issues.push("device_pose_not_reported");
+    if (session && session.pairing_status !== "operator_paired") issues.push("device_not_operator_paired");
+    if (session && session.hardware_acceptance_eligible !== true) issues.push("hardware_acceptance_not_eligible");
+    if (session && cleanAnchorId && session.last_active_anchor && session.last_active_anchor !== cleanAnchorId) {
+      issues.push("active_anchor_mismatch");
+    }
+    if (sdkBindingStatus.input_binding_ready !== true) issues.push("sdk_input_binding_not_ready");
+    if (sdkBindingStatus.overlay_binding_ready !== true) issues.push("sdk_overlay_binding_not_ready");
+    if (sdkBindingStatus.live_binding_ready !== true) issues.push("sdk_live_binding_not_ready");
+    if (inputFrame.reported !== true) issues.push("input_frame_not_reported");
+    if (inputFrame.ray_reported !== true) issues.push("input_frame_ray_not_reported");
+    if (inputFrame.pointable_ui_focus !== true) issues.push("pointable_ui_focus_missing");
+    if (inputFrame.command !== "confirm" && inputFrame.confirm_down !== true && inputFrame.confirm_held !== true && inputFrame.gaze_select_held !== true) {
+      issues.push("input_confirm_missing");
+    }
+    if (cleanAnchorId && inputFrame.focused_anchor_id && inputFrame.focused_anchor_id !== cleanAnchorId) {
+      issues.push("input_frame_focus_anchor_mismatch");
+    }
+
+    const trusted = issues.length === 0;
+    return {
+      schema: "innerworld-trusted-mission-provenance/v1",
+      trusted,
+      trust_status: trusted ? "trusted" : "untrusted",
+      action_type: cleanActionType,
+      source: cleanSource,
+      anchor_id: cleanAnchorId || null,
+      issues,
+      session_status_at_action: sessionStatus,
+      heartbeat_count_at_action: Number(session?.heartbeat_count || 0),
+      active_anchor_at_action: session?.last_active_anchor || null,
+      pairing_status_at_action: session?.pairing_status || "missing",
+      hardware_acceptance_eligible: session?.hardware_acceptance_eligible === true,
+      sdk_binding_stage: sdkBindingStatus.stage || "unknown",
+      sdk_live_binding_ready: sdkBindingStatus.live_binding_ready === true,
+      sdk_input_binding_ready: sdkBindingStatus.input_binding_ready === true,
+      sdk_overlay_binding_ready: sdkBindingStatus.overlay_binding_ready === true,
+      input_frame: {
+        reported: inputFrame.reported === true,
+        source: inputFrame.source || "unknown",
+        focused_anchor_id: inputFrame.focused_anchor_id || null,
+        pointable_ui_focus: inputFrame.pointable_ui_focus === true,
+        ray_reported: inputFrame.ray_reported === true,
+        command: inputFrame.command || "none",
+        confirm_down: inputFrame.confirm_down === true,
+        confirm_held: inputFrame.confirm_held === true
+      },
+      privacy: "Trusted mission provenance omits raw session ids, raw device ids, private network identifiers, raw pose streams, raw ray vectors, camera frames, and pairing codes."
+    };
+  }
+
   function register({ body = {}, baseUrl, space, state, aiSchema, createdAt = new Date() }) {
     const publicBaseUrl = cleanPublicBaseUrl(baseUrl);
     const endpoints = buildEndpointMap(publicBaseUrl, space?.space_id);
@@ -1996,6 +2074,7 @@ export function createDeviceRuntimeStore({
     heartbeat,
     sessionsSummary,
     resolveHardwareObservationProof,
+    resolveTrustedMissionProvenance,
     smokeSummary(options = {}) {
       return buildDeviceRuntimeSmokeSummary({
         devices,

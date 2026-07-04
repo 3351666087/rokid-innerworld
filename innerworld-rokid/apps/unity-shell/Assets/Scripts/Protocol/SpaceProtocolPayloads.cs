@@ -6,6 +6,9 @@ namespace InnerWorld.Rokid.Protocol
     public sealed class InteractionRequest
     {
         public string source;
+        public string session_id;
+        public string device_id;
+        public string anchor_id;
         public string user_id;
         public string step_id;
         public string mission_state;
@@ -57,6 +60,8 @@ namespace InnerWorld.Rokid.Protocol
     public sealed class ServiceActionRequest
     {
         public string source;
+        public string session_id;
+        public string device_id;
         public string user_id;
         public string action_id;
         public string label;
@@ -103,6 +108,9 @@ namespace InnerWorld.Rokid.Protocol
     [Serializable]
     public sealed class WriteBackRequest
     {
+        public string source;
+        public string session_id;
+        public string device_id;
         public string user_id;
         public string anchor_id;
         public string title;

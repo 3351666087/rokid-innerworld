@@ -874,6 +874,9 @@ async function assertUnityProtocolSkeleton() {
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request missing");
   assert(payloads.includes("public string pairing_code;"), "Unity device register pairing_code missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request missing");
+  assert(/public sealed class InteractionRequest[\s\S]*public string session_id;[\s\S]*public string device_id;[\s\S]*public string anchor_id;/.test(payloads), "Unity interaction trusted provenance fields missing");
+  assert(/public sealed class ServiceActionRequest[\s\S]*public string session_id;[\s\S]*public string device_id;/.test(payloads), "Unity service action trusted provenance fields missing");
+  assert(/public sealed class WriteBackRequest[\s\S]*public string session_id;[\s\S]*public string device_id;/.test(payloads), "Unity write-back trusted provenance fields missing");
   assert(payloads.includes("public DeviceInputFramePayload input_frame;"), "Unity device heartbeat input_frame missing");
   assert(payloads.includes("public sealed class DeviceInputFramePayload"), "Unity device input frame payload missing");
   assert(payloads.includes("public DeviceVector3 ray_origin;") && payloads.includes("public DeviceVector3 ray_direction;"), "Unity device input frame ray payload missing");
@@ -978,6 +981,12 @@ async function assertServerCoreSkeleton() {
   assert(deviceRuntime.includes("sanitizeInputFrame"), "device runtime input frame sanitizer missing");
   assert(deviceRuntime.includes("summarizeInputFrame"), "device runtime input frame summary missing");
   assert(deviceRuntime.includes("input_frame_ray_focus"), "device runtime RKInput ray/focus checklist check missing");
+  assert(deviceRuntime.includes("resolveTrustedMissionProvenance"), "device runtime trusted mission provenance proof missing");
+  assert(deviceRuntime.includes("innerworld-trusted-mission-provenance/v1"), "device runtime trusted mission provenance schema missing");
+  assert(deviceRuntime.includes("input_confirm_missing"), "device runtime trusted mission provenance must require confirm input evidence");
+  assert(apiRouter.includes("trustedMissionProvenance") && apiRouter.includes("trusted_mission_provenance"), "api router trusted mission provenance ledger wiring missing");
+  assert(sqliteStore.includes("trusted_mission_provenance") && sqliteStore.includes("has_trusted_mission_provenance"), "SQLite trusted mission provenance summary missing");
+  assert(sqliteStore.includes("\"device_id\"") && sqliteStore.includes("\"session_id\""), "SQLite ledger must treat raw session/device ids as sensitive");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
   assert(apiRouter.includes("authorizeDevicePairingIssue"), "api router device pairing operator gate missing");
   assert(apiRouter.includes("isLoopbackAddress"), "api router device pairing loopback gate missing");
@@ -1058,6 +1067,8 @@ async function assertFieldLivePassCheckSkeleton() {
   assert(tool.includes("/api/state"), "field live pass state endpoint missing");
   assert(tool.includes("user_b_readback_ready"), "field live pass User B readback evidence missing");
   assert(tool.includes("mission.user_b_readback_ready === true"), "field live pass mission loop must require User B readback");
+  assert(tool.includes("field.trusted_mission_provenance_ready === true"), "field live pass mission loop must require trusted mission provenance");
+  assert(tool.includes("trusted_mission_provenance_missing"), "field live pass trusted mission provenance blocker missing");
   assert(tool.includes("p0_mission_writeback_user_b_loop_missing"), "field live pass mission/User B blocker missing");
   assert(tool.includes("missing_trusted_anchor_ids"), "field live pass missing trusted anchor evidence missing");
   assert(tool.includes("missing_hardware_anchor_ids"), "field live pass missing hardware anchor evidence missing");
@@ -1132,6 +1143,8 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("trust_issues_by_anchor") && tool.includes("/api/calibration/wall") && tool.includes("Untrusted Hardware Observations"), "field target pass per-anchor trust issue diagnostics missing");
   assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("Missing live binding items"), "field target pass live adapter checklist diagnostics missing");
   assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
+  assert(tool.includes("snapshot.field_acceptance.trusted_mission_provenance_ready === true"), "field target pass mission loop must require trusted mission provenance");
+  assert(tool.includes("trusted_mission_provenance_missing"), "field target pass trusted mission provenance blocker missing");
   assert(tool.includes("const a2Complete = hasTrustedAnchor(afterA2, \"A2\")"), "field target pass service action must require trusted A2");
   assert(tool.includes("hasTrustedAnchor(afterService, \"A3\") && hasMissionStep(afterService, \"service_action\")"), "field target pass A3 write-back gate missing");
   assert(tool.includes("const canConfirm = hasTrustedAnchor(snapshot, \"A3\")"), "field target pass User B readback must require trusted A3");

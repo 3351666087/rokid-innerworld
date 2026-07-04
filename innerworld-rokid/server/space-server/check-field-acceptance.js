@@ -448,10 +448,22 @@ function readyLedgerSummary() {
     checks: {
       has_interaction: true,
       has_service_action: true,
-      has_write_back: true
+      has_write_back: true,
+      has_trusted_mission_provenance: true
+    },
+    trusted_mission_provenance: {
+      schema: "innerworld-trusted-mission-provenance-summary/v1",
+      ready: true,
+      trusted_event_count: 5,
+      reported_event_count: 5,
+      trusted_types: ["interaction", "service_action", "write_back"],
+      trusted_steps: ["find_year", "read"],
+      trusted_anchor_ids: ["A2", "A3"],
+      user_b_readback_trusted: true,
+      missing: []
     },
     audit: {
-      event_count: 3
+      event_count: 5
     }
   };
 }
@@ -580,6 +592,7 @@ function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {
   assert(fullyReady.summary?.trusted_hardware_session_count === 1, "trusted hardware session count mismatch");
   const fullyReadyMissionGate = fullyReady.gates.find((gate) => gate.id === "mission_loop");
   assert(fullyReadyMissionGate?.evidence?.user_b_readback_ready === true, "trusted live hardware acceptance must include User B readback evidence");
+  assert(fullyReadyMissionGate?.evidence?.trusted_mission_provenance_ready === true, "trusted live hardware acceptance must include trusted mission provenance");
   const fullyReadyTargetReadiness = buildFieldTargetReadiness({
     baseUrl: base,
     fieldAcceptance: fullyReady,

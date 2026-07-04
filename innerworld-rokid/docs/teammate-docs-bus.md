@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 17:08 Asia/Shanghai
+Updated: 2026-07-04 17:28 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -91,6 +91,13 @@ RKInput/PointableUI heartbeat checkpoint on 2026-07-04 17:08 Asia/Shanghai:
 - Unity heartbeat now reports sanitized `input_frame` evidence for the RKInput 3DoF ray / PointableUI focus path over A1/A2/A3.
 - The Space Server summarizes that evidence in device health, sessions, and the `rk_input_3dof_ray` live-adapter checklist while omitting raw ray vectors and raw pose streams.
 - This is adapter observability for the physical pass, not a hardware-ready claim or a replacement for trusted A1/A2/A3 observations and the A3/User B loop.
+
+Trusted mission provenance checkpoint on 2026-07-04 17:28 Asia/Shanghai:
+
+- Carver audit record: `.agents/carver/carver-trusted-mission-provenance-audit-2026-07-04-1728.md`.
+- Unity/Rokid mission requests now carry session/device/anchor inputs so the server can derive sanitized trusted proof for A2 read/find_year, service action, A3 TimeMark, and User B readback.
+- SQLite and `/api/field/acceptance` now require trusted mission provenance for `mission_loop`; scripts/manual/simulator can rehearse but cannot make strict physical acceptance green.
+- `field-live-pass` and `field-target-pass` now expose `trusted_mission_provenance_ready`; strict target pass remains red with `trusted_mission_provenance_missing` until the real live Rokid loop completes.
 
 Per-anchor trust diagnostics checkpoint on 2026-07-04 15:43 Asia/Shanghai:
 

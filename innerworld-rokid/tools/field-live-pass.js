@@ -259,6 +259,8 @@ function summarizeFieldAcceptance(payload) {
     missing_mission_steps: list(missionEvidence.missing_steps),
     write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
     user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
+    trusted_mission_provenance_ready: missionEvidence.trusted_mission_provenance_ready === true,
+    trusted_mission_provenance_missing: list(missionEvidence.trusted_mission_provenance?.missing),
     pending_gate_ids: list(payload.gates).filter((gate) => gate.status === "pending").map((gate) => gate.id),
     blocking_items: list(payload.blocking_items).map((item) => ({
       gate_id: item.gate_id,
@@ -389,6 +391,10 @@ function buildNextRequiredActions(snapshot) {
   if (!snapshot.mission.user_b_readback_ready) {
     actions.push("Switch to User B and verify the new A3 memory is readable after write-back.");
   }
+  if (!snapshot.field_acceptance.trusted_mission_provenance_ready) {
+    const missing = list(snapshot.field_acceptance.trusted_mission_provenance_missing);
+    actions.push(`Complete the mission through Unity/Rokid trusted session provenance${missing.length ? ` (${missing.join(",")})` : ""}.`);
+  }
   if (!snapshot.field_acceptance_ready) {
     actions.push("Re-run strict field-live-pass with --require-live-session --require-trusted --require-mission-loop.");
   }
@@ -467,7 +473,8 @@ async function captureSnapshot(baseUrl) {
     missing_mission_step_ids: missingMissionStepIds,
     mission_loop_ready: missingMissionStepIds.length === 0
       && mission.write_back_beacon_count > 0
-      && mission.user_b_readback_ready === true,
+      && mission.user_b_readback_ready === true
+      && field.trusted_mission_provenance_ready === true,
     field_acceptance_ready: field.ready === true,
     session,
     field_acceptance: field,
@@ -593,6 +600,7 @@ async function main() {
   if (options.requireLiveSession && !latest.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
   if (options.requireTrusted && !latest.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
   if (options.requireMissionLoop && !latest.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (options.requireMissionLoop && latest.field_acceptance.trusted_mission_provenance_ready !== true) blockers.push("trusted_mission_provenance_missing");
 
   const report = {
     schema: "innerworld-field-live-pass/v1",
@@ -655,6 +663,7 @@ async function main() {
     missing_hardware_anchor_ids: latest.missing_hardware_anchor_ids,
     missing_mission_step_ids: latest.missing_mission_step_ids,
     user_b_readback_ready: latest.mission.user_b_readback_ready,
+    trusted_mission_provenance_ready: latest.field_acceptance.trusted_mission_provenance_ready,
     pending_gate_ids: latest.field_acceptance.pending_gate_ids,
     next_required_actions: latest.next_required_actions,
     blockers,

@@ -490,9 +490,17 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostInteraction(string stepId, string missionStateValue)
         {
+            yield return PostInteraction(stepId, missionStateValue, CurrentActiveAnchorId());
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
                 user_id = CurrentUserId(),
                 step_id = stepId,
                 mission_state = string.IsNullOrWhiteSpace(missionStateValue) ? "doing" : missionStateValue.Trim()
@@ -506,6 +514,8 @@ namespace InnerWorld.Rokid
             ServiceActionRequest request = new ServiceActionRequest
             {
                 source = RequestSourceName(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
                 action_id = "JOIN_EVENT_1430",
                 label = "Join 14:30 demo",
@@ -1051,6 +1061,9 @@ namespace InnerWorld.Rokid
         {
             WriteBackRequest request = new WriteBackRequest
             {
+                source = RequestSourceName(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
                 anchor_id = "A3",
                 title = "Unity shell",
@@ -1065,6 +1078,9 @@ namespace InnerWorld.Rokid
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = "A3",
                 user_id = "B",
                 mission_state = "complete"
             };
@@ -1145,12 +1161,12 @@ namespace InnerWorld.Rokid
                 bool postedRead = false;
                 if (MissionHasStep("read") && !IsMissionStepComplete("read"))
                 {
-                    yield return PostInteraction("read", InnerWorldMissionStates.Reading);
+                    yield return PostInteraction("read", InnerWorldMissionStates.Reading, "A2");
                     postedRead = true;
                 }
                 if (MissionHasStep("find_year") && !IsMissionStepComplete("find_year"))
                 {
-                    yield return PostInteraction("find_year", InnerWorldMissionStates.Doing);
+                    yield return PostInteraction("find_year", InnerWorldMissionStates.Doing, "A2");
                     postedRead = true;
                 }
 
