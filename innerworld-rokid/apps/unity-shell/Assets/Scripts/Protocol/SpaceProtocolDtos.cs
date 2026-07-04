@@ -134,6 +134,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint wall_calibration_observations;
         public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint field_acceptance;
+        public SpaceApiEndpoint field_target_readiness;
         public SpaceApiEndpoint ai_schema;
         public SpaceApiEndpoint ai_prompt;
         public SpaceApiEndpoint ai_hud;
@@ -637,6 +638,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint wall_calibration_observations;
         public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint field_acceptance;
+        public SpaceApiEndpoint field_target_readiness;
         public SpaceApiEndpoint ai_hud;
         public SpaceApiEndpoint interactions;
         public SpaceApiEndpoint service_actions;

@@ -10,7 +10,7 @@ import {
 } from "../../../../shared/innerworld-contract.js";
 import { buildDeviceManifest, buildRokidLiveAdapterChecklist, createDeviceRuntimeStore } from "../domain/device-runtime.js";
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
-import { buildFieldAcceptance } from "../domain/field-acceptance.js";
+import { buildFieldAcceptance, buildFieldTargetReadiness } from "../domain/field-acceptance.js";
 import { buildFieldMarkerManifest } from "../domain/field-markers.js";
 import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
@@ -289,6 +289,15 @@ export function createApiRouter({
     });
   }
 
+  async function loadFieldTargetReadiness(req, url) {
+    const baseUrl = getRequestBaseUrl(req, url, port);
+    const fieldAcceptance = await loadFieldAcceptance(req, url);
+    return buildFieldTargetReadiness({
+      baseUrl,
+      fieldAcceptance
+    });
+  }
+
   function serveFieldTargetAsset(res, fileName) {
     if (!fieldTargetAssetsDir || !fileName) {
       sendError(res, 404, "field_target_asset_not_found");
@@ -451,6 +460,11 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/field/acceptance") {
       sendJson(res, 200, await loadFieldAcceptance(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/field/target-readiness") {
+      sendJson(res, 200, await loadFieldTargetReadiness(req, url));
       return;
     }
 

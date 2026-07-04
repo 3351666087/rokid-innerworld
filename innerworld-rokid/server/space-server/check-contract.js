@@ -986,6 +986,8 @@ async function assertFieldAcceptanceCheckSkeleton() {
 
   assert(check.includes("innerworld-field-acceptance/v1"), "field acceptance schema check missing");
   assert(check.includes("/api/field/acceptance"), "field acceptance endpoint check missing");
+  assert(check.includes("innerworld-field-target-readiness/v1"), "field target readiness schema check missing");
+  assert(check.includes("/api/field/target-readiness"), "field target readiness endpoint check missing");
   assert(check.includes("print_kit"), "field acceptance print kit gate missing");
   assert(check.includes("simulator_rehearsal"), "field acceptance simulator rehearsal gate missing");
   assert(check.includes("hardware_alignment"), "field acceptance hardware alignment gate missing");

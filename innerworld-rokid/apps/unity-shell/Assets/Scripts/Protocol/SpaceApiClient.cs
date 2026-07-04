@@ -357,6 +357,7 @@ namespace InnerWorld.Rokid.Protocol
                 wall_calibration_observations = Endpoint(cleanBaseUrl, "POST", "/api/calibration/observations"),
                 field_markers = Endpoint(cleanBaseUrl, "GET", "/api/field/markers"),
                 field_acceptance = Endpoint(cleanBaseUrl, "GET", "/api/field/acceptance"),
+                field_target_readiness = Endpoint(cleanBaseUrl, "GET", "/api/field/target-readiness"),
                 ai_schema = Endpoint(cleanBaseUrl, "GET", "/api/ai/schema"),
                 ai_prompt = Endpoint(cleanBaseUrl, "GET", "/api/ai/prompt"),
                 ai_hud = Endpoint(cleanBaseUrl, "POST", "/api/ai/hud"),

@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 16:32 Asia/Shanghai
+Updated: 2026-07-04 16:52 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -78,6 +78,12 @@ APK target-index preflight checkpoint on 2026-07-04 15:25 Asia/Shanghai:
 
 - The current APK-packaged `assets/RKImage.db` is now opened by `station-pro-apk-smoke.ps1` and `uxr-readiness.js`; both parse nested `Data.json` and require `innerworld-rokid-target-index-map/v1` with `1:A1`, `2:A2`, `3:A3`.
 - `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-target-pass`, `check:contract`, and `check:mainline` pass with the target map green. `field:target-pass:strict` still fails only on missing trusted A1/A2/A3 observations and the P0 mission/User B loop.
+
+Target readiness operator panel checkpoint on 2026-07-04 16:52 Asia/Shanghai:
+
+- Carver's panel audit is `.agents/carver/carver-target-readiness-panel-audit-2026-07-04-1640.md`.
+- The bus now exposes read-only `/api/field/target-readiness` and Web Field Acceptance cards for `precheck_ok`, `physical_acceptance_ready`, trusted A1/A2/A3 count, mission/User B state, and physical blockers.
+- This is not a Web product expansion: it does not run device commands, read output reports directly, post simulator/manual observations, mutate mission/write-back state, or relax `/api/field/acceptance.ready` as the final physical acceptance truth.
 - This checkpoint strengthens the image-target package gate from “RKImage.db exists” to “the APK carries the correct one-wall A1/A2/A3 map.” It does not claim target events, live physical observations, write-back, User B readback, or hardware acceptance.
 
 Per-anchor trust diagnostics checkpoint on 2026-07-04 15:43 Asia/Shanghai:

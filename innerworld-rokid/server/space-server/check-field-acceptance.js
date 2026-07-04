@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildFieldAcceptance } from "./src/domain/field-acceptance.js";
+import { buildFieldAcceptance, buildFieldTargetReadiness } from "./src/domain/field-acceptance.js";
 import { buildFieldMarkerManifest } from "./src/domain/field-markers.js";
 import { buildWallCalibrationManifest, createWallCalibrationObservation } from "./src/domain/wall-calibration.js";
 
@@ -11,6 +11,8 @@ const base = process.env.BASE_URL || "http://localhost:5177";
 const useApi = process.argv.includes("--api") || process.env.CHECK_FIELD_ACCEPTANCE_API === "1";
 const FIELD_ACCEPTANCE_SCHEMA = "innerworld-field-acceptance/v1";
 const FIELD_ACCEPTANCE_ENDPOINT = "/api/field/acceptance";
+const FIELD_TARGET_READINESS_SCHEMA = "innerworld-field-target-readiness/v1";
+const FIELD_TARGET_READINESS_ENDPOINT = "/api/field/target-readiness";
 const requiredGateIds = ["print_kit", "simulator_rehearsal", "hardware_alignment", "trusted_hardware_session"];
 const hardwareTrackingModes = ["qr", "image_tracking", "slam"];
 const trustedHardwareGatePatterns = [
@@ -42,10 +44,10 @@ function byId(items) {
   return new Map((Array.isArray(items) ? items : []).map((item) => [item.id, item]));
 }
 
-function assertEndpoint(endpoint, label) {
+function assertEndpoint(endpoint, label, expectedPath = FIELD_ACCEPTANCE_ENDPOINT) {
   assert(endpoint, `${label} endpoint missing`);
   assert(endpoint.method === "GET", `${label} endpoint method must be GET`);
-  assert(endpoint.path === FIELD_ACCEPTANCE_ENDPOINT, `${label} endpoint path mismatch`);
+  assert(endpoint.path === expectedPath, `${label} endpoint path mismatch`);
 }
 
 function assertGate(gate, id) {
@@ -168,6 +170,30 @@ function assertAcceptancePayload(payload) {
   for (const mode of hardwareTrackingModes) {
     assert(payload.hardware_modes_required.includes(mode), `top-level hardware mode missing: ${mode}`);
   }
+}
+
+function assertTargetReadinessPayload(payload, acceptance) {
+  assert(payload.ok === true, "field target readiness ok mismatch");
+  assert(payload.schema === FIELD_TARGET_READINESS_SCHEMA, "field target readiness schema mismatch");
+  assertEndpoint(payload.endpoint, "field target readiness", FIELD_TARGET_READINESS_ENDPOINT);
+  assert(payload.endpoint.path === FIELD_TARGET_READINESS_ENDPOINT, "field target readiness endpoint path mismatch");
+  assert(payload.source_of_truth?.field_acceptance?.path === FIELD_ACCEPTANCE_ENDPOINT, "field target readiness must point back to field acceptance");
+  assert(typeof payload.precheck_ok === "boolean", "field target readiness precheck_ok missing");
+  assert(typeof payload.physical_acceptance_ready === "boolean", "field target readiness physical_acceptance_ready missing");
+  assert(Array.isArray(payload.physical_blockers), "field target readiness physical blockers missing");
+  assert(payload.hardware_ready_claim_allowed === payload.physical_acceptance_ready, "field target readiness hardware claim flag mismatch");
+  assert(payload.physical_acceptance_ready === (acceptance.ready === true && acceptance.status === "hardware_acceptance_ready"), "physical readiness must mirror field acceptance ready status");
+  assert(payload.physical_acceptance_ready !== true || payload.physical_blockers.length === 0, "physical ready must not have blockers");
+  assert(payload.physical_acceptance_ready === true || payload.physical_blockers.includes("field_acceptance_not_ready"), "non-ready physical target pass must keep field acceptance blocker");
+  assert(payload.precheck_ok !== true || payload.physical_acceptance_ready !== true || acceptance.ready === true, "precheck cannot bypass field acceptance");
+  assert(payload.target_summary?.required_anchor_ids?.includes("A1"), "target readiness required A1 missing");
+  assert(payload.target_summary?.required_anchor_ids?.includes("A2"), "target readiness required A2 missing");
+  assert(payload.target_summary?.required_anchor_ids?.includes("A3"), "target readiness required A3 missing");
+  assert(Array.isArray(payload.target_summary?.missing_trusted_anchor_ids), "target readiness missing trusted anchors missing");
+  assert(payload.mission_loop?.required_active_user === "B", "target readiness User B requirement missing");
+  assert(typeof payload.mission_loop?.user_b_readback_ready === "boolean", "target readiness User B readback status missing");
+  assert(payload.privacy?.raw_pairing_codes_included === false, "target readiness must not include pairing codes");
+  assert(payload.privacy?.raw_logcat_included === false, "target readiness must not include raw logcat");
 }
 
 function buildExpectedPayload({ space, fieldMarkers, wallCalibration }) {
@@ -457,6 +483,14 @@ function assertHardwareTrackingRequiresLiveSdkSession(space, fieldMarkers) {
   );
   assert(payload.ready === false, "tracking-mode-only hardware observations must not set field acceptance ready");
   assert(trustedBlocker, "missing trusted hardware session/sdk live binding blocker");
+  const targetReadiness = buildFieldTargetReadiness({
+    baseUrl: base,
+    fieldAcceptance: payload,
+    generatedAt: "2026-07-02T00:12:30.000Z"
+  });
+  assertTargetReadinessPayload(targetReadiness, payload);
+  assert(targetReadiness.physical_acceptance_ready === false, "tracking-mode-only target readiness must remain false");
+  assert(targetReadiness.physical_blockers.includes("trusted_a1_a2_a3_observations_missing"), "target readiness trusted A1/A2/A3 blocker missing");
 }
 
 function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {
@@ -527,6 +561,13 @@ function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {
   assert(missingUserBMissionGate?.status !== "ready", "mission loop must not be ready without User B readback");
   assert(missingUserBMissionGate?.evidence?.required_active_user === "B", "mission loop User B readback evidence target missing");
   assert(missingUserBMissionGate?.evidence?.user_b_readback_ready === false, "mission loop must expose missing User B readback evidence");
+  const missingUserBTargetReadiness = buildFieldTargetReadiness({
+    baseUrl: base,
+    fieldAcceptance: missingUserBReadback,
+    generatedAt: "2026-07-02T00:09:30.000Z"
+  });
+  assertTargetReadinessPayload(missingUserBTargetReadiness, missingUserBReadback);
+  assert(missingUserBTargetReadiness.physical_blockers.includes("p0_mission_writeback_user_b_loop_missing"), "target readiness User B loop blocker missing");
 
   const fullyReady = buildFieldAcceptance({
     ...common,
@@ -539,6 +580,14 @@ function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {
   assert(fullyReady.summary?.trusted_hardware_session_count === 1, "trusted hardware session count mismatch");
   const fullyReadyMissionGate = fullyReady.gates.find((gate) => gate.id === "mission_loop");
   assert(fullyReadyMissionGate?.evidence?.user_b_readback_ready === true, "trusted live hardware acceptance must include User B readback evidence");
+  const fullyReadyTargetReadiness = buildFieldTargetReadiness({
+    baseUrl: base,
+    fieldAcceptance: fullyReady,
+    generatedAt: "2026-07-02T00:09:40.000Z"
+  });
+  assertTargetReadinessPayload(fullyReadyTargetReadiness, fullyReady);
+  assert(fullyReadyTargetReadiness.precheck_ok === true, "trusted live target precheck should be true");
+  assert(fullyReadyTargetReadiness.physical_acceptance_ready === true, "trusted live target readiness should be true");
 }
 
 function assertMissionLoopRequiresUserBReadback(space, fieldMarkers) {
@@ -580,6 +629,14 @@ async function fetchAcceptancePayload() {
   return res.json();
 }
 
+async function fetchTargetReadinessPayload() {
+  const res = await fetch(`${base}${FIELD_TARGET_READINESS_ENDPOINT}`);
+  const contentType = res.headers.get("content-type") || "";
+  assert(res.ok, `${FIELD_TARGET_READINESS_ENDPOINT} status check failed`);
+  assert(contentType.includes("application/json"), `${FIELD_TARGET_READINESS_ENDPOINT} content-type check failed`);
+  return res.json();
+}
+
 async function assertCheckIsExposed() {
   const packageJson = JSON.parse(await readText("package.json"));
   const script = packageJson.scripts?.["check:field-acceptance"] || "";
@@ -593,7 +650,9 @@ async function assertCheckIsExposed() {
   ]);
   const checks = `${mainline}\n${contract}\n${webDemo}\n${fieldAcceptanceCheck}\n${script}`;
   assert(checks.includes(FIELD_ACCEPTANCE_ENDPOINT), "field acceptance endpoint is not constrained by checks");
+  assert(checks.includes(FIELD_TARGET_READINESS_ENDPOINT), "field target readiness endpoint is not constrained by checks");
   assert(checks.includes(FIELD_ACCEPTANCE_SCHEMA), "field acceptance schema is not constrained by checks");
+  assert(checks.includes(FIELD_TARGET_READINESS_SCHEMA), "field target readiness schema is not constrained by checks");
   assert(checks.includes("trusted_hardware_session") || checks.includes("sdk_live_binding"), "trusted hardware session check is not constrained");
 }
 
@@ -609,8 +668,16 @@ async function main() {
   const payload = useApi
     ? await fetchAcceptancePayload()
     : buildExpectedPayload({ space, fieldMarkers, wallCalibration: simulatorOnlyManifest });
+  const targetReadiness = useApi
+    ? await fetchTargetReadinessPayload()
+    : buildFieldTargetReadiness({
+        baseUrl: base,
+        fieldAcceptance: payload,
+        generatedAt: "2026-07-02T00:04:30.000Z"
+      });
 
   assertAcceptancePayload(payload);
+  assertTargetReadinessPayload(targetReadiness, payload);
   await assertCheckIsExposed();
 
   console.log(JSON.stringify({
@@ -618,6 +685,8 @@ async function main() {
     mode: useApi ? "api" : "static-contract",
     schema: FIELD_ACCEPTANCE_SCHEMA,
     endpoint: FIELD_ACCEPTANCE_ENDPOINT,
+    target_readiness_schema: FIELD_TARGET_READINESS_SCHEMA,
+    target_readiness_endpoint: FIELD_TARGET_READINESS_ENDPOINT,
     gates: requiredGateIds,
     trusted_hardware_gate_required: "trusted_hardware_session or sdk_live_binding",
     separated_states: ["print_kit", "simulator_rehearsal", "hardware_alignment"],

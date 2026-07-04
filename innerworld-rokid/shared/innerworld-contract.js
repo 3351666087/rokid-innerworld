@@ -91,6 +91,7 @@ export function buildEndpointMap(baseUrl, spaceId = INNERWORLD_SPACE_ID) {
     wall_calibration_observations: apiEndpoint(baseUrl, "/api/calibration/observations", "POST"),
     field_markers: apiEndpoint(baseUrl, "/api/field/markers"),
     field_acceptance: apiEndpoint(baseUrl, "/api/field/acceptance"),
+    field_target_readiness: apiEndpoint(baseUrl, "/api/field/target-readiness"),
     device_bootstrap: apiEndpoint(baseUrl, "/api/device/bootstrap"),
     device_manifest: apiEndpoint(baseUrl, "/api/device/manifest"),
     device_adapter_checklist: apiEndpoint(baseUrl, "/api/device/adapter-checklist"),
@@ -461,6 +462,9 @@ export function createInnerWorldClient({
     },
     getFieldAcceptance() {
       return request("/api/field/acceptance", {}, "field_acceptance_failed");
+    },
+    getFieldTargetReadiness() {
+      return request("/api/field/target-readiness", {}, "field_target_readiness_failed");
     },
     getDeviceBootstrap(profile = DEFAULT_DEVICE_PROFILE) {
       return request(`/api/device/bootstrap?profile=${encodeURIComponent(profile)}`, {}, "device_bootstrap_failed");

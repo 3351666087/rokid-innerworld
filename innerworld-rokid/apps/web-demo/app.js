@@ -42,6 +42,9 @@ const api = {
   async getFieldAcceptance() {
     return requestJson("/api/field/acceptance", { cache: "no-store" }, "Read field acceptance failed");
   },
+  async getFieldTargetReadiness() {
+    return requestJson("/api/field/target-readiness", { cache: "no-store" }, "Read target physical readiness failed");
+  },
   async submitWallCalibrationObservation(payload) {
     return requestJson("/api/calibration/observations", jsonPost(payload), "提交展墙标定失败");
   },
@@ -109,6 +112,8 @@ const model = {
   fieldMarkersError: null,
   fieldAcceptance: null,
   fieldAcceptanceError: null,
+  fieldTargetReadiness: null,
+  fieldTargetReadinessError: null,
   activeUser: "A",
   currentAnchor: null,
   hudByAnchor: new Map(),
@@ -483,7 +488,7 @@ function wallCalibrationReadinessStates() {
     ? Number(summary.hardware_calibrated_anchor_count)
     : acceptedCalibrationCount((latest) => HARDWARE_TRACKING_MODES.has(latest.tracking_mode));
   const hardwareFit = model.ops?.hardware?.fit === "fit";
-  const hardwareReady = Boolean(summary?.ready_for_hardware) && hardwareFit;
+  const trustedLockCandidate = Boolean(summary?.ready_for_hardware) && hardwareFit;
 
   return {
     print: {
@@ -497,15 +502,19 @@ function wallCalibrationReadinessStates() {
       body: `${simulatorAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} simulator observations accepted through /api/calibration/observations`
     },
     hardware: {
-      tone: hardwareReady ? "good" : "warn",
-      title: hardwareReady ? "hardware ready" : "hardware pending",
-      body: `${hardwareAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} QR/image/SLAM observations accepted · ${hardwareFit ? "AR Studio kit fit" : "AR Studio kit pending"}`
+      tone: trustedLockCandidate ? "good" : "warn",
+      title: trustedLockCandidate ? "trusted lock candidate" : "hardware pending",
+      body: `${hardwareAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} QR/image/SLAM observations accepted · ${hardwareFit ? "AR Studio kit fit" : "AR Studio kit pending"} · final acceptance still uses target physical readiness`
     }
   };
 }
 
 function fieldAcceptanceEndpoint() {
   return endpointUrl(model.bootstrap?.endpoints?.field_acceptance || "/api/field/acceptance");
+}
+
+function fieldTargetReadinessEndpoint() {
+  return endpointUrl(model.bootstrap?.endpoints?.field_target_readiness || "/api/field/target-readiness");
 }
 
 function normalizeGateStatus(value) {
@@ -547,7 +556,7 @@ function releaseChainReady() {
 
 function fallbackAcceptanceGates() {
   const states = wallCalibrationReadinessStates();
-  const hardwareReady = states.hardware.tone === "good";
+  const hardwareLockCandidate = states.hardware.tone === "good";
   const loopReady = missionLoopReady();
   const releaseReady = releaseChainReady();
 
@@ -569,9 +578,9 @@ function fallbackAcceptanceGates() {
     {
       id: "hardware_alignment",
       label: "Hardware Alignment",
-      status: gateStatusFromReady(hardwareReady),
-      summary: hardwareReady ? "hardware observations accepted" : "hardware pending",
-      detail: `${states.hardware.body}. Hardware ready requires QR/image/SLAM evidence from the Rokid kit.`
+      status: gateStatusFromReady(hardwareLockCandidate),
+      summary: hardwareLockCandidate ? "hardware observations accepted" : "hardware pending",
+      detail: `${states.hardware.body}. Physical acceptance also requires trusted A1/A2/A3, A3 write-back, and User B readback.`
     },
     {
       id: "mission_loop",
@@ -623,6 +632,70 @@ function fieldAcceptanceBlockingItems() {
     .filter((gate) => gate.status !== "ready")
     .flatMap((gate) => gate.blockingItems.length ? gate.blockingItems : [`${gate.label}: ${gate.summary}`])
     .slice(0, 4);
+}
+
+function rawFieldAcceptanceGate(id) {
+  return listFrom(model.fieldAcceptance?.gates).find((gate) => gate?.id === id) || null;
+}
+
+function targetReadinessFallback() {
+  const trusted = rawFieldAcceptanceGate("trusted_hardware_session")?.evidence || {};
+  const hardware = rawFieldAcceptanceGate("hardware_alignment")?.evidence || {};
+  const mission = rawFieldAcceptanceGate("mission_loop")?.evidence || {};
+  const trustedIds = listFrom(trusted.trusted_hardware_calibrated_anchor_ids);
+  const hardwareIds = listFrom(hardware.hardware_calibrated_anchor_ids);
+  const trustedSessionCount = Number(trusted.trusted_hardware_session_count) || 0;
+  const physicalAcceptanceReady = model.fieldAcceptance?.ready === true
+    && model.fieldAcceptance?.status === "hardware_acceptance_ready";
+  const precheckOk = rawFieldAcceptanceGate("print_kit")?.status === "ready"
+    && rawFieldAcceptanceGate("hardware_kit")?.status === "ready"
+    && trustedSessionCount > 0;
+  const missingTrusted = FIELD_MARKER_ANCHOR_IDS.filter((anchorId) => !trustedIds.includes(anchorId));
+  const blockers = [
+    precheckOk ? "" : "target_api_precheck_missing",
+    hardwareIds.length >= FIELD_MARKER_ANCHOR_IDS.length ? "" : "raw_a1_a2_a3_hardware_observations_missing",
+    missingTrusted.length ? "trusted_a1_a2_a3_observations_missing" : "",
+    mission.user_b_readback_ready === true ? "" : "p0_mission_writeback_user_b_loop_missing",
+    physicalAcceptanceReady ? "" : "field_acceptance_not_ready"
+  ].filter(Boolean);
+
+  return {
+    schema: "fallback-from-field-acceptance",
+    endpoint: { path: fieldTargetReadinessEndpoint(), method: "GET" },
+    precheck_ok: precheckOk,
+    physical_acceptance_ready: physicalAcceptanceReady,
+    physical_blockers: blockers,
+    target_summary: {
+      trusted_anchor_count: trustedIds.length,
+      trusted_anchor_ids: trustedIds,
+      missing_trusted_anchor_ids: missingTrusted,
+      hardware_anchor_count: hardwareIds.length,
+      hardware_anchor_ids: hardwareIds,
+      trusted_hardware_session_count: trustedSessionCount
+    },
+    mission_loop: {
+      ready: rawFieldAcceptanceGate("mission_loop")?.status === "ready",
+      mission_state: mission.mission_state || model.runtime?.mission_state || null,
+      active_user: mission.active_user || model.activeUser,
+      completed_steps: listFrom(mission.completed_steps),
+      missing_steps: listFrom(mission.missing_steps),
+      write_back_beacons: Number(mission.write_back_beacons) || 0,
+      user_b_readback_ready: mission.user_b_readback_ready === true
+    },
+    field_acceptance: {
+      status: fieldAcceptanceOverall(),
+      ready: model.fieldAcceptance?.ready === true,
+      blocking_items: fieldAcceptanceBlockingItems()
+    }
+  };
+}
+
+function targetReadinessPayload() {
+  return model.fieldTargetReadiness || targetReadinessFallback();
+}
+
+function targetReadinessTone(ready) {
+  return ready ? "good" : "warn";
 }
 
 function calibratedAnchorIds() {
@@ -1939,7 +2012,7 @@ function renderHardwareRuntime() {
     renderInfoCard(`hardware-card ${checklist.tone}`, "Live Adapter Checklist", checklist.title, checklist.endpoint),
     renderInfoCard(`hardware-card ${pairing.tone}`, "Pairing Status", pairing.status, `pairing_status: ${pairing.pairing_status} · source: ${pairing.source}`),
     renderInfoCard(`hardware-card ${pairing.tone}`, "Acceptance Pairing", `eligible ${pairing.hardware_acceptance_eligible}`, `hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible} · pairing.required_for_hardware_acceptance: ${pairing.required_for_hardware_acceptance} · pairing.expires_at: ${pairing.expires_at}`),
-    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Hardware Wall Lock", calibrationReady ? "hardware ready" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · ${endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")}`),
+    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Trusted Wall Lock", calibrationReady ? "lock candidate" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · final acceptance uses ${fieldTargetReadinessEndpoint()}`),
     renderInfoCard("hardware-card", "Adapter Slots", `${binding.slots.length || 0} declared`, "ROKID_UXR boundary keeps gaze, pose, network, and overlay swappable without changing the campus wall layer."),
     renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
     renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
@@ -2089,6 +2162,12 @@ function renderFieldAcceptance() {
     : "not fetched";
   const readyCount = gates.filter((gate) => gate.status === "ready").length;
   const sourceLabel = model.fieldAcceptance ? model.fieldAcceptance.schema || "field-acceptance/v1" : "fallback from local runtime";
+  const targetReadiness = targetReadinessPayload();
+  const targetSummary = targetReadiness.target_summary || {};
+  const targetMission = targetReadiness.mission_loop || {};
+  const targetBlockers = listFrom(targetReadiness.physical_blockers);
+  const trustedCount = Number(targetSummary.trusted_anchor_count) || 0;
+  const trustedSessions = Number(targetSummary.trusted_hardware_session_count) || 0;
 
   els.acceptanceGrid.innerHTML = "";
   els.acceptanceGrid.append(
@@ -2100,6 +2179,16 @@ function renderFieldAcceptance() {
   if (model.fieldAcceptanceError && !model.fieldAcceptance) {
     els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Endpoint", "acceptance API pending", model.fieldAcceptanceError.message || "Waiting for /api/field/acceptance."));
   }
+
+  if (model.fieldTargetReadinessError && !model.fieldTargetReadiness) {
+    els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Target Endpoint", "target readiness API pending", `${model.fieldTargetReadinessError.message || "Waiting for /api/field/target-readiness."} Fallback is derived from /api/field/acceptance.`));
+  }
+
+  els.acceptanceGrid.append(
+    renderInfoCard(`acceptance-card ${targetReadinessTone(targetReadiness.precheck_ok)}`, "Target Precheck", `precheck_ok ${targetReadiness.precheck_ok ? "true" : "false"}`, `${trustedSessions} trusted live sessions | ${fieldTargetReadinessEndpoint()}`),
+    renderInfoCard(`acceptance-card ${targetReadinessTone(targetReadiness.physical_acceptance_ready)}`, "Target Physical Readiness", `physical_acceptance_ready ${targetReadiness.physical_acceptance_ready ? "true" : "false"}`, `${trustedCount}/3 trusted A1/A2/A3 | User B readback ${targetMission.user_b_readback_ready ? "ready" : "pending"}`),
+    renderInfoCard("acceptance-card warn wide", "Target Physical Blockers", targetBlockers.length ? `${targetBlockers.length} blockers` : "none", targetBlockers.length ? targetBlockers.join(" | ") : "Trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and /api/field/acceptance are all green.")
+  );
 
   const list = document.createElement("div");
   list.className = "acceptance-gate-list";
@@ -2282,10 +2371,11 @@ async function refreshLedger() {
 }
 
 async function refreshWallCalibration() {
-  const [calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [calibrationResult, markersResult, acceptanceResult, targetReadinessResult] = await Promise.allSettled([
     api.getWallCalibration(),
     api.getFieldMarkers(),
-    api.getFieldAcceptance()
+    api.getFieldAcceptance(),
+    api.getFieldTargetReadiness()
   ]);
 
   if (calibrationResult.status === "fulfilled") {
@@ -2306,6 +2396,12 @@ async function refreshWallCalibration() {
   } else {
     model.fieldAcceptanceError = acceptanceResult.reason;
   }
+  if (targetReadinessResult.status === "fulfilled") {
+    model.fieldTargetReadiness = targetReadinessResult.value;
+    model.fieldTargetReadinessError = null;
+  } else {
+    model.fieldTargetReadinessError = targetReadinessResult.reason;
+  }
   renderWallCalibration();
   renderFieldAcceptance();
   renderHardwareRuntime();
@@ -2313,7 +2409,7 @@ async function refreshWallCalibration() {
 }
 
 async function refreshDeviceRuntime() {
-  const [manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult, targetReadinessResult] = await Promise.allSettled([
     api.getDeviceManifest(),
     api.getDeviceAdapterChecklist(),
     api.getDeviceSessions(),
@@ -2321,7 +2417,8 @@ async function refreshDeviceRuntime() {
     api.getDatasetCatalog(),
     api.getWallCalibration(),
     api.getFieldMarkers(),
-    api.getFieldAcceptance()
+    api.getFieldAcceptance(),
+    api.getFieldTargetReadiness()
   ]);
 
   if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
@@ -2346,6 +2443,12 @@ async function refreshDeviceRuntime() {
     model.fieldAcceptanceError = null;
   } else {
     model.fieldAcceptanceError = acceptanceResult.reason;
+  }
+  if (targetReadinessResult.status === "fulfilled") {
+    model.fieldTargetReadiness = targetReadinessResult.value;
+    model.fieldTargetReadinessError = null;
+  } else {
+    model.fieldTargetReadinessError = targetReadinessResult.reason;
   }
   renderSdkBindingReadiness();
   renderHardwareRuntime();
@@ -2414,7 +2517,7 @@ async function submitAllSimulatedCalibration() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, evidenceResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, evidenceResult, calibrationResult, markersResult, acceptanceResult, targetReadinessResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
@@ -2427,7 +2530,8 @@ async function refreshOps() {
     api.getEvidenceChain(),
     api.getWallCalibration(),
     api.getFieldMarkers(),
-    api.getFieldAcceptance()
+    api.getFieldAcceptance(),
+    api.getFieldTargetReadiness()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
@@ -2454,6 +2558,12 @@ async function refreshOps() {
     model.fieldAcceptanceError = null;
   } else {
     model.fieldAcceptanceError = acceptanceResult.reason;
+  }
+  if (targetReadinessResult.status === "fulfilled") {
+    model.fieldTargetReadiness = targetReadinessResult.value;
+    model.fieldTargetReadinessError = null;
+  } else {
+    model.fieldTargetReadinessError = targetReadinessResult.reason;
   }
   if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
   if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
@@ -2555,6 +2665,16 @@ function renderLog() {
       })),
       blocking_items: fieldAcceptanceBlockingItems(),
       error: model.fieldAcceptanceError?.message || null
+    },
+    field_target_readiness: {
+      schema: targetReadinessPayload().schema,
+      endpoint: fieldTargetReadinessEndpoint(),
+      precheck_ok: targetReadinessPayload().precheck_ok === true,
+      physical_acceptance_ready: targetReadinessPayload().physical_acceptance_ready === true,
+      physical_blockers: listFrom(targetReadinessPayload().physical_blockers),
+      target_summary: targetReadinessPayload().target_summary || {},
+      mission_loop: targetReadinessPayload().mission_loop || {},
+      error: model.fieldTargetReadinessError?.message || null
     },
     sdk_binding: {
       mode: binding.mode,
