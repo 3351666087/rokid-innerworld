@@ -35,9 +35,18 @@ Before physical A1/A2/A3 scanning, require the glasses display chain:
 
 ```powershell
 npm run station:apk:display-smoke
+npm run station:glasses:require-ready
 ```
 
-This command is expected to fail until Station Pro detects the Rokid glasses/external display. Passing APK smoke alone is not enough; the strict display smoke must be green before the physical target pass.
+These commands are expected to fail until Station Pro detects the Rokid glasses/external display and head pose is healthy. Passing APK smoke alone is not enough; the strict display smoke and read-only glasses readiness gate must be green before the physical target pass.
+
+For non-mutating troubleshooting after cable/dock/HDMI/glasses changes, run:
+
+```powershell
+npm run station:glasses:diagnose
+```
+
+Green report generation with `glasses_display_ready=false` is useful diagnostic evidence, not hardware readiness.
 
 ## 2. Open The Field Watch
 
@@ -112,6 +121,9 @@ Stop and rescan or rerun smoke if any of these appear:
 - `current_target_diagnostics_apk_preflight_missing`
 - `apk_rokid_openxr_loader_not_from_rokid_package`
 - `getGlassName failed: glass not detected`
+- `rokid_glasses_display_not_ready`
+- `rokid_external_display_not_detected`
+- `rokid_head_pose_failure_detected`
 - `trusted_a1_a2_a3_observations_missing`
 - `mission_loop_waiting_for_trusted_a1_a2_a3`
 - `p0_mission_writeback_user_b_loop_missing`

@@ -55,6 +55,8 @@ Clean logcat relaunch for the same checkpoint showed `DllNotFoundException=0`, `
 
 Display/glasses detection is now tool-gated. `station:apk:smoke` clears logcat before launch and records sanitized display summaries plus runtime pattern counts; `station:apk:display-smoke` adds `-RequireGlassesDisplay` and must pass before a physical target scan. Current strict result is expected-red with `rokid_glasses_display_not_detected`, one internal display, no external display, Rokid runtime loaded, and no runtime-unavailable errors.
 
+Read-only layer diagnosis is available through `station:glasses:diagnose`. It currently shows the Rokid/OpenXR runtime package and service are installed/resolvable, runtime signals are present, and input/USB signals include Rokid-like candidates, but Android display enumeration remains internal-only. This points the next hardware action at the Station Pro -> Max/HDMI/glasses display/head-pose chain rather than APK packaging.
+
 Current remaining boundary: this still is not hardware-ready. The project cannot claim RKCameraRig/RKInput/PointableUI/image target/SLAM trusted hardware readiness until trusted A1/A2/A3 physical observations, mission write-back, User B readback, and `/api/field/acceptance` readiness all pass.
 
 UXR live-binding instruction: keep the UXR manifest gate, then install `com.rokid.xr.unity`, run Rokid Environment Fix, OpenXR Feature Groups, and Project Validation. Bind RKCameraRig/RKInput/PointableUI/image target/SLAM into the existing adapter boundary and heartbeat contract instead of creating a parallel runtime.

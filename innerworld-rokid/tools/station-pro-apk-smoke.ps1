@@ -1001,7 +1001,7 @@ function Get-RokidRuntimeLogDiagnostics {
   $runtimeLoadSuccessCount = Count-TextRegex -Text $text -Pattern "RuntimeInterface::LoadRuntime succeeded|LoadRuntime succeeded"
   $glassNameFailureCount = Count-TextRegex -Text $text -Pattern "getGlassName failed|glass not detected"
   $headPoseFailureCount = Count-TextRegex -Text $text -Pattern "oxr_getHeadPose[^\r\n]*(result\s*=\s*-101|-101)"
-  $rokidRuntimeLoaded = [bool]($rokidRuntimeManifestCount -gt 0 -or $runtimeLoadSuccessCount -gt 0)
+  $rokidRuntimeLoaded = [bool]($rokidRuntimeManifestCount -gt 0 -or $runtimeLoadSuccessCount -gt 0 -or $glassNameFailureCount -gt 0 -or $headPoseFailureCount -gt 0)
   $runtimeUnavailableDetected = [bool]($runtimeUnavailableCount -gt 0 -or $runtimeBrokerFailureCount -gt 0)
   $glassesDetectionBlocked = [bool]($glassNameFailureCount -gt 0 -or $headPoseFailureCount -gt 0)
 

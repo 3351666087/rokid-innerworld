@@ -2,6 +2,12 @@
 
 ## Latest Checkpoint
 
+2026-07-04 20:47 Asia/Shanghai:
+
+- Added a read-only Station Pro glasses diagnostic command: `npm run station:glasses:diagnose`. It does not install or launch the APK; it summarizes ADB, Android display, Rokid/OpenXR packages, OpenXR runtime service, input devices, USB signals, selected display/Rokid properties, and runtime log counts without raw dumpsys/logcat/getprop output.
+- Current diagnostic result narrows the blocker: `openxr_runtime_package_ready=true`, `runtime_ready=true`, 9 Rokid-like input candidates, and USB connected/accessory tokens are present, but Android display still reports one internal display only: `external_display_detected=false`, `glasses_display_ready=false`.
+- Strict read-only gate `npm run station:glasses:require-ready` fails as expected with `rokid_external_display_not_detected` and `rokid_head_pose_failure_detected`. This is now the next physical hardware lane before A1/A2/A3 scanning.
+
 2026-07-04 20:30 Asia/Shanghai:
 
 - Added the Station Pro display/glasses gate after the OpenXR loader fix. `station:apk:smoke` now clears logcat before launch, installs/launches the APK, then records sanitized `dumpsys display` and logcat pattern evidence without storing raw dumpsys or raw logcat.
