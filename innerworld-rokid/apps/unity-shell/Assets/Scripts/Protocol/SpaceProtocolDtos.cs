@@ -761,6 +761,33 @@ namespace InnerWorld.Rokid.Protocol
         public float confidence_min;
         public float position_error_warn_m;
         public float position_error_reject_m;
+        public bool hardware_observation_trusted;
+        public WallCalibrationHardwareSession hardware_session;
+    }
+
+    [Serializable]
+    public sealed class WallCalibrationHardwareSession
+    {
+        public string schema;
+        public bool trusted;
+        public string trust_status;
+        public string[] issues;
+        public string session_id;
+        public string device_id;
+        public string anchor_id;
+        public string tracking_mode;
+        public string session_status_at_observation;
+        public string session_last_seen_at;
+        public int heartbeat_count_at_observation;
+        public string active_anchor_at_observation;
+        public string pairing_status_at_observation;
+        public bool hardware_acceptance_eligible;
+        public string sdk_binding_stage;
+        public bool sdk_live_binding_ready;
+        public bool sdk_input_binding_ready;
+        public bool sdk_overlay_binding_ready;
+        public bool sdk_package_detected;
+        public bool sdk_boundary_compiled;
     }
 
     [Serializable]

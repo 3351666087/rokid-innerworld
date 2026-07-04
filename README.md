@@ -2,6 +2,12 @@
 
 ## Latest Checkpoint
 
+2026-07-04 13:35 Asia/Shanghai:
+
+- Unity/Rokid image tracking now has a trusted-target mission assist bridge: only server-returned `hardware_observation_trusted=true` observations can advance A2 `read/find_year`; A1 still requires deliberate entry confirmation, and A3 TimeMark write-back stays gated behind `service_action`.
+- DTO/check coverage now records the sanitized hardware proof (`hardware_session`) and asserts simulator/manual calibration cannot trigger mission assist. Verified: `check:unity`, `check:contract`, `check:field-live-pass`, `check:field-acceptance -- --api`, `check:mainline`, and `context:export`.
+- Hardware-ready remains false. Current live-pass still has one operator-paired live session but no trusted A1/A2/A3 anchors, missing mission steps `read/find_year/service_action/write_back`, and `user_b_readback_ready=false`.
+
 2026-07-04 12:31 Asia/Shanghai:
 
 - PR #1 is open as a draft from `codex/rokid-real-device-sync`; Carver reviewed commit `1358664f` as directionally safe for the P0 real-device lane.

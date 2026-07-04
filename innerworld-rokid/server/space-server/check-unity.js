@@ -170,6 +170,18 @@ async function assertUnityAdapterBoundary() {
   assert(/BuildAdapterReadinessHeartbeatLine\(\)[\s\S]*BuildAdapterReadinessCompactLine[\s\S]*AdapterChecklistSummaryLabel[\s\S]*live_binding_ready/.test(controller), "Unity controller heartbeat must include adapter readiness checklist status");
   assert(/AdapterChecklistSummaryLabel\(\)[\s\S]*hardware acceptance remains gated/.test(controller), "Unity controller must not claim hardware ready from adapter checklist alone");
   assert(/BuildAdapterChecklistReportPayload[\s\S]*a1_entry_lock_ready\s*=\s*IsA1EntryLockReady\(\)[\s\S]*entry_lock_ready\s*=\s*IsA1EntryLockReady\(\)[\s\S]*trusted_hardware_proof_ready\s*=\s*false/.test(controller), "Unity controller A1 entry checklist must report local lock without trusted hardware proof");
+  assert(controller.includes("trustedHardwareMissionAssistLine"), "Unity trusted hardware mission assist HUD line missing");
+  assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*IsTrustedAcceptedHardwareObservation\(observation\)[\s\S]*trusted A1 target locked[\s\S]*deliberate entry confirmation still required/.test(controller), "Unity trusted target mission assist must gate A1 behind deliberate confirmation");
+  assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*PostInteraction\("read", InnerWorldMissionStates\.Reading\)[\s\S]*PostInteraction\("find_year", InnerWorldMissionStates\.Doing\)/.test(controller), "Unity trusted A2 image target must advance read/find_year only after trusted hardware observation");
+  assert(/bool serviceReady = IsMissionStepComplete\("service_action"\)\s*\|\|\s*MissionStateIs\(InnerWorldMissionStates\.ServiceReady\);/.test(controller), "Unity trusted A3 image target must require completed service_action or service_ready state before TimeMark write-back");
+  assert(!/bool serviceReady =[\s\S]{0,220}(Writing|WritebackReady)/.test(controller), "Unity trusted A3 TimeMark gate must not accept loose writing/writeback-ready labels without service_action");
+  assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*service action required before TimeMark[\s\S]*PostWriteBack\(text\)/.test(controller), "Unity trusted A3 image target must gate TimeMark write-back behind service action");
+  const rehearsalObservationStart = controller.indexOf("private IEnumerator SubmitWallCalibrationObservation(string trackingMode)");
+  const trustedObservationStart = controller.indexOf("public void SubmitRokidTrackedImageObservation");
+  const rehearsalObservationBody = rehearsalObservationStart >= 0 && trustedObservationStart > rehearsalObservationStart
+    ? controller.slice(rehearsalObservationStart, trustedObservationStart)
+    : "";
+  assert(rehearsalObservationBody && !rehearsalObservationBody.includes("AdvanceMissionFromTrustedImageObservation"), "Unity simulator/manual calibration observations must not trigger trusted mission assist");
   assert(/private string BuildRuntimeContractLine\(\)[\s\S]*BuildWallCalibrationStatusLine[\s\S]*BuildFieldMarkerStatusLine[\s\S]*BuildFieldAcceptanceStatusLine/.test(controller), "Unity controller HUD runtime line must expose wall calibration, field marker, and field acceptance status");
   assert(/private string BuildWallCalibrationHeartbeatLine\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerHeartbeatLine[\s\S]*BuildFieldAcceptanceHeartbeatLine/.test(controller), "Unity controller heartbeat payload must expose last calibration observation, field marker status, and field acceptance status");
   assert(/private void RefreshHud\(\)[\s\S]*FieldAcceptanceHudBadge/.test(controller), "Unity controller main HUD must expose field acceptance status");
@@ -278,6 +290,9 @@ async function assertUnityAdapterBoundary() {
   assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration observation result DTO missing");
+  assert(dtos.includes("public bool hardware_observation_trusted;"), "Unity wall calibration acceptance trusted hardware flag DTO missing");
+  assert(dtos.includes("public WallCalibrationHardwareSession hardware_session;"), "Unity wall calibration hardware session proof DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationHardwareSession"), "Unity wall calibration hardware session DTO missing");
   assert(dtos.includes("public int hardware_calibrated_anchor_count"), "Unity wall calibration hardware-only count DTO missing");
   assert(dtos.includes("public string[] hardware_calibrated_anchor_ids"), "Unity wall calibration hardware-only IDs DTO missing");
   assert(dtos.includes("public bool rehearsal_ready"), "Unity wall calibration rehearsal readiness DTO missing");

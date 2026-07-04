@@ -70,6 +70,7 @@ namespace InnerWorld.Rokid
         private WallCalibrationObservationResult lastWallCalibrationObservationResult;
         private WallCalibrationObservation lastWallCalibrationObservation;
         private string wallCalibrationObservationLine = "calibration observation pending";
+        private string trustedHardwareMissionAssistLine = "trusted target mission assist pending";
         private string calibrationRehearsalSessionId = string.Empty;
         private readonly Dictionary<string, float> trustedHardwareObservationPostedAt = new Dictionary<string, float>();
         private float heartbeatClockSeconds;
@@ -472,12 +473,17 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostInteraction(string stepId)
         {
+            yield return PostInteraction(stepId, "doing");
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
                 user_id = CurrentUserId(),
                 step_id = stepId,
-                mission_state = "doing"
+                mission_state = string.IsNullOrWhiteSpace(missionStateValue) ? "doing" : missionStateValue.Trim()
             };
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Interaction posted");
             yield return LoadSpace();
@@ -850,6 +856,7 @@ namespace InnerWorld.Rokid
             WallCalibrationObservationPayload payload = BuildRokidTrackedImageObservationPayload(anchor, anchorId, imageIndex, pose, size, mode, eventType);
             string json = JsonUtility.ToJson(payload);
             string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.wall_calibration_observations : null, apiClient.WallCalibrationObservationsUrl);
+            bool shouldAdvanceTrustedMission = false;
             wallCalibrationObservationInFlight = true;
             wallCalibrationObservationLine = "trusted " + mode + " observation posting | anchor " + anchorId + " | image " + imageIndex;
             SetRokidConnection(RokidConnectionStatus.Connecting, wallCalibrationObservationLine);
@@ -898,6 +905,7 @@ namespace InnerWorld.Rokid
                         Debug.Log("Trusted Rokid image observation posted: " + wallCalibrationObservationLine + " | " + url);
                         SetStatus("Trusted image observation posted", wallCalibrationObservationLine);
                         SetRokidConnection(RokidConnectionStatus.Connected, wallCalibrationObservationLine);
+                        shouldAdvanceTrustedMission = IsTrustedAcceptedHardwareObservation(lastWallCalibrationObservation);
                     }
                     catch (Exception error)
                     {
@@ -919,6 +927,10 @@ namespace InnerWorld.Rokid
             }
 
             wallCalibrationObservationInFlight = false;
+            if (shouldAdvanceTrustedMission)
+            {
+                yield return AdvanceMissionFromTrustedImageObservation(anchorId, lastWallCalibrationObservation);
+            }
             yield return LoadFieldAcceptanceManifest();
             if (space != null)
             {
@@ -992,12 +1004,17 @@ namespace InnerWorld.Rokid
         private IEnumerator PostWriteBack()
         {
             string text = "Unity shell writeback " + DateTime.Now.ToString("HH:mm:ss");
+            yield return PostWriteBack(text);
+        }
+
+        private IEnumerator PostWriteBack(string text)
+        {
             WriteBackRequest request = new WriteBackRequest
             {
                 user_id = CurrentUserId(),
                 anchor_id = "A3",
                 title = "Unity shell",
-                text = text
+                text = string.IsNullOrWhiteSpace(text) ? "Unity shell writeback" : text.Trim()
             };
             yield return PostJson(apiClient.WriteBackUrl, JsonUtility.ToJson(request), "Writeback posted");
             yield return LoadSpace();
@@ -1064,6 +1081,63 @@ namespace InnerWorld.Rokid
 
             localStepIndex = Mathf.Min(localStepIndex + 1, space.mission.steps.Length);
             StartCoroutine(PostInteraction(step.step_id));
+        }
+
+        private IEnumerator AdvanceMissionFromTrustedImageObservation(string anchorId, WallCalibrationObservation observation)
+        {
+            string cleanAnchorId = SafeLabel(anchorId, string.Empty);
+            if (!IsTrustedAcceptedHardwareObservation(observation))
+            {
+                trustedHardwareMissionAssistLine = "trusted target mission assist gated | anchor " + SafeLabel(cleanAnchorId, "unknown");
+                yield break;
+            }
+
+            if (IsA1EntryAnchor(cleanAnchorId))
+            {
+                trustedHardwareMissionAssistLine = "trusted A1 target locked | deliberate entry confirmation still required";
+                yield break;
+            }
+
+            if (string.Equals(cleanAnchorId, "A2", StringComparison.OrdinalIgnoreCase))
+            {
+                bool postedRead = false;
+                if (MissionHasStep("read") && !IsMissionStepComplete("read"))
+                {
+                    yield return PostInteraction("read", InnerWorldMissionStates.Reading);
+                    postedRead = true;
+                }
+                if (MissionHasStep("find_year") && !IsMissionStepComplete("find_year"))
+                {
+                    yield return PostInteraction("find_year", InnerWorldMissionStates.Doing);
+                    postedRead = true;
+                }
+
+                trustedHardwareMissionAssistLine = postedRead
+                    ? "trusted A2 mission assist posted read/find_year"
+                    : "trusted A2 mission assist already complete";
+                yield break;
+            }
+
+            if (string.Equals(cleanAnchorId, "A3", StringComparison.OrdinalIgnoreCase))
+            {
+                bool serviceReady = IsMissionStepComplete("service_action")
+                    || MissionStateIs(InnerWorldMissionStates.ServiceReady);
+                if (!serviceReady)
+                {
+                    trustedHardwareMissionAssistLine = "trusted A3 target locked | service action required before TimeMark";
+                    yield break;
+                }
+
+                if (MissionHasStep("write_back") && !IsMissionStepComplete("write_back"))
+                {
+                    string text = "Rokid trusted TimeMark " + DateTime.Now.ToString("HH:mm:ss");
+                    yield return PostWriteBack(text);
+                    trustedHardwareMissionAssistLine = "trusted A3 mission assist posted TimeMark write-back";
+                    yield break;
+                }
+
+                trustedHardwareMissionAssistLine = "trusted A3 mission assist write-back already complete";
+            }
         }
 
         private void RefreshHud()
@@ -2474,7 +2548,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -2591,6 +2665,49 @@ namespace InnerWorld.Rokid
 
             RokidSdkBindingReport report = CurrentSdkBindingReport();
             return report.LiveBindingReady && report.InputBindingReady && report.OverlayBindingReady;
+        }
+
+        private bool IsTrustedAcceptedHardwareObservation(WallCalibrationObservation observation)
+        {
+            if (observation == null || observation.acceptance == null)
+            {
+                return false;
+            }
+
+            bool accepted = string.Equals(observation.status, "accepted", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(observation.status, "warning", StringComparison.OrdinalIgnoreCase);
+            return accepted && observation.acceptance.hardware_observation_trusted;
+        }
+
+        private bool MissionHasStep(string stepId)
+        {
+            string cleanStepId = SafeLabel(stepId, string.Empty);
+            if (string.IsNullOrEmpty(cleanStepId) || space == null || space.mission == null || space.mission.steps == null)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < space.mission.steps.Length; index++)
+            {
+                MissionStepData step = space.mission.steps[index];
+                if (step != null && string.Equals(step.step_id, cleanStepId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsMissionStepComplete(string stepId)
+        {
+            return missionState != null && missionState.IsStepComplete(stepId);
+        }
+
+        private bool MissionStateIs(string state)
+        {
+            return missionState != null
+                && string.Equals(missionState.mission_state, state, StringComparison.OrdinalIgnoreCase);
         }
 
         private bool ShouldPostTrustedHardwareObservation(string anchorId, string eventType)

@@ -813,6 +813,8 @@ async function assertUnityProtocolSkeleton() {
   assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationAnchor"), "Unity wall calibration anchor DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration result DTO missing");
+  assert(dtos.includes("public bool hardware_observation_trusted;"), "Unity wall calibration trusted hardware observation DTO missing");
+  assert(dtos.includes("public WallCalibrationHardwareSession hardware_session;"), "Unity wall calibration hardware session DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint wall_calibration;"), "Unity wall calibration endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint wall_calibration_observations;"), "Unity wall calibration observations endpoint DTO missing");
   assert(dtos.includes("public SpaceEndpointMap endpoints;"), "Unity endpoint map DTO missing");
