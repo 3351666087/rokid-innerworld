@@ -454,30 +454,50 @@ function sessionAnchorScore(session, anchorId) {
   return score;
 }
 
+function missionProvenanceInputBlockers(summary) {
+  const blockers = [];
+  if (summary.session_available !== true) blockers.push("live_operator_paired_session_missing");
+  if (summary.active_anchor_matches !== true) blockers.push("active_anchor_not_target");
+  if (summary.input_frame_reported !== true) blockers.push("input_frame_not_reported");
+  if (summary.input_ray_reported !== true) blockers.push("input_frame_ray_not_reported");
+  if (summary.pointable_ui_focus !== true) blockers.push("pointable_ui_focus_missing");
+  if (summary.input_confirm_ready !== true) blockers.push("input_confirm_missing");
+  if (summary.input_focus_anchor_matches !== true) blockers.push("input_focus_anchor_mismatch");
+  return blockers;
+}
+
 async function trustedMissionInputForAnchor(baseUrl, anchorId) {
   const payload = await requestJson(baseUrl, "/api/device/sessions");
   const session = list(payload.sessions)
     .filter(liveMissionSessionReady)
     .sort((left, right) => sessionAnchorScore(right, anchorId) - sessionAnchorScore(left, anchorId))[0] || null;
   const inputFrame = session?.input_frame || {};
+  const publicSummary = {
+    schema: "innerworld-field-target-pass-mission-provenance-input/v1",
+    session_available: Boolean(session),
+    session_hash_prefix: session?.session_id ? shaPrefix(session.session_id) : null,
+    device_hash_prefix: session?.device_id ? shaPrefix(session.device_id) : null,
+    anchor_id: anchorId,
+    active_anchor: session?.active_anchor || null,
+    active_anchor_matches: session?.active_anchor === anchorId,
+    input_frame_reported: inputFrame.reported === true,
+    input_focus_anchor: inputFrame.focused_anchor_id || null,
+    input_focus_anchor_matches: !inputFrame.focused_anchor_id || inputFrame.focused_anchor_id === anchorId,
+    input_ray_reported: inputFrame.ray_reported === true,
+    pointable_ui_focus: inputFrame.pointable_ui_focus === true,
+    input_confirm_ready: inputFrame.command === "confirm" || inputFrame.confirm_down === true || inputFrame.confirm_held === true,
+    raw_session_ids_included: false,
+    raw_device_ids_included: false
+  };
+  publicSummary.blockers = missionProvenanceInputBlockers(publicSummary);
+  publicSummary.ready = publicSummary.blockers.length === 0;
   return {
     requestPayload: {
       anchor_id: anchorId,
       ...(session?.session_id ? { session_id: session.session_id } : {}),
       ...(session?.device_id ? { device_id: session.device_id } : {})
     },
-    publicSummary: {
-      schema: "innerworld-field-target-pass-mission-provenance-input/v1",
-      session_available: Boolean(session),
-      session_hash_prefix: session?.session_id ? shaPrefix(session.session_id) : null,
-      device_hash_prefix: session?.device_id ? shaPrefix(session.device_id) : null,
-      anchor_id: anchorId,
-      active_anchor: session?.active_anchor || null,
-      input_focus_anchor: inputFrame.focused_anchor_id || null,
-      input_confirm_ready: inputFrame.command === "confirm" || inputFrame.confirm_down === true || inputFrame.confirm_held === true,
-      raw_session_ids_included: false,
-      raw_device_ids_included: false
-    }
+    publicSummary
   };
 }
 
@@ -779,12 +799,13 @@ async function captureWatchSnapshots(baseUrl) {
   return snapshots;
 }
 
-function skippedAction(id, reason) {
+function skippedAction(id, reason, extra = {}) {
   return {
     id,
     ok: false,
     applied: false,
-    skipped_reason: reason
+    skipped_reason: reason,
+    ...extra
   };
 }
 
@@ -797,6 +818,10 @@ async function maybePostMissionActions(baseUrl, snapshot) {
 
   if (hasTrustedAnchor(snapshot, "A2")) {
     const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A2");
+    const a2NeedsMutation = !hasMissionStep(snapshot, "read") || !hasMissionStep(snapshot, "find_year");
+    if (a2NeedsMutation && provenanceInput.publicSummary.ready !== true) {
+      actions.push(skippedAction("post_a2_read_find_year", "live_mission_provenance_input_missing", { provenance_input: provenanceInput.publicSummary }));
+    } else {
     if (!hasMissionStep(snapshot, "read")) {
       await requestJson(baseUrl, "/api/interactions", {
         method: "POST",
@@ -823,6 +848,7 @@ async function maybePostMissionActions(baseUrl, snapshot) {
       });
       actions.push({ id: "post_find_year", ok: true, applied: true, guard: "trusted_A2", provenance_input: provenanceInput.publicSummary });
     }
+    }
   } else {
     actions.push(skippedAction("post_a2_read_find_year", "trusted_A2_missing"));
   }
@@ -833,6 +859,9 @@ async function maybePostMissionActions(baseUrl, snapshot) {
     && hasMissionStep(afterA2, "find_year");
   if (a2Complete && !hasMissionStep(afterA2, "service_action")) {
     const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A3");
+    if (provenanceInput.publicSummary.ready !== true) {
+      actions.push(skippedAction("post_service_action", "live_mission_provenance_input_missing", { provenance_input: provenanceInput.publicSummary }));
+    } else {
     await requestJson(baseUrl, "/api/service-actions", {
       method: "POST",
       body: {
@@ -846,6 +875,7 @@ async function maybePostMissionActions(baseUrl, snapshot) {
       }
     });
     actions.push({ id: "post_service_action", ok: true, applied: true, guard: "trusted_A2_and_read_find_year_complete", provenance_input: provenanceInput.publicSummary });
+    }
   } else if (!a2Complete) {
     actions.push(skippedAction("post_service_action", "trusted_A2_or_read_find_year_incomplete"));
   }
@@ -854,6 +884,9 @@ async function maybePostMissionActions(baseUrl, snapshot) {
   const canWriteBack = hasTrustedAnchor(afterService, "A3") && hasMissionStep(afterService, "service_action");
   if (canWriteBack && !hasMissionStep(afterService, "write_back")) {
     const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A3");
+    if (provenanceInput.publicSummary.ready !== true) {
+      actions.push(skippedAction("post_timemark_write_back", "live_mission_provenance_input_missing", { provenance_input: provenanceInput.publicSummary }));
+    } else {
     await requestJson(baseUrl, `/api/spaces/${SPACE_ID}/beacons`, {
       method: "POST",
       body: {
@@ -865,6 +898,7 @@ async function maybePostMissionActions(baseUrl, snapshot) {
       }
     });
     actions.push({ id: "post_timemark_write_back", ok: true, applied: true, guard: "trusted_A3_and_service_action", provenance_input: provenanceInput.publicSummary });
+    }
   } else if (!canWriteBack) {
     actions.push(skippedAction("post_timemark_write_back", "trusted_A3_or_service_action_missing"));
   }
@@ -883,6 +917,9 @@ async function maybeConfirmUserBReadback(baseUrl, snapshot) {
     return [skippedAction("confirm_user_b_readback", "trusted_A3_or_write_back_beacon_missing")];
   }
   const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A3");
+  if (provenanceInput.publicSummary.ready !== true) {
+    return [skippedAction("confirm_user_b_readback", "live_mission_provenance_input_missing", { provenance_input: provenanceInput.publicSummary })];
+  }
   await requestJson(baseUrl, "/api/interactions", {
     method: "POST",
     body: {
@@ -935,7 +972,7 @@ function buildMarkdown(report) {
   const actionLines = report.actions.length
     ? report.actions.map((action) => {
       const provenance = action.provenance_input
-        ? `, provenance_session=${action.provenance_input.session_available}, anchor=${action.provenance_input.anchor_id}, input_confirm=${action.provenance_input.input_confirm_ready}`
+        ? `, provenance_ready=${action.provenance_input.ready}, provenance_session=${action.provenance_input.session_available}, anchor=${action.provenance_input.anchor_id}, input_confirm=${action.provenance_input.input_confirm_ready}, provenance_blockers=${list(action.provenance_input.blockers).join(",") || "none"}`
         : "";
       return `- ${action.id}: applied=${action.applied}, ok=${action.ok}${action.skipped_reason ? `, skipped=${action.skipped_reason}` : ""}${provenance}`;
     })

@@ -57,7 +57,7 @@ npm run field:target-pass:apply
 ```
 
 This may post A2 `read` and `find_year`, then the controlled `service_action`, but only after trusted A2 exists. If the report says `trusted_A2_missing`, rescan A2 through the live session.
-When an action is applied, its report line should show `provenance_session=true` with only hash/sanitized provenance fields. If it shows `input_confirm=false`, keep the A2/A3 target focused through the glasses and confirm again before the final strict closeout.
+When an action is applied, its report line should show `provenance_ready=true` and `provenance_session=true` with only hash/sanitized provenance fields. If it is skipped with `live_mission_provenance_input_missing`, or if `provenance_blockers` lists `active_anchor_not_target`, `pointable_ui_focus_missing`, or `input_confirm_missing`, keep the A2/A3 target focused through the glasses and confirm again before rerunning.
 
 3. A3: frame the A3 image target until it is trusted. Rerun the same guarded command to allow the A3 TimeMark write-back:
 

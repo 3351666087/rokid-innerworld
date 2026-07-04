@@ -87,7 +87,7 @@ Mission-loop physical prerequisite checkpoint on 2026-07-04 18:15 Asia/Shanghai:
 
 Target-pass provenance input checkpoint on 2026-07-04 18:30 Asia/Shanghai:
 
-- `field:target-pass --apply-mission-actions` now carries the current online operator-paired live session/device/anchor inputs into mission/write-back/User B requests when trusted A2/A3 gates allow mutation. Reports keep only sanitized `provenance_input` hash/status summaries, so teammate SDK/RKInput/PointableUI work can satisfy trusted mission provenance without leaking raw device/session identifiers.
+- `field:target-pass --apply-mission-actions` now requires current online operator-paired live session/device/anchor inputs, RKInput ray, PointableUI focus, active-anchor match, and confirm evidence before mission/write-back/User B requests are sent. Reports keep only sanitized `provenance_input` hash/status summaries and blockers, so teammate SDK/RKInput/PointableUI work can satisfy trusted mission provenance without leaking raw device/session identifiers.
 
 Target readiness operator panel checkpoint on 2026-07-04 16:52 Asia/Shanghai:
 
