@@ -110,6 +110,29 @@ function list(value) {
 const REQUIRED_ANCHOR_IDS = ["A1", "A2", "A3"];
 const REQUIRED_MISSION_STEP_IDS = ["read", "find_year", "service_action", "write_back"];
 const HARDWARE_TRACKING_MODES = new Set(["qr", "image_tracking", "slam"]);
+const LIVE_SESSION_REQUIREMENTS = [
+  ["session_status", "online", "device_session_online"],
+  ["pairing_status", "operator_paired", "operator_pairing"],
+  ["hardware_acceptance_eligible", true, "hardware_acceptance_eligible"]
+];
+const SDK_BINDING_REQUIREMENTS = [
+  ["boundary_compiled", "ROKID_UXR boundary compiled"],
+  ["package_detected", "Rokid UXR package detected"],
+  ["input_binding_ready", "RKInput 3DoF ray/input binding"],
+  ["overlay_binding_ready", "Rokid overlay binding"],
+  ["live_binding_ready", "live SDK binding"]
+];
+const ADAPTER_CHECKLIST_REQUIREMENTS = [
+  ["rk_camera_rig_ready", "RKCameraRig/camera rig"],
+  ["rk_input_3dof_ray_ready", "RKInput 3DoF ray"],
+  ["pointable_ui_ready", "PointableUI"],
+  ["pointable_ui_curve_ready", "PointableUICurve"],
+  ["image_tracking_ready", "A1-A3 image tracking"],
+  ["image_target_library_ready", "A1-A3 image target library"],
+  ["slam_head_tracking_ready", "SLAM/head tracking"],
+  ["head_tracking_heartbeat_ready", "head tracking heartbeat"],
+  ["uxr_overlay_renderer_ready", "UXR overlay renderer"]
+];
 const ANCHOR_ACTION_LABELS = {
   A1: "Scan A1 QR entry and confirm the spatial entry.",
   A2: "Scan A2 image target and read the memory.",
@@ -132,9 +155,41 @@ function latestSession(sessions) {
     .sort((left, right) => Date.parse(right.created_at || 0) - Date.parse(left.created_at || 0))[0] || null;
 }
 
+function summarizeAdapterChecklist(sdk) {
+  const checklist = sdk?.adapter_checklist || {};
+  const items = {};
+  const missing = [];
+  for (const [id, label] of ADAPTER_CHECKLIST_REQUIREMENTS) {
+    const ready = checklist[id] === true;
+    items[id] = ready;
+    if (!ready) missing.push({ id, label });
+  }
+  return {
+    items,
+    missing_item_ids: missing.map((item) => item.id),
+    missing_item_labels: missing.map((item) => item.label)
+  };
+}
+
+function liveBindingMissingItems(session) {
+  if (!session) return ["operator_paired_live_session_missing"];
+  const sdk = session.sdk_binding_status || {};
+  const missing = [];
+  for (const [field, expected, id] of LIVE_SESSION_REQUIREMENTS) {
+    if (session[field] !== expected) missing.push(id);
+  }
+  if (Number(session.heartbeat_count || 0) <= 0) missing.push("device_heartbeat");
+  if (!session.active_anchor) missing.push("active_anchor_heartbeat");
+  for (const [field, label] of SDK_BINDING_REQUIREMENTS) {
+    if (sdk[field] !== true) missing.push(label);
+  }
+  return [...new Set(missing)];
+}
+
 function summarizeSession(session) {
   if (!session) return null;
   const sdk = session.sdk_binding_status || {};
+  const adapterChecklist = summarizeAdapterChecklist(sdk);
   return {
     session_hash_prefix: shaPrefix(session.session_id),
     device_hash_prefix: shaPrefix(session.device_id),
@@ -150,6 +205,8 @@ function summarizeSession(session) {
     sdk_live_binding_ready: sdk.live_binding_ready === true,
     sdk_input_binding_ready: sdk.input_binding_ready === true,
     sdk_overlay_binding_ready: sdk.overlay_binding_ready === true,
+    live_binding_missing_items: liveBindingMissingItems(session),
+    adapter_checklist: adapterChecklist,
     raw_session_ids_included: false
   };
 }
@@ -157,6 +214,7 @@ function summarizeSession(session) {
 function summarizeSessions(payload) {
   const sessions = list(payload.sessions);
   const online = sessions.filter((item) => item.session_status === "online");
+  const operatorPairedOnline = online.filter((item) => item.pairing_status === "operator_paired");
   const liveOperatorPaired = online.filter((item) => {
     const sdk = item.sdk_binding_status || {};
     return item.pairing_status === "operator_paired"
@@ -169,9 +227,10 @@ function summarizeSessions(payload) {
   return {
     total: Number(payload.total) || sessions.length,
     online_count: online.length,
-    operator_paired_online_count: online.filter((item) => item.pairing_status === "operator_paired").length,
+    operator_paired_online_count: operatorPairedOnline.length,
     live_operator_paired_ready_count: liveOperatorPaired.length,
     latest_session: summarizeSession(latestSession(sessions)),
+    latest_operator_paired_session: summarizeSession(latestSession(operatorPairedOnline)),
     latest_live_operator_paired_session: summarizeSession(latestSession(liveOperatorPaired)),
     raw_session_ids_included: false
   };
@@ -291,6 +350,15 @@ function buildNextRequiredActions(snapshot) {
   const actions = [];
   if (!snapshot.live_session_ready) {
     actions.push("Start LAN server and run station:apk:pair-smoke to create an operator-paired live session.");
+    const session = snapshot.session.latest_operator_paired_session || snapshot.session.latest_session;
+    const missing = list(session?.live_binding_missing_items);
+    if (missing.length) {
+      actions.push(`Complete Rokid live adapter binding for the latest session: ${missing.join(", ")}.`);
+    }
+    const adapterMissing = list(session?.adapter_checklist?.missing_item_labels);
+    if (adapterMissing.length) {
+      actions.push(`Bind the remaining Rokid adapter checklist items before rescanning: ${adapterMissing.join(", ")}.`);
+    }
   }
 
   const hardwareAnchorSet = new Set(snapshot.field_acceptance.hardware_calibrated_anchor_ids);
@@ -298,7 +366,10 @@ function buildNextRequiredActions(snapshot) {
   for (const anchorId of snapshot.field_acceptance.missing_trusted_anchor_ids) {
     if (hardwareAnchorSet.has(anchorId) || untrustedAnchorSet.has(anchorId)) {
       const issueSummary = trustIssueSummary(snapshot, anchorId);
-      actions.push(`Re-scan or re-bind ${anchorId} through the operator-paired live SDK session; current hardware observation is not trusted${issueSummary ? ` (${issueSummary})` : ""}.`);
+      const scanAction = snapshot.live_session_ready
+        ? `Re-scan ${anchorId} with the current live Rokid adapter session`
+        : `Re-scan or re-bind ${anchorId} through the operator-paired live SDK session`;
+      actions.push(`${scanAction}; existing hardware observation is not trusted${issueSummary ? ` (${issueSummary})` : ""}.`);
     } else {
       actions.push(ANCHOR_ACTION_LABELS[anchorId] || `Scan ${anchorId} with the live Rokid session.`);
     }
@@ -436,6 +507,9 @@ function buildMarkdown(report) {
       ].filter(Boolean);
       return `- ${item.anchor_id}: mode=${item.latest_tracking_mode || "unknown"} status=${item.latest_status || "unknown"} issues=${[...new Set(issues)].join(",") || "none"} sdk_stage=${item.hardware_session?.sdk_binding_stage || "unknown"} pairing=${item.hardware_session?.pairing_status_at_observation || "unknown"}`;
     });
+  const latestOperatorSession = latest.session.latest_operator_paired_session || latest.session.latest_session || {};
+  const liveBindingLines = list(latestOperatorSession.live_binding_missing_items).map((item) => `- ${item}`);
+  const adapterChecklistLines = list(latestOperatorSession.adapter_checklist?.missing_item_labels).map((item) => `- ${item}`);
   return [
     "# Field Live Pass",
     "",
@@ -470,6 +544,18 @@ function buildMarkdown(report) {
     "## Next Required Actions",
     "",
     ...(latest.next_required_actions.length ? latest.next_required_actions.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "## Live Adapter Binding",
+    "",
+    `- Latest operator-paired session available: ${Boolean(latest.session.latest_operator_paired_session)}`,
+    `- SDK stage: ${latestOperatorSession.sdk_stage || "unknown"}`,
+    `- SDK live binding ready: ${latestOperatorSession.sdk_live_binding_ready === true}`,
+    `- SDK input binding ready: ${latestOperatorSession.sdk_input_binding_ready === true}`,
+    `- SDK overlay binding ready: ${latestOperatorSession.sdk_overlay_binding_ready === true}`,
+    "- Missing live binding items:",
+    ...(liveBindingLines.length ? liveBindingLines : ["- none"]),
+    "- Missing adapter checklist items:",
+    ...(adapterChecklistLines.length ? adapterChecklistLines : ["- none"]),
     "",
     "## Untrusted Hardware Observations",
     "",

@@ -182,6 +182,9 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("IW_TARGET_POST_START") && controller.includes("IW_TARGET_POST_RESULT") && controller.includes("IW_TARGET_POST_FAIL"), "Unity trusted target diagnostics must expose POST start/result/fail tokens");
   assert(controller.includes("IW_TARGET_MISSION_ASSIST") && controller.includes("a2_read_find_year_posted") && controller.includes("a3_service_action_required") && controller.includes("a3_timemark_write_back_posted"), "Unity trusted target diagnostics must expose mission assist outcomes");
   assert(controller.includes("TrustedRokidHardwareObservationGateReason") && controller.includes("device_session_missing") && controller.includes("operator_pairing_missing") && controller.includes("live_binding_not_ready"), "Unity target diagnostics must preserve specific live-pairing gate reasons");
+  assert(controller.includes("pendingTrustedTargetObservations") && controller.includes("QueuePendingTrustedTargetObservation") && controller.includes("TryFlushPendingTrustedTargetObservations"), "Unity trusted target events must queue until live-bound heartbeat ack");
+  assert(controller.includes("ServerAckedLiveBindingReady") && controller.includes("server_live_binding_heartbeat_ack_missing") && controller.includes("lastDeviceHeartbeat.session_id"), "Unity trusted target gate must require server-acknowledged live binding heartbeat for the same session");
+  assert(controller.includes("lastDeviceHeartbeat.hardware_acceptance_eligible") && controller.includes("lastDeviceHeartbeat.pairing") && controller.includes("lastDeviceHeartbeat.pairing.paired"), "Unity trusted target gate must require heartbeat-acknowledged operator pairing and hardware eligibility");
   const targetLogLines = `${controller}\n${imageTrackingObserver}`.split(/\r?\n/).filter((line) => line.includes("IW_TARGET_"));
   assert(targetLogLines.length >= 8, "Unity target diagnostics token coverage too small");
   assert(!targetLogLines.some((line) => /(operatorPairingCode|pairing_code|CleanOperatorPairingCode|deviceSessionId|session_id)/.test(line)), "Unity IW_TARGET diagnostics must not log raw pairing codes or session ids");
@@ -296,6 +299,7 @@ async function assertUnityAdapterBoundary() {
   assert(dtos.includes("public RokidSdkBindingManifestStatus sdk_binding_status;"), "Unity device manifest SDK binding status DTO missing");
   assert(dtos.includes("public RokidSdkClientReportContract client_report_contract;"), "Unity SDK binding report contract DTO missing");
   assert(dtos.includes("public sealed class DeviceHeartbeatResponse"), "Unity device heartbeat response DTO missing");
+  assert(dtos.includes("public DevicePairingState pairing;") && dtos.includes("public bool hardware_acceptance_eligible;"), "Unity heartbeat DTO must include pairing and hardware eligibility ack");
   assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration observation result DTO missing");

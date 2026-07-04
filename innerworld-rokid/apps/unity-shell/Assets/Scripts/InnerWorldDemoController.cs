@@ -73,6 +73,7 @@ namespace InnerWorld.Rokid
         private string trustedHardwareMissionAssistLine = "trusted target mission assist pending";
         private string calibrationRehearsalSessionId = string.Empty;
         private readonly Dictionary<string, float> trustedHardwareObservationPostedAt = new Dictionary<string, float>();
+        private readonly Dictionary<string, PendingTrustedTargetObservation> pendingTrustedTargetObservations = new Dictionary<string, PendingTrustedTargetObservation>();
         private float heartbeatClockSeconds;
         private bool heartbeatInFlight;
         private bool wallCalibrationObservationInFlight;
@@ -104,6 +105,17 @@ namespace InnerWorld.Rokid
         private const string OperatorPairingCodeArg = "--innerworld-pairing-code";
         private const string OperatorPairingCodeIntentExtra = "innerworld_pairing_code";
         private const string OperatorPairingCodeIntentExtraQualified = "com.innerworld.rokid.OPERATOR_PAIRING_CODE";
+
+        private sealed class PendingTrustedTargetObservation
+        {
+            public string anchorId;
+            public int imageIndex;
+            public Pose pose;
+            public Vector2 size;
+            public string eventType;
+            public string gateReason;
+            public float queuedAtSeconds;
+        }
 
         private void Awake()
         {
@@ -825,13 +837,21 @@ namespace InnerWorld.Rokid
             }
 
             string trustedGateReason = TrustedRokidHardwareObservationGateReason();
+            SelectAnchor(anchorId);
+            if (IsA1EntryAnchor(anchorId))
+            {
+                PrimeA1SpatialEntryLock("rokid_tracked_image");
+            }
+
             if (!string.IsNullOrEmpty(trustedGateReason))
             {
+                QueuePendingTrustedTargetObservation(anchorId, imageIndex, pose, size, eventType, trustedGateReason);
                 wallCalibrationObservationLine = "trusted image observation pending | live paired session required | anchor " + anchorId;
                 Debug.Log("IW_TARGET_GATE_LIVE_PAIRING_REQUIRED anchor=" + SafeLabel(anchorId, "unknown")
                     + " image_index=" + imageIndex
                     + " event=" + SafeLabel(eventType, "event")
-                    + " reason=" + trustedGateReason);
+                    + " reason=" + trustedGateReason
+                    + " queued=true");
                 RefreshHud();
                 return;
             }
@@ -839,12 +859,6 @@ namespace InnerWorld.Rokid
             if (!ShouldPostTrustedHardwareObservation(anchorId, eventType))
             {
                 return;
-            }
-
-            SelectAnchor(anchorId);
-            if (IsA1EntryAnchor(anchorId))
-            {
-                PrimeA1SpatialEntryLock("rokid_tracked_image");
             }
 
             StartCoroutine(SubmitRokidTrackedImageObservation(anchorId, imageIndex, pose, size, eventType));
@@ -959,6 +973,8 @@ namespace InnerWorld.Rokid
             {
                 RefreshHud();
             }
+
+            TryFlushPendingTrustedTargetObservations("post_complete");
         }
 
         private void TickDeviceHeartbeat()
@@ -1012,6 +1028,7 @@ namespace InnerWorld.Rokid
                         : CurrentActiveAnchorId();
                     deviceRuntimeLine = "device heartbeat " + severity + " | " + activeAnchor + " | " + ShortId(deviceSessionId);
                     SetRokidConnection(RokidConnectionStatus.Connected, deviceRuntimeLine);
+                    TryFlushPendingTrustedTargetObservations("heartbeat_ack");
                 }
                 else
                 {
@@ -2716,8 +2733,100 @@ namespace InnerWorld.Rokid
             {
                 return "live_binding_not_ready";
             }
+            if (!ServerAckedLiveBindingReady())
+            {
+                return "server_live_binding_heartbeat_ack_missing";
+            }
 
             return string.Empty;
+        }
+
+        private bool ServerAckedLiveBindingReady()
+        {
+            if (lastDeviceHeartbeat == null || !lastDeviceHeartbeat.ok || string.IsNullOrWhiteSpace(deviceSessionId))
+            {
+                return false;
+            }
+            if (!string.Equals(lastDeviceHeartbeat.session_id, deviceSessionId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (!lastDeviceHeartbeat.hardware_acceptance_eligible
+                || lastDeviceHeartbeat.pairing == null
+                || !lastDeviceHeartbeat.pairing.paired)
+            {
+                return false;
+            }
+
+            RokidSdkBindingStatusPayload sdk = lastDeviceHeartbeat.sdk_binding_status;
+            return sdk != null
+                && sdk.input_binding_ready
+                && sdk.overlay_binding_ready
+                && sdk.live_binding_ready;
+        }
+
+        private void QueuePendingTrustedTargetObservation(string anchorId, int imageIndex, Pose pose, Vector2 size, string eventType, string gateReason)
+        {
+            string cleanAnchorId = SafeLabel(anchorId, string.Empty);
+            if (string.IsNullOrEmpty(cleanAnchorId))
+            {
+                return;
+            }
+
+            pendingTrustedTargetObservations[cleanAnchorId] = new PendingTrustedTargetObservation
+            {
+                anchorId = cleanAnchorId,
+                imageIndex = imageIndex,
+                pose = pose,
+                size = size,
+                eventType = SafeLabel(eventType, "event"),
+                gateReason = SafeLabel(gateReason, "pending"),
+                queuedAtSeconds = Time.realtimeSinceStartup
+            };
+            trustedHardwareMissionAssistLine = "trusted target queued | " + cleanAnchorId + " | waiting " + SafeLabel(gateReason, "pending");
+        }
+
+        private void TryFlushPendingTrustedTargetObservations(string source)
+        {
+            if (pendingTrustedTargetObservations.Count == 0 || wallCalibrationObservationInFlight)
+            {
+                return;
+            }
+
+            string trustedGateReason = TrustedRokidHardwareObservationGateReason();
+            if (!string.IsNullOrEmpty(trustedGateReason))
+            {
+                trustedHardwareMissionAssistLine = "trusted target queue waiting | " + SafeLabel(trustedGateReason, "pending");
+                return;
+            }
+
+            PendingTrustedTargetObservation pending = null;
+            foreach (PendingTrustedTargetObservation item in pendingTrustedTargetObservations.Values)
+            {
+                if (pending == null || item.queuedAtSeconds < pending.queuedAtSeconds)
+                {
+                    pending = item;
+                }
+            }
+
+            if (pending == null)
+            {
+                return;
+            }
+
+            pendingTrustedTargetObservations.Remove(pending.anchorId);
+            trustedHardwareMissionAssistLine = "trusted target queue flush | " + pending.anchorId + " | " + SafeLabel(source, "heartbeat_ack");
+            SelectAnchor(pending.anchorId);
+            if (IsA1EntryAnchor(pending.anchorId))
+            {
+                PrimeA1SpatialEntryLock("rokid_tracked_image_queue");
+            }
+            StartCoroutine(SubmitRokidTrackedImageObservation(
+                pending.anchorId,
+                pending.imageIndex,
+                pending.pose,
+                pending.size,
+                pending.eventType));
         }
 
         private bool IsTrustedAcceptedHardwareObservation(WallCalibrationObservation observation)

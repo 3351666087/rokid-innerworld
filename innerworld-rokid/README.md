@@ -22,6 +22,8 @@ Use `npm run field:target-pass:watch` during the live wall scan. It is read-only
 
 The latest field reports now include an `Untrusted Hardware Observations` section. This is a diagnostic aid for the physical pass, not a readiness shortcut: A2/A3 hardware-mode observations can be listed with sanitized trust issues and SDK binding stage while still remaining rejected for hardware acceptance. Re-scan/re-bind through the operator-paired live SDK session is still required before A1/A2/A3 can count as trusted.
 
+Unity now keeps one pending trusted target observation per A1/A2/A3 anchor when target events arrive before a same-session server heartbeat has acknowledged operator pairing, hardware eligibility, and input/overlay/live SDK binding. Once that heartbeat ack is visible, the runtime retries the queued target observation through the normal `/api/calibration/observations` path; the server still decides trust, and strict field acceptance remains red until fresh physical A1/A2/A3 plus the P0 mission/User B loop pass.
+
 ## Quick Start
 
 ```powershell

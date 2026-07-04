@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 15:43 Asia/Shanghai
+Updated: 2026-07-04 16:01 Asia/Shanghai
 
 ## Objective
 
@@ -34,6 +34,8 @@ Current Station Pro live APK checkpoint:
 - Current live-pass snapshot after the 2026-07-04 12:29 LAN server restart and pair smoke proves the operator-paired live SDK session window is open (`live_session_ready=true`, one online live operator-paired session). It still correctly reports `trusted_a1_a2_a3_ready=false`, `mission_loop_ready=false`, `field_acceptance_ready=false`, and `user_b_readback_ready=false`.
 - Current live-pass watch now also reports missing trusted anchors, missing raw hardware anchors, missing mission steps, and operator-facing next actions. The current baseline is: trusted A1/A2/A3 `0/3`, raw hardware alignment missing `A1`, A2/A3 requiring re-scan or re-bind through the operator-paired live SDK session, and the full A2/A3/User B mission loop still pending.
 - Current field live/target reports also expose per-anchor untrusted hardware diagnostics from `/api/calibration/wall`: sanitized tracking mode, observation issue codes, hardware-session trust issue codes, SDK binding stage, and pairing/session status snapshots. This is only an operator debugging aid; it does not turn A2/A3 into trusted evidence and does not relax the hardware-ready boundary.
+- Current Unity trusted target path now has a rescan barrier: if an A1/A2/A3 target event arrives before the server acknowledges the same session as operator-paired, hardware-eligible, and input/overlay/live SDK-bound, Unity queues the latest event for that anchor and retries after heartbeat ack. This prevents startup timing from dropping physical scans, while `/api/calibration/observations` and `/api/field/acceptance` remain the source of truth.
+- Current field reports show the latest operator-paired session is `live_binding_ready` with no adapter checklist gaps. The remaining physical action is a fresh A1/A2/A3 scan under that current live adapter session, then A2 read, A3 TimeMark write-back, and User B readback.
 - Current Unity/field-watch diagnostics now expose stable `IW_TARGET_*` log tokens for the next physical wall pass: target event received, unknown image index, live-pairing/session gate reason, throttle, POST start/result/failure, and mission-assist outcome. `field:live-pass:watch --logcat` counts these tokens only as diagnostics and still writes no raw logcat, pairing codes, session ids, serials, private IPs, or MAC addresses.
 - Current `field:target-pass` also records a `target_diagnostics_preflight` guard. It verifies the current APK SHA prefix, APK `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, UXR readiness, and APK target index map all match before strict physical acceptance. The preflight is green for the current `e447...` APK, while strict acceptance still correctly blocks on missing trusted A1/A2/A3 observations and the P0 mission/User B loop.
 - Current `field:target-pass:watch` is the preferred one-command companion during the physical scan. It is read-only by default, samples repeated API/phase snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; zero counts mean the glasses have not yet produced target events during the watch window.

@@ -2,6 +2,12 @@
 
 ## Latest Checkpoint
 
+2026-07-04 16:01 Asia/Shanghai:
+
+- Carver audited the trusted-observation checkpoint in `.agents/carver/carver-trusted-observation-checkpoint-2026-07-04.md`: current package/live adapter evidence may be ready, but A2/A3 old observations cannot be retroactively trusted. The next proof is a fresh physical A1/A2/A3 scan under the current live-bound session.
+- Added a Unity trusted-observation rescan barrier. A1/A2/A3 image target events that arrive before the server acknowledges the same session as operator-paired, hardware-eligible, and input/overlay/live SDK-bound are queued one latest event per anchor, then retried after heartbeat ack. This prevents target events from being dropped during live binding startup without weakening server-side trust.
+- Field live/target reports now show the current live adapter binding/checklist status. Current baseline: latest operator-paired session is `live_binding_ready` with no adapter checklist gaps, but trusted A1/A2/A3 and the A3 write-back/User B loop are still missing. Hardware-ready remains false.
+
 2026-07-04 15:43 Asia/Shanghai:
 
 - Added per-anchor trust diagnostics to the live field reports before the next physical wall pass. `field-live-pass` and `field-target-pass` now surface untrusted hardware-mode A1/A2/A3 observations from `/api/calibration/wall`, including sanitized observation/session issue codes and SDK binding stage, without raw session ids, raw device ids, private IPs, pairing codes, or raw logcat.

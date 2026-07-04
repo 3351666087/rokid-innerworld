@@ -765,6 +765,9 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.DeviceHeartbeatUrl"), "Unity controller device heartbeat URL not using client");
   assert(controller.includes("RegisterDeviceSession"), "Unity controller device register coroutine missing");
   assert(controller.includes("PostDeviceHeartbeat"), "Unity controller device heartbeat coroutine missing");
+  assert(controller.includes("pendingTrustedTargetObservations") && controller.includes("QueuePendingTrustedTargetObservation") && controller.includes("TryFlushPendingTrustedTargetObservations"), "Unity trusted target rescan queue missing");
+  assert(controller.includes("ServerAckedLiveBindingReady") && controller.includes("server_live_binding_heartbeat_ack_missing") && controller.includes("lastDeviceHeartbeat.session_id"), "Unity trusted target gate must require same-session live heartbeat ack");
+  assert(controller.includes("lastDeviceHeartbeat.hardware_acceptance_eligible") && controller.includes("lastDeviceHeartbeat.pairing.paired"), "Unity trusted target gate must require heartbeat pairing/hardware eligibility ack");
   assert(/\[NonSerialized\]\s+public string operatorPairingCode/.test(controller), "Unity controller pairing code must be non-serialized runtime memory");
   assert(controller.includes("INNERWORLD_OPERATOR_PAIRING_CODE") && controller.includes("--innerworld-pairing-code"), "Unity controller pairing runtime injection missing");
   assert(/private DeviceRegisterRequest BuildDeviceRegisterRequest\(\)[\s\S]*pairing_code\s*=\s*CleanOperatorPairingCode\(\)/.test(controller), "Unity controller does not submit cleaned pairing_code");
@@ -809,6 +812,7 @@ async function assertUnityProtocolSkeleton() {
   assert(dtos.includes("public sealed class DeviceBootstrapResponse"), "Unity DeviceBootstrapResponse DTO missing");
   assert(dtos.includes("public sealed class DeviceRuntimeSessionResponse"), "Unity device register response DTO missing");
   assert(dtos.includes("public sealed class DeviceHeartbeatResponse"), "Unity device heartbeat response DTO missing");
+  assert(dtos.includes("public DevicePairingState pairing;") && dtos.includes("public bool hardware_acceptance_eligible;"), "Unity device heartbeat pairing/hardware eligibility DTO missing");
   assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health response DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationAnchor"), "Unity wall calibration anchor DTO missing");
@@ -1014,6 +1018,7 @@ async function assertFieldLivePassCheckSkeleton() {
   assert(tool.includes("missing_mission_step_ids"), "field live pass missing mission step evidence missing");
   assert(tool.includes("next_required_actions"), "field live pass next required actions missing");
   assert(tool.includes("trust_issues_by_anchor") && tool.includes("Untrusted Hardware Observations"), "field live pass per-anchor trust issue diagnostics missing");
+  assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("missing_item_labels"), "field live pass live adapter checklist diagnostics missing");
   assert(tool.includes("Scan A1 QR entry") && tool.includes("Scan A2 image target") && tool.includes("Scan A3 image target"), "field live pass physical target action prompts missing");
   assert(tool.includes("IW_TARGET_EVENT") && tool.includes("IW_TARGET_POST_RESULT") && tool.includes("IW_TARGET_MISSION_ASSIST"), "field live pass target logcat diagnostic tokens missing");
   assert(tool.includes("Target Logcat Diagnostics") && tool.includes("Diagnostic counts only; raw logcat is not written."), "field live pass target logcat diagnostics boundary missing");
@@ -1068,6 +1073,7 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("captureWatchSnapshots") && tool.includes("duration_sec") && tool.includes("snapshot_count"), "field target pass watch snapshots missing");
   assert(tool.includes("adbLogcatCounts") && tool.includes("Target Logcat Diagnostics") && tool.includes("raw_logcat_included: false"), "field target pass logcat diagnostic privacy guard missing");
   assert(tool.includes("trust_issues_by_anchor") && tool.includes("/api/calibration/wall") && tool.includes("Untrusted Hardware Observations"), "field target pass per-anchor trust issue diagnostics missing");
+  assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("Missing live binding items"), "field target pass live adapter checklist diagnostics missing");
   assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
   assert(tool.includes("const a2Complete = hasTrustedAnchor(afterA2, \"A2\")"), "field target pass service action must require trusted A2");
   assert(tool.includes("hasTrustedAnchor(afterService, \"A3\") && hasMissionStep(afterService, \"service_action\")"), "field target pass A3 write-back gate missing");

@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 15:43 Asia/Shanghai
+Updated: 2026-07-04 16:01 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -85,6 +85,12 @@ Per-anchor trust diagnostics checkpoint on 2026-07-04 15:43 Asia/Shanghai:
 - `field-live-pass` and `field-target-pass` now read `/api/calibration/wall` trust details and add sanitized `trust_issues_by_anchor` plus an `Untrusted Hardware Observations` report section.
 - The bus uses this only to guide the physical pass: current A2/A3 hardware-mode observations can be explained by issue codes and SDK binding stage, but they remain untrusted until re-scanned or re-bound through the operator-paired live SDK session.
 - No hardware-ready claim changes in this checkpoint. Trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` are still required.
+
+Trusted-observation rescan barrier checkpoint on 2026-07-04 16:01 Asia/Shanghai:
+
+- Carver recorded the checkpoint audit in `.agents/carver/carver-trusted-observation-checkpoint-2026-07-04.md`. Its key finding is that the current live adapter may be ready, but old A2/A3 observations cannot be upgraded; the physical pass needs fresh scans.
+- Unity now queues one latest target event per A1/A2/A3 anchor until a same-session heartbeat acknowledges operator pairing, hardware eligibility, and input/overlay/live SDK binding, then retries through the normal trusted observation POST path.
+- Field live/target reports expose live adapter checklist gaps; current latest operator-paired session is live-bound with no adapter checklist gaps. The bus still requires fresh trusted A1/A2/A3 plus A3 write-back/User B readback before hardware acceptance.
 
 Already merged into the mainline:
 

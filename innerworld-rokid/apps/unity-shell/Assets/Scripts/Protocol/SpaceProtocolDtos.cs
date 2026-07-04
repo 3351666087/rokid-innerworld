@@ -542,6 +542,8 @@ namespace InnerWorld.Rokid.Protocol
         public DevicePendingAction[] pending_actions;
         public DeviceHealthStatus health;
         public RokidSdkBindingStatusPayload sdk_binding_status;
+        public DevicePairingState pairing;
+        public bool hardware_acceptance_eligible;
         public DeviceA1SpatialEntryExperience a1_spatial_entry_experience;
         public DeviceRuntimeEnvelope runtime;
         public DeviceEndpointSubset endpoints;
