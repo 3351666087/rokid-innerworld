@@ -85,6 +85,10 @@ Mission-loop physical prerequisite checkpoint on 2026-07-04 18:15 Asia/Shanghai:
 - Current strict blocker wording is `mission_loop_waiting_for_trusted_a1_a2_a3` alongside `trusted_a1_a2_a3_observations_missing`. This is still not hardware-ready acceptance.
 - The field live/target Markdown reports now surface this split directly for现场 use, and the runbook fail-fast list includes the new blocker. That keeps teammate image-target/UXR work attached to real A1/A2/A3 scanning rather than ledger-only completion.
 
+Target-pass provenance input checkpoint on 2026-07-04 18:30 Asia/Shanghai:
+
+- `field:target-pass --apply-mission-actions` now carries the current online operator-paired live session/device/anchor inputs into mission/write-back/User B requests when trusted A2/A3 gates allow mutation. Reports keep only sanitized `provenance_input` hash/status summaries, so teammate SDK/RKInput/PointableUI work can satisfy trusted mission provenance without leaking raw device/session identifiers.
+
 Target readiness operator panel checkpoint on 2026-07-04 16:52 Asia/Shanghai:
 
 - Carver's panel audit is `.agents/carver/carver-target-readiness-panel-audit-2026-07-04-1640.md`.

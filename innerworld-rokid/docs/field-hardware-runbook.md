@@ -57,6 +57,7 @@ npm run field:target-pass:apply
 ```
 
 This may post A2 `read` and `find_year`, then the controlled `service_action`, but only after trusted A2 exists. If the report says `trusted_A2_missing`, rescan A2 through the live session.
+When an action is applied, its report line should show `provenance_session=true` with only hash/sanitized provenance fields. If it shows `input_confirm=false`, keep the A2/A3 target focused through the glasses and confirm again before the final strict closeout.
 
 3. A3: frame the A3 image target until it is trusted. Rerun the same guarded command to allow the A3 TimeMark write-back:
 
@@ -65,6 +66,7 @@ npm run field:target-pass:apply
 ```
 
 This may post the TimeMark only after `service_action` is complete and trusted A3 exists. If the report says `trusted_A3_or_service_action_missing`, finish the missing step and rescan A3.
+The write-back and User B confirmation requests also attach the current live-session provenance input internally; reports must keep raw session ids and raw device ids out.
 
 4. User B: switch to the User B readback path only after the operator has seen the new A3 memory through the glasses. Then run the strict target pass:
 

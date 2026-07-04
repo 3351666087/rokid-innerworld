@@ -433,6 +433,54 @@ function hasMissionStep(snapshot, stepId) {
   return snapshot.state.completed_steps.includes(stepId);
 }
 
+function liveMissionSessionReady(session) {
+  const sdk = session?.sdk_binding_status || {};
+  return session?.session_status === "online"
+    && session?.pairing_status === "operator_paired"
+    && session?.hardware_acceptance_eligible === true
+    && Number(session?.heartbeat_count || 0) > 0
+    && sdk.live_binding_ready === true
+    && sdk.input_binding_ready === true
+    && sdk.overlay_binding_ready === true;
+}
+
+function sessionAnchorScore(session, anchorId) {
+  let score = Date.parse(session?.last_seen_at || session?.created_at || 0) || 0;
+  if (session?.active_anchor === anchorId) score += 1000000000000;
+  if (session?.input_frame?.focused_anchor_id === anchorId) score += 2000000000000;
+  if (session?.input_frame?.command === "confirm" || session?.input_frame?.confirm_down === true || session?.input_frame?.confirm_held === true) {
+    score += 500000000000;
+  }
+  return score;
+}
+
+async function trustedMissionInputForAnchor(baseUrl, anchorId) {
+  const payload = await requestJson(baseUrl, "/api/device/sessions");
+  const session = list(payload.sessions)
+    .filter(liveMissionSessionReady)
+    .sort((left, right) => sessionAnchorScore(right, anchorId) - sessionAnchorScore(left, anchorId))[0] || null;
+  const inputFrame = session?.input_frame || {};
+  return {
+    requestPayload: {
+      anchor_id: anchorId,
+      ...(session?.session_id ? { session_id: session.session_id } : {}),
+      ...(session?.device_id ? { device_id: session.device_id } : {})
+    },
+    publicSummary: {
+      schema: "innerworld-field-target-pass-mission-provenance-input/v1",
+      session_available: Boolean(session),
+      session_hash_prefix: session?.session_id ? shaPrefix(session.session_id) : null,
+      device_hash_prefix: session?.device_id ? shaPrefix(session.device_id) : null,
+      anchor_id: anchorId,
+      active_anchor: session?.active_anchor || null,
+      input_focus_anchor: inputFrame.focused_anchor_id || null,
+      input_confirm_ready: inputFrame.command === "confirm" || inputFrame.confirm_down === true || inputFrame.confirm_held === true,
+      raw_session_ids_included: false,
+      raw_device_ids_included: false
+    }
+  };
+}
+
 function rawScanApkForTokens(apkPath, tokens) {
   if (!existsSync(apkPath)) {
     return tokens.map((token) => ({ token, found: false, entry: null }));
@@ -748,19 +796,32 @@ async function maybePostMissionActions(baseUrl, snapshot) {
   }
 
   if (hasTrustedAnchor(snapshot, "A2")) {
+    const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A2");
     if (!hasMissionStep(snapshot, "read")) {
       await requestJson(baseUrl, "/api/interactions", {
         method: "POST",
-        body: { source: "field_target_pass_trusted_a2", user_id: "A", step_id: "read", mission_state: "reading" }
+        body: {
+          ...provenanceInput.requestPayload,
+          source: "field_target_pass_trusted_a2",
+          user_id: "A",
+          step_id: "read",
+          mission_state: "reading"
+        }
       });
-      actions.push({ id: "post_read", ok: true, applied: true, guard: "trusted_A2" });
+      actions.push({ id: "post_read", ok: true, applied: true, guard: "trusted_A2", provenance_input: provenanceInput.publicSummary });
     }
     if (!hasMissionStep(snapshot, "find_year")) {
       await requestJson(baseUrl, "/api/interactions", {
         method: "POST",
-        body: { source: "field_target_pass_trusted_a2", user_id: "A", step_id: "find_year", mission_state: "doing" }
+        body: {
+          ...provenanceInput.requestPayload,
+          source: "field_target_pass_trusted_a2",
+          user_id: "A",
+          step_id: "find_year",
+          mission_state: "doing"
+        }
       });
-      actions.push({ id: "post_find_year", ok: true, applied: true, guard: "trusted_A2" });
+      actions.push({ id: "post_find_year", ok: true, applied: true, guard: "trusted_A2", provenance_input: provenanceInput.publicSummary });
     }
   } else {
     actions.push(skippedAction("post_a2_read_find_year", "trusted_A2_missing"));
@@ -771,9 +832,11 @@ async function maybePostMissionActions(baseUrl, snapshot) {
     && hasMissionStep(afterA2, "read")
     && hasMissionStep(afterA2, "find_year");
   if (a2Complete && !hasMissionStep(afterA2, "service_action")) {
+    const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A3");
     await requestJson(baseUrl, "/api/service-actions", {
       method: "POST",
       body: {
+        ...provenanceInput.requestPayload,
         source: "field_target_pass",
         user_id: "A",
         action_id: "JOIN_EVENT_1430",
@@ -782,7 +845,7 @@ async function maybePostMissionActions(baseUrl, snapshot) {
         step_id: "service_action"
       }
     });
-    actions.push({ id: "post_service_action", ok: true, applied: true, guard: "trusted_A2_and_read_find_year_complete" });
+    actions.push({ id: "post_service_action", ok: true, applied: true, guard: "trusted_A2_and_read_find_year_complete", provenance_input: provenanceInput.publicSummary });
   } else if (!a2Complete) {
     actions.push(skippedAction("post_service_action", "trusted_A2_or_read_find_year_incomplete"));
   }
@@ -790,16 +853,18 @@ async function maybePostMissionActions(baseUrl, snapshot) {
   const afterService = await captureSnapshot(baseUrl);
   const canWriteBack = hasTrustedAnchor(afterService, "A3") && hasMissionStep(afterService, "service_action");
   if (canWriteBack && !hasMissionStep(afterService, "write_back")) {
+    const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A3");
     await requestJson(baseUrl, `/api/spaces/${SPACE_ID}/beacons`, {
       method: "POST",
       body: {
+        ...provenanceInput.requestPayload,
         user_id: "A",
         anchor_id: "A3",
         title: "Field Target Pass",
         text: `Rokid trusted field TimeMark ${new Date().toISOString().slice(11, 19)}`
       }
     });
-    actions.push({ id: "post_timemark_write_back", ok: true, applied: true, guard: "trusted_A3_and_service_action" });
+    actions.push({ id: "post_timemark_write_back", ok: true, applied: true, guard: "trusted_A3_and_service_action", provenance_input: provenanceInput.publicSummary });
   } else if (!canWriteBack) {
     actions.push(skippedAction("post_timemark_write_back", "trusted_A3_or_service_action_missing"));
   }
@@ -817,15 +882,17 @@ async function maybeConfirmUserBReadback(baseUrl, snapshot) {
   if (!canConfirm) {
     return [skippedAction("confirm_user_b_readback", "trusted_A3_or_write_back_beacon_missing")];
   }
+  const provenanceInput = await trustedMissionInputForAnchor(baseUrl, "A3");
   await requestJson(baseUrl, "/api/interactions", {
     method: "POST",
     body: {
+      ...provenanceInput.requestPayload,
       source: "field_target_pass_operator_confirmed_user_b_readback",
       user_id: "B",
       mission_state: "complete"
     }
   });
-  return [{ id: "confirm_user_b_readback", ok: true, applied: true, guard: "operator_confirmed_after_write_back" }];
+  return [{ id: "confirm_user_b_readback", ok: true, applied: true, guard: "operator_confirmed_after_write_back", provenance_input: provenanceInput.publicSummary }];
 }
 
 function buildBlockers(snapshot, targetDiagnostics) {
@@ -866,7 +933,12 @@ function buildPhysicalBlockers(snapshot, targetDiagnostics) {
 function buildMarkdown(report) {
   const phaseLines = report.latest_snapshot.phases.map((phase) => `- ${phase.id}: ${phase.status} | ${phase.action}`);
   const actionLines = report.actions.length
-    ? report.actions.map((action) => `- ${action.id}: applied=${action.applied}, ok=${action.ok}${action.skipped_reason ? `, skipped=${action.skipped_reason}` : ""}`)
+    ? report.actions.map((action) => {
+      const provenance = action.provenance_input
+        ? `, provenance_session=${action.provenance_input.session_available}, anchor=${action.provenance_input.anchor_id}, input_confirm=${action.provenance_input.input_confirm_ready}`
+        : "";
+      return `- ${action.id}: applied=${action.applied}, ok=${action.ok}${action.skipped_reason ? `, skipped=${action.skipped_reason}` : ""}${provenance}`;
+    })
     : ["- none"];
   const blockerLines = report.blockers.length ? report.blockers.map((item) => `- ${item}`) : ["- none"];
   const physicalBlockerLines = report.physical_blockers.length ? report.physical_blockers.map((item) => `- ${item}`) : ["- none"];
@@ -972,7 +1044,7 @@ function buildMarkdown(report) {
     "",
     "## Boundary",
     "",
-    "This runner never creates simulator/manual calibration observations and does not claim hardware readiness. Mission/service/write-back actions require --apply-mission-actions and are gated by trusted A2/A3 evidence. User B readback requires --confirm-user-b-readback after an operator has verified the new A3 memory through the glasses."
+    "This runner never creates simulator/manual calibration observations and does not claim hardware readiness. Mission/service/write-back actions require --apply-mission-actions, are gated by trusted A2/A3 evidence, and attach sanitized current live-session provenance inputs to the Space API writes. User B readback requires --confirm-user-b-readback after an operator has verified the new A3 memory through the glasses."
   ].join("\n");
 }
 
@@ -1089,7 +1161,9 @@ async function main() {
       id: action.id,
       ok: action.ok,
       applied: action.applied,
-      skipped_reason: action.skipped_reason || null
+      skipped_reason: action.skipped_reason || null,
+      guard: action.guard || null,
+      provenance_input: action.provenance_input || null
     })),
     blockers,
     physical_blockers: physicalBlockers,

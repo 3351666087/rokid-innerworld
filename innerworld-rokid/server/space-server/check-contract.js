@@ -1146,6 +1146,8 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("trust_issues_by_anchor") && tool.includes("/api/calibration/wall") && tool.includes("Untrusted Hardware Observations"), "field target pass per-anchor trust issue diagnostics missing");
   assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("Missing live binding items"), "field target pass live adapter checklist diagnostics missing");
   assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
+  assert(tool.includes("trustedMissionInputForAnchor") && tool.includes("session_id") && tool.includes("device_id"), "field target pass mutation must carry trusted mission session/device inputs");
+  assert(tool.includes("provenance_input") && tool.includes("raw_session_ids_included: false") && tool.includes("raw_device_ids_included: false"), "field target pass mutation provenance summary/privacy guard missing");
   assert(tool.includes("snapshot.mission_loop_ready = snapshot.field_acceptance.mission_loop_ready === true"), "field target pass mission loop must follow field acceptance gate");
   assert(tool.includes("Mission ledger ready") && tool.includes("Mission trusted A1/A2/A3 prerequisite ready"), "field target pass mission ledger/physical prerequisite markdown missing");
   assert(tool.includes("mission_loop_waiting_for_trusted_a1_a2_a3"), "field target pass trusted A1/A2/A3 mission blocker missing");

@@ -24,6 +24,8 @@ Use `npm run field:live-pass` for a read-only live field snapshot, `npm run chec
 
 Use `npm run field:acceptance-session:target` during the physical wall pass to run Station Pro pair smoke, live watch, and target-pass diagnostics in one sanitized report. `npm run field:target-pass:apply` may post A2 mission progress, the controlled service action, and A3 TimeMark only after trusted A2/A3 evidence exists; `npm run field:acceptance-session:target-strict` also requires explicit User B readback confirmation and must stay red until the real hardware loop is complete. The operator runbook is `docs/field-hardware-runbook.md`.
 
+When `field:target-pass:apply` does mutate mission state, it now attaches the current online operator-paired live session/device/anchor inputs to the Space API write so the server can evaluate trusted mission provenance. The JSON/Markdown report only exposes sanitized `provenance_input` fields such as session availability, hash prefixes, anchor, and input-confirm status; raw session ids and raw device ids stay out.
+
 `field:target-pass:strict` also verifies the current target-diagnostics APK preflight before acceptance: current APK SHA prefix, `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, UXR readiness, and the APK-packaged `RKImage.db` target index map must all match. This is a package/evidence freshness guard only; it does not replace trusted A1/A2/A3 observations or User B readback.
 
 Use `npm run field:target-pass:watch` during the live wall scan. It is read-only by default, records repeated API snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; counts stay zero until the glasses actually see A1/A2/A3 target events.
