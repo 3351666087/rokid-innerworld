@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:SelectedAdbDeviceId = $null
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($ApkPath)) {
@@ -48,6 +49,9 @@ function Invoke-Capture {
   $previousErrorActionPreference = $ErrorActionPreference
   try {
     $ErrorActionPreference = "Continue"
+    if ($script:SelectedAdbDeviceId -and (Split-Path -Leaf $Command) -match '^adb(\.exe)?$' -and $Arguments.Count -gt 0 -and $Arguments[0] -notin @("devices", "connect", "disconnect", "start-server", "kill-server") -and $Arguments[0] -ne "-s") {
+      $Arguments = @("-s", $script:SelectedAdbDeviceId) + $Arguments
+    }
     $output = & $Command @Arguments 2>&1
     $exitCode = $LASTEXITCODE
     $text = (@($output | ForEach-Object { "$_" }) -join "`n")
@@ -280,15 +284,44 @@ function Get-AdbDevices {
       raw_device_ids = @()
     }
   }
-  $capture = Invoke-Capture -Command $AdbPath -Arguments @("devices", "-l")
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & $AdbPath devices -l 2>&1
+    $exitCode = $LASTEXITCODE
+    $text = (@($output | ForEach-Object { "$_" }) -join "`n")
+  } catch {
+    $exitCode = $null
+    $text = $_.Exception.Message
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   $rows = @()
-  foreach ($line in (($capture.text -split "`n") | ForEach-Object { $_.Trim() })) {
+  foreach ($line in (($text -split "`n") | ForEach-Object { $_.Trim() })) {
     $row = Convert-AdbDeviceLine -Line $line
     if ($row) { $rows += $row }
   }
+  $deviceCandidates = @($rows | Where-Object { $_.state -eq "device" })
+  $usbCandidates = @($deviceCandidates | Where-Object { $_.transport -eq "usb" } | Sort-Object raw_id)
+  $tcpCandidates = @($deviceCandidates | Where-Object { $_.transport -eq "tcp" } | Sort-Object raw_id)
+  $selected = if ($usbCandidates.Count -gt 0) {
+    $usbCandidates[0]
+  } elseif ($tcpCandidates.Count -gt 0) {
+    $tcpCandidates[0]
+  } elseif ($deviceCandidates.Count -gt 0) {
+    $deviceCandidates[0]
+  } else {
+    $null
+  }
   return [pscustomobject]@{
-    found = $true
+    found = [bool]($exitCode -eq 0)
     selected_path = $AdbPath
+    selected_device_id = if ($null -ne $selected) { $selected.raw_id } else { $null }
+    selected_device_id_hash_prefix = if ($null -ne $selected) { $selected.id_hash_prefix } else { $null }
+    selected_transport = if ($null -ne $selected) { $selected.transport } else { $null }
+    selected_product = if ($null -ne $selected) { $selected.product } else { $null }
+    selected_model = if ($null -ne $selected) { $selected.model } else { $null }
+    selected_device = if ($null -ne $selected) { $selected.device } else { $null }
     devices = @($rows | ForEach-Object {
         [pscustomobject]@{
           id_hash_prefix = $_.id_hash_prefix
@@ -993,7 +1026,8 @@ function Get-RokidRuntimeLogDiagnostics {
     return $diagnostics
   }
 
-  $result = Invoke-Capture -Command $AdbPath -Arguments @("logcat", "-d", "-v", "brief") -KnownDeviceIds $KnownDeviceIds
+  $tailLineLimit = 2000
+  $result = Invoke-Capture -Command $AdbPath -Arguments @("logcat", "-d", "-t", "$tailLineLimit", "-v", "brief") -KnownDeviceIds $KnownDeviceIds
   $text = "$($result.text)"
   $runtimeUnavailableCount = Count-TextRegex -Text $text -Pattern "XR_ERROR_RUNTIME_UNAVAILABLE"
   $runtimeBrokerFailureCount = Count-TextRegex -Text $text -Pattern "runtime_broker|Could access neither the installable nor system runtime broker|Failed to find provider info for org\.khronos\.openxr\.runtime_broker"
@@ -1009,6 +1043,7 @@ function Get-RokidRuntimeLogDiagnostics {
     requested = $true
     query_ok = [bool]$result.ok
     raw_logcat_included = $false
+    logcat_tail_line_limit = $tailLineLimit
     runtime_unavailable_count = $runtimeUnavailableCount
     runtime_broker_failure_count = $runtimeBrokerFailureCount
     rokid_runtime_manifest_count = $rokidRuntimeManifestCount
@@ -1054,6 +1089,7 @@ New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 $adbPath = Find-Adb
 $aaptPath = Find-Aapt
 $adb = Get-AdbDevices -AdbPath $adbPath
+$script:SelectedAdbDeviceId = $adb.selected_device_id
 $apk = Get-ApkInfo -Path $ApkPath -AaptPath $aaptPath
 $knownIds = @($adb.raw_device_ids)
 $errors = New-Object 'System.Collections.Generic.List[string]'
@@ -1090,7 +1126,7 @@ if (!$aaptPath) { [void]$errors.Add("aapt_not_found") }
 if (!$apk.aapt_ok) { [void]$errors.Add("apk_badging_unavailable") }
 if ($apk.package -and $apk.package -ne $PackageName) { [void]$errors.Add("apk_package_mismatch") }
 if ($RequireDevice -and $adb.device_state_count -lt 1) { [void]$errors.Add("adb_device_required") }
-if ($adb.device_state_count -gt 1 -and $InstallAndLaunch) { [void]$errors.Add("multiple_adb_devices_present") }
+if ($adb.device_state_count -gt 1 -and $InstallAndLaunch) { [void]$warnings.Add("multiple_adb_transports_present_selected_one") }
 if ([string]::IsNullOrWhiteSpace($apk.package)) { [void]$errors.Add("apk_package_missing") }
 if ([string]::IsNullOrWhiteSpace($apk.launchable_activity)) { [void]$errors.Add("apk_launchable_activity_missing") }
 if (!($apk.permissions -contains "android.permission.INTERNET")) { [void]$errors.Add("apk_internet_permission_missing") }
@@ -1114,7 +1150,7 @@ $stationDevices = @($adb.devices | Where-Object {
     $_.state -eq "device" -and
     (($_.product -match '^stationPro$') -or ($_.device -match '^stationPro$') -or ($_.model -match '^RG[_-]?stationPro$'))
   })
-if (($RequireDevice -or $InstallAndLaunch) -and $stationDevices.Count -ne 1) {
+if (($RequireDevice -or $InstallAndLaunch) -and $stationDevices.Count -lt 1) {
   [void]$errors.Add("station_pro_adb_device_required")
 }
 
@@ -1277,6 +1313,8 @@ $report = [pscustomobject]@{
   adb = [pscustomobject]@{
     found = $adb.found
     selected_path = $adb.selected_path
+    selected_transport = $adb.selected_transport
+    selected_device_id_hash_prefix = $adb.selected_device_id_hash_prefix
     devices = $adb.devices
     device_state_count = $adb.device_state_count
   }
@@ -1370,6 +1408,7 @@ $markdown = @(
   "- Evidence kind: $($report.evidence_kind)",
   "- Install and launch requested: $($report.install_and_launch)",
   "- Operator pairing requested: $($report.pair_with_operator)",
+  "- ADB selected transport: $($report.adb.selected_transport)",
   "- APK package: $($report.apk.package)",
   "- Launchable activity: $($report.apk.launchable_activity)",
   "- APK config base_url: $($report.apk.config.base_url_redacted)",

@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:SelectedAdbDeviceId = $null
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
@@ -55,6 +56,9 @@ function Invoke-Capture {
   $previousErrorActionPreference = $ErrorActionPreference
   try {
     $ErrorActionPreference = "Continue"
+    if ($script:SelectedAdbDeviceId -and (Split-Path -Leaf $Command) -match '^adb(\.exe)?$' -and $Arguments.Count -gt 0 -and $Arguments[0] -notin @("devices", "connect", "disconnect", "start-server", "kill-server") -and $Arguments[0] -ne "-s") {
+      $Arguments = @("-s", $script:SelectedAdbDeviceId) + $Arguments
+    }
     $output = & $Command @Arguments 2>&1
     $exitCode = $LASTEXITCODE
     $text = (@($output | ForEach-Object { "$_" }) -join "`n")
@@ -100,10 +104,21 @@ function Get-AdbDevices {
       device_state_count = 0
     }
   }
-  $result = Invoke-Capture -Command $AdbPath -Arguments @("devices", "-l")
-  $devices = @()
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & $AdbPath devices -l 2>&1
+    $exitCode = $LASTEXITCODE
+    $text = (@($output | ForEach-Object { "$_" }) -join "`n")
+  } catch {
+    $exitCode = $null
+    $text = $_.Exception.Message
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  $deviceRows = @()
   $rawIds = @()
-  foreach ($line in ($result.text -split "`r?`n")) {
+  foreach ($line in ($text -split "`r?`n")) {
     $trimmed = $line.Trim()
     if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed -match "^List of devices" -or $trimmed -match "^daemon ") { continue }
     $parts = $trimmed -split "\s+"
@@ -115,7 +130,8 @@ function Get-AdbDevices {
     foreach ($part in $parts | Select-Object -Skip 2) {
       if ($part -match "^([^:]+):(.+)$") { $details[$Matches[1]] = $Matches[2] }
     }
-    $devices += [pscustomobject]@{
+    $deviceRows += [pscustomobject]@{
+      raw_id = $rawId
       id_hash_prefix = Get-Sha256Prefix $rawId
       id_redacted = "usb:<redacted>:$(Get-Sha256Prefix $rawId)"
       transport = if ($rawId -match "^\d+\.\d+\.\d+\.\d+:") { "tcp" } else { "usb" }
@@ -125,12 +141,37 @@ function Get-AdbDevices {
       device = $details["device"]
     }
   }
+  $deviceCandidates = @($deviceRows | Where-Object { $_.state -eq "device" })
+  $usbCandidates = @($deviceCandidates | Where-Object { $_.transport -eq "usb" } | Sort-Object raw_id)
+  $tcpCandidates = @($deviceCandidates | Where-Object { $_.transport -eq "tcp" } | Sort-Object raw_id)
+  $selected = if ($usbCandidates.Count -gt 0) {
+    $usbCandidates[0]
+  } elseif ($tcpCandidates.Count -gt 0) {
+    $tcpCandidates[0]
+  } elseif ($deviceCandidates.Count -gt 0) {
+    $deviceCandidates[0]
+  } else {
+    $null
+  }
   return [pscustomobject]@{
-    found = [bool]$result.ok
+    found = [bool]($exitCode -eq 0)
     selected_path = $AdbPath
-    devices = @($devices)
+    devices = @($deviceRows | ForEach-Object {
+        [pscustomobject]@{
+          id_hash_prefix = $_.id_hash_prefix
+          id_redacted = "$($_.transport):<redacted>:$($_.id_hash_prefix)"
+          transport = $_.transport
+          state = $_.state
+          product = $_.product
+          model = $_.model
+          device = $_.device
+        }
+      })
     raw_device_ids = @($rawIds)
-    device_state_count = @($devices | Where-Object { $_.state -eq "device" }).Count
+    selected_device_id = if ($null -ne $selected) { $selected.raw_id } else { $null }
+    selected_device_id_hash_prefix = if ($null -ne $selected) { $selected.id_hash_prefix } else { $null }
+    selected_transport = if ($null -ne $selected) { $selected.transport } else { $null }
+    device_state_count = @($deviceRows | Where-Object { $_.state -eq "device" }).Count
   }
 }
 
@@ -208,6 +249,30 @@ function Count-TextRegex {
   return [regex]::Matches($Text, $Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase).Count
 }
 
+function Get-FirstRegexValue {
+  param(
+    [AllowNull()][string]$Text,
+    [string]$Pattern,
+    [string]$GroupName = "value"
+  )
+  if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+  $match = [regex]::Match($Text, $Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline)
+  if (!$match.Success) { return $null }
+  if ($match.Groups[$GroupName] -and $match.Groups[$GroupName].Success) {
+    return $match.Groups[$GroupName].Value.Trim()
+  }
+  if ($match.Groups.Count -gt 1) { return $match.Groups[1].Value.Trim() }
+  return $match.Value.Trim()
+}
+
+function Convert-NullableBool {
+  param([AllowNull()][string]$Value)
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+  if ($Value -match "^(?i:true)$") { return $true }
+  if ($Value -match "^(?i:false)$") { return $false }
+  return $null
+}
+
 function Get-RuntimeLogDiagnostics {
   param(
     [AllowNull()][string]$AdbPath,
@@ -229,7 +294,8 @@ function Get-RuntimeLogDiagnostics {
       error = "adb_not_available"
     }
   }
-  $result = Invoke-Capture -Command $AdbPath -Arguments @("logcat", "-d", "-v", "brief") -KnownDeviceIds $KnownDeviceIds
+  $tailLineLimit = 2000
+  $result = Invoke-Capture -Command $AdbPath -Arguments @("logcat", "-d", "-t", "$tailLineLimit", "-v", "brief") -KnownDeviceIds $KnownDeviceIds
   $text = "$($result.text)"
   $runtimeUnavailableCount = Count-TextRegex -Text $text -Pattern "XR_ERROR_RUNTIME_UNAVAILABLE"
   $runtimeBrokerFailureCount = Count-TextRegex -Text $text -Pattern "runtime_broker|Could access neither the installable nor system runtime broker|Failed to find provider info for org\.khronos\.openxr\.runtime_broker"
@@ -240,6 +306,7 @@ function Get-RuntimeLogDiagnostics {
   return [pscustomobject]@{
     query_ok = [bool]$result.ok
     raw_logcat_included = $false
+    logcat_tail_line_limit = $tailLineLimit
     runtime_unavailable_count = $runtimeUnavailableCount
     runtime_broker_failure_count = $runtimeBrokerFailureCount
     rokid_runtime_manifest_count = $rokidRuntimeManifestCount
@@ -311,6 +378,65 @@ function Get-OpenXrServiceDiagnostics {
   }
 }
 
+function Get-RokidDisplayServiceDiagnostics {
+  param(
+    [AllowNull()][string]$AdbPath,
+    [string[]]$KnownDeviceIds = @()
+  )
+  if ([string]::IsNullOrWhiteSpace($AdbPath)) {
+    return [pscustomobject]@{
+      query_ok = $false
+      system_ready = $false
+      boot_completed = $false
+      dsp_connected = $false
+      usb_display_connected = $false
+      usb_device_connected = $false
+      psensor_status_hint = "unknown"
+      focus_display_id = $null
+      power_off = $null
+      service_display_ready = $false
+      raw_service_dump_included = $false
+      error = "adb_not_available"
+    }
+  }
+  $result = Invoke-Capture -Command $AdbPath -Arguments @("shell", "dumpsys", "rokid_display") -KnownDeviceIds $KnownDeviceIds
+  $text = "$($result.text)"
+  $systemReady = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^mSystemReady:\s*(?<value>true|false)')
+  $bootCompleted = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^mBootCompleted:\s*(?<value>true|false)')
+  $dspConnected = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^mDspConnected:\s*(?<value>true|false)')
+  $usbDisplayConnected = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^mUsbDisplayConnected:\s*(?<value>true|false)')
+  $usbDeviceConnected = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^mUsbDeviceConnected:\s*(?<value>true|false)')
+  $powerOff = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^mIsPowerOff:\s*(?<value>true|false)')
+  $psensor = Get-FirstRegexValue -Text $text -Pattern '^mPsensorStatus:\s*(?<value>[^\r\n]+)'
+  $focusDisplayIdText = Get-FirstRegexValue -Text $text -Pattern '^mFocusDisplayId:\s*(?<value>-?\d+)'
+  $focusDisplayId = if ($focusDisplayIdText -match '^-?\d+$') { [int]$focusDisplayIdText } else { $null }
+  $psensorHint = if ([string]::IsNullOrWhiteSpace($psensor)) {
+    "unknown"
+  } elseif ($psensor -match "(?i)near|close") {
+    "near"
+  } elseif ($psensor -match "(?i)far|away") {
+    "far"
+  } elseif ($psensor -match "(?i)unknown") {
+    "unknown"
+  } else {
+    "present"
+  }
+  return [pscustomobject]@{
+    query_ok = [bool]$result.ok
+    system_ready = [bool]($systemReady -eq $true)
+    boot_completed = [bool]($bootCompleted -eq $true)
+    dsp_connected = [bool]($dspConnected -eq $true)
+    usb_display_connected = [bool]($usbDisplayConnected -eq $true)
+    usb_device_connected = [bool]($usbDeviceConnected -eq $true)
+    psensor_status_hint = $psensorHint
+    focus_display_id = $focusDisplayId
+    power_off = if ($null -ne $powerOff) { [bool]$powerOff } else { $null }
+    service_display_ready = [bool]($systemReady -eq $true -and $bootCompleted -eq $true -and $usbDisplayConnected -eq $true -and $usbDeviceConnected -eq $true -and $dspConnected -eq $true -and $powerOff -ne $true)
+    raw_service_dump_included = $false
+    error = if ($result.ok) { $null } else { $result.text }
+  }
+}
+
 function Get-InputDiagnostics {
   param(
     [AllowNull()][string]$AdbPath,
@@ -369,12 +495,53 @@ function Get-UsbDiagnostics {
   }
   $result = Invoke-Capture -Command $AdbPath -Arguments @("shell", "dumpsys", "usb") -KnownDeviceIds $KnownDeviceIds
   $text = "$($result.text)"
+  $currentFunctions = Get-FirstRegexValue -Text $text -Pattern '^\s*current_functions=(?<value>[^\r\n]+)'
+  $currentMode = Get-FirstRegexValue -Text $text -Pattern '^\s*current_mode=(?<value>[a-z0-9_-]+)'
+  $currentPowerRole = Get-FirstRegexValue -Text $text -Pattern '^\s*power_role=(?<value>[a-z0-9_-]+)'
+  $currentDataRole = Get-FirstRegexValue -Text $text -Pattern '^\s*data_role=(?<value>[a-z0-9_-]+)'
+  $deviceConnected = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^\s*connected=(?<value>true|false)')
+  $configured = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^\s*configured=(?<value>true|false)')
+  $hostConnected = Convert-NullableBool (Get-FirstRegexValue -Text $text -Pattern '^\s*host_connected=(?<value>true|false)')
+  $stationUsbDeviceMode = [bool](
+    ($currentMode -match "^(?i:ufp)$") -or
+    ($currentDataRole -match "^(?i:device)$") -or
+    ($currentFunctions -match "(?i)\b(?:mtp|ptp|adb|rndis|midi|ncm)\b")
+  )
+  $stationUsbHostMode = [bool](
+    ($currentMode -match "^(?i:dfp)$") -or
+    ($currentDataRole -match "^(?i:host)$") -or
+    ($currentPowerRole -match "^(?i:source)$")
+  )
+  $rokidGlassAttachCount = Count-TextRegex -Text $text -Pattern "mManufacturerName=Rokid Corporation Ltd\.|mProductName=Rokid"
+  $rokidProductName = Get-FirstRegexValue -Text $text -Pattern 'mProductName=(?<value>Rokid[^,\]\r\n]+)'
+  $rokidProductHint = if ($rokidProductName -match "(?i)max") {
+    "rokid_max"
+  } elseif ($rokidProductName -match "(?i)air") {
+    "rokid_air"
+  } elseif ($rokidProductName -match "(?i)glass|rokid") {
+    "rokid_glass"
+  } else {
+    $null
+  }
   return [pscustomobject]@{
     query_ok = [bool]$result.ok
     connected_token_count = Count-TextRegex -Text $text -Pattern "connected\s*=\s*true|status\s*=\s*connected|mHostConnected\s*=\s*true"
     disconnected_token_count = Count-TextRegex -Text $text -Pattern "connected\s*=\s*false|status\s*=\s*disconnected|mHostConnected\s*=\s*false"
     host_mode_token_count = Count-TextRegex -Text $text -Pattern "host|dfp|source"
     accessory_token_count = Count-TextRegex -Text $text -Pattern "accessory|alternate|displayport|dp"
+    current_functions_hint = if ([string]::IsNullOrWhiteSpace($currentFunctions)) { $null } else { ($currentFunctions -replace '(?i)adb', 'adb' -replace '(?i)mtp', 'mtp' -replace '[^a-zA-Z0-9_, -]', '') }
+    current_mode = $currentMode
+    current_power_role = $currentPowerRole
+    current_data_role = $currentDataRole
+    device_connected = if ($null -ne $deviceConnected) { [bool]$deviceConnected } else { $null }
+    configured = if ($null -ne $configured) { [bool]$configured } else { $null }
+    host_connected = if ($null -ne $hostConnected) { [bool]$hostConnected } else { $null }
+    station_usb_device_mode = $stationUsbDeviceMode
+    station_usb_host_mode = $stationUsbHostMode
+    station_usb_role_blocks_glasses = [bool]($stationUsbDeviceMode -and !$stationUsbHostMode)
+    rokid_glass_attach_event_count = $rokidGlassAttachCount
+    rokid_glass_attach_seen = [bool]($rokidGlassAttachCount -gt 0)
+    rokid_product_hint = $rokidProductHint
     raw_usb_dump_included = $false
     error = if ($result.ok) { $null } else { $result.text }
   }
@@ -422,7 +589,9 @@ function Get-Readiness {
     [object]$Display,
     [object]$Runtime,
     [object]$Packages,
-    [object]$Services
+    [object]$Services,
+    [object]$RokidDisplay,
+    [object]$Usb
   )
   $blockers = New-Object 'System.Collections.Generic.List[string]'
   if (!$Adb.found -or $Adb.device_state_count -lt 1) { [void]$blockers.Add("station_pro_adb_device_missing") }
@@ -430,6 +599,17 @@ function Get-Readiness {
   if (!$Services.runtime_service_resolves) { [void]$blockers.Add("rokid_openxr_runtime_service_missing") }
   if (!$Display.query_ok) { [void]$blockers.Add("display_dumpsys_unavailable") }
   if (!$Display.external_display_detected) { [void]$blockers.Add("rokid_external_display_not_detected") }
+  if ($RokidDisplay -and $RokidDisplay.query_ok) {
+    if (!$RokidDisplay.usb_display_connected) { [void]$blockers.Add("rokid_usb_display_not_connected") }
+    if (!$RokidDisplay.usb_device_connected) { [void]$blockers.Add("rokid_usb_device_not_connected") }
+    if (!$RokidDisplay.dsp_connected) { [void]$blockers.Add("rokid_display_dsp_not_connected") }
+    if ($RokidDisplay.power_off -eq $true) { [void]$blockers.Add("rokid_display_powered_off") }
+  } elseif ($Adb.found -and $Adb.device_state_count -gt 0) {
+    [void]$blockers.Add("rokid_display_service_unavailable")
+  }
+  if ($Usb -and $Usb.query_ok -and $Usb.station_usb_role_blocks_glasses) {
+    [void]$blockers.Add("station_usb_role_device_mode_blocks_glasses")
+  }
   if (!$Runtime.query_ok) { [void]$blockers.Add("runtime_logcat_unavailable") }
   if ($Runtime.runtime_unavailable_detected) { [void]$blockers.Add("rokid_openxr_runtime_unavailable_detected") }
   if (!$Runtime.rokid_runtime_loaded) { [void]$blockers.Add("rokid_runtime_load_success_not_seen") }
@@ -438,6 +618,8 @@ function Get-Readiness {
   return [pscustomobject]@{
     glasses_display_ready = [bool]($blockers.Count -eq 0)
     external_display_detected = [bool]$Display.external_display_detected
+    rokid_display_service_ready = [bool]($RokidDisplay -and $RokidDisplay.service_display_ready)
+    station_usb_role_ready_for_glasses = [bool](!($Usb -and $Usb.query_ok -and $Usb.station_usb_role_blocks_glasses))
     runtime_ready = [bool]($Runtime.rokid_runtime_loaded -and !$Runtime.runtime_unavailable_detected)
     openxr_runtime_package_ready = [bool]($Packages.openxr_runtime_package_installed -and $Services.runtime_service_resolves)
     blocker_ids = @($blockers)
@@ -449,15 +631,17 @@ function Get-Readiness {
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 $adbPath = Find-Adb
 $adb = Get-AdbDevices -AdbPath $adbPath
+$script:SelectedAdbDeviceId = $adb.selected_device_id
 $knownIds = @($adb.raw_device_ids)
 $display = Get-DisplayDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
 $runtime = Get-RuntimeLogDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
 $packages = Get-PackageDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
 $services = Get-OpenXrServiceDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
+$rokidDisplay = Get-RokidDisplayServiceDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
 $input = Get-InputDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
 $usb = Get-UsbDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
 $properties = Get-PropertyDiagnostics -AdbPath $adbPath -KnownDeviceIds $knownIds
-$readiness = Get-Readiness -Adb $adb -Display $display -Runtime $runtime -Packages $packages -Services $services
+$readiness = Get-Readiness -Adb $adb -Display $display -Runtime $runtime -Packages $packages -Services $services -RokidDisplay $rokidDisplay -Usb $usb
 
 $errors = @()
 if ($RequireReady -and !$readiness.glasses_display_ready) {
@@ -485,6 +669,8 @@ $report = [pscustomobject]@{
   adb = [pscustomobject]@{
     found = $adb.found
     selected_path = $adb.selected_path
+    selected_transport = $adb.selected_transport
+    selected_device_id_hash_prefix = $adb.selected_device_id_hash_prefix
     devices = $adb.devices
     device_state_count = $adb.device_state_count
   }
@@ -492,6 +678,7 @@ $report = [pscustomobject]@{
   runtime_log = $runtime
   packages = $packages
   services = $services
+  rokid_display = $rokidDisplay
   input = $input
   usb = $usb
   properties = $properties
@@ -527,11 +714,23 @@ $markdown = @(
   "- OK: $($report.ok)",
   "- Require ready: $($report.require_ready)",
   "- ADB device count: $($report.adb.device_state_count)",
+  "- ADB selected transport: $($report.adb.selected_transport)",
   "- Display count: $($report.display.display_count)",
   "- External display detected: $($report.display.external_display_detected)",
   "- Internal only: $($report.display.internal_only)",
   "- Rokid runtime package installed: $($report.packages.openxr_runtime_package_installed)",
   "- OpenXR runtime service resolves: $($report.services.runtime_service_resolves)",
+  "- Rokid display service ready: $($report.readiness.rokid_display_service_ready)",
+  "- Rokid display USB display connected: $($report.rokid_display.usb_display_connected)",
+  "- Rokid display USB device connected: $($report.rokid_display.usb_device_connected)",
+  "- Rokid display DSP connected: $($report.rokid_display.dsp_connected)",
+  "- Rokid display psensor hint: $($report.rokid_display.psensor_status_hint)",
+  "- Station USB current mode: $($report.usb.current_mode)",
+  "- Station USB data role: $($report.usb.current_data_role)",
+  "- Station USB functions: $($report.usb.current_functions_hint)",
+  "- Station USB role blocks glasses: $($report.usb.station_usb_role_blocks_glasses)",
+  "- Rokid glass attach seen in USB history: $($report.usb.rokid_glass_attach_seen)",
+  "- Rokid USB product hint: $($report.usb.rokid_product_hint)",
   "- Runtime loaded: $($report.runtime_log.rokid_runtime_loaded)",
   "- Runtime unavailable detected: $($report.runtime_log.runtime_unavailable_detected)",
   "- Glass name failure count: $($report.runtime_log.glass_name_failure_count)",

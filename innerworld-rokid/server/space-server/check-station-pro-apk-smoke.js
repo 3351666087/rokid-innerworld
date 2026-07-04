@@ -145,6 +145,10 @@ async function main() {
 
   assert(report.adb?.found === true, "ADB missing");
   assertArray(report.adb.devices, "adb.devices");
+  if (report.adb.devices.length > 1) {
+    assert(["usb", "tcp"].includes(report.adb.selected_transport), "ADB selected transport missing for multi-transport report");
+    assert(/^[0-9a-f]{8,16}$/i.test(report.adb.selected_device_id_hash_prefix || ""), "ADB selected device hash prefix missing");
+  }
   const ignoredAdbNoiseStates = new Set(["daemon", "started"]);
   for (const device of report.adb.devices) {
     assert(!("raw_id" in device), "ADB device leaked raw_id");
@@ -161,7 +165,7 @@ async function main() {
     );
   });
   if (!allowNoDevice) {
-    assert(stationDevices.length === 1, "expected exactly one connected Station Pro ADB device");
+    assert(stationDevices.length >= 1, "expected at least one connected Station Pro ADB transport");
   }
 
   assert(report.readiness?.live_heartbeat_ready === false, "inspect cannot claim live heartbeat readiness");
@@ -203,6 +207,7 @@ async function main() {
     external_display_detected: report.readiness.external_display_detected,
     require_lan_config: requireLan,
     station_pro_devices: stationDevices.length,
+    selected_transport: report.adb.selected_transport ?? null,
     install_and_launch: report.install_and_launch
   }, null, 2));
 }

@@ -68,7 +68,12 @@ function assertPrivacy(report, jsonText) {
 
   const requiredFlags = new Map([
     ["raw_dumpsys_included", false],
-    ["raw_logcat_included", false]
+    ["raw_logcat_included", false],
+    ["raw_getprop_included", false],
+    ["raw_usb_dump_included", false],
+    ["raw_service_dump_included", false],
+    ["raw_input_dump_included", false],
+    ["raw_package_dump_included", false]
   ]);
   const rawPrivateKeyPattern = /^(?:serial|serial_no|serial_number|device_serial|raw_serial|raw_id|raw_device_ids|instance_id|usb_instance_id|pairing_code|operator_pairing_code|raw_dumpsys|dumpsys_text|raw_logcat|logcat_text)$/i;
 
@@ -104,6 +109,12 @@ async function main() {
   if ("external_display_detected" in readiness) {
     assert(typeof readiness.external_display_detected === "boolean", "readiness.external_display_detected must be a boolean");
   }
+  if ("rokid_display_service_ready" in readiness) {
+    assert(typeof readiness.rokid_display_service_ready === "boolean", "readiness.rokid_display_service_ready must be a boolean");
+  }
+  if ("station_usb_role_ready_for_glasses" in readiness) {
+    assert(typeof readiness.station_usb_role_ready_for_glasses === "boolean", "readiness.station_usb_role_ready_for_glasses must be a boolean");
+  }
   if (requireReady) {
     assert(readiness.glasses_display_ready === true, "readiness.glasses_display_ready must be true when --require-ready is used");
   }
@@ -117,6 +128,12 @@ async function main() {
     generated_at: report.generated_at ?? null,
     glasses_display_ready: readiness.glasses_display_ready,
     external_display_detected: readiness.external_display_detected ?? null,
+    rokid_display_service_ready: readiness.rokid_display_service_ready ?? null,
+    station_usb_role_ready_for_glasses: readiness.station_usb_role_ready_for_glasses ?? null,
+    rokid_display_dsp_connected: report.rokid_display?.dsp_connected ?? null,
+    rokid_usb_display_connected: report.rokid_display?.usb_display_connected ?? null,
+    station_usb_current_mode: report.usb?.current_mode ?? null,
+    station_usb_current_data_role: report.usb?.current_data_role ?? null,
     blockers: Array.isArray(readiness.blocker_ids)
       ? readiness.blocker_ids
       : (Array.isArray(report.diagnostics?.glasses_display?.blocker_ids) ? report.diagnostics.glasses_display.blocker_ids : []),
