@@ -74,7 +74,7 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("yield return LoadDeviceManifest();"), "Unity controller startup device manifest fetch missing");
   assert(controller.includes("yield return LoadFieldMarkerManifest();"), "Unity controller startup field marker fetch missing");
   assert(controller.includes("yield return LoadFieldAcceptanceManifest();"), "Unity controller startup field acceptance fetch missing");
-  assert(controller.includes("yield return LoadFieldOperatorPlanManifest();"), "Unity controller startup field operator plan fetch missing");
+  assert(/private IEnumerator LoadRuntimeServiceContracts\(\)[\s\S]*yield return LoadEvidenceChain\(\);[\s\S]*yield return LoadSessionPlan\(\);[\s\S]*yield return LoadFieldAcceptanceManifest\(\);[\s\S]*yield return LoadFieldOperatorPlanManifest\(\);[\s\S]*RefreshHud\(\);/.test(controller), "Unity controller runtime contract load must fetch field operator plan after field acceptance and before HUD refresh");
   assert(controller.includes("LoadWallCalibrationManifest"), "Unity controller wall calibration coroutine missing");
   assert(controller.includes("LoadFieldMarkerManifest"), "Unity controller field marker coroutine missing");
   assert(controller.includes("LoadFieldAcceptanceManifest"), "Unity controller field acceptance coroutine missing");

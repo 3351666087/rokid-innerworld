@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 22:55 Asia/Shanghai
+Updated: 2026-07-04 23:02 Asia/Shanghai
 
 Latest execution slice: `field:operator-plan` is now the lightweight local/LAN operator-plan capture command for the productized field lane. It reads only `/api/field/operator-plan`, writes sanitized `output/field-operator-plan/field-operator-plan-latest.json` and `.md`, and keeps the same P0 boundary: one real wall, A1 entry, A2 read, A3 TimeMark write-back, User B readback, with no guide/PPT/phone-only/open-UGC/backend/route expansion and no hardware-ready claim without physical `/api/field/acceptance`.
 
@@ -25,7 +25,7 @@ The second connected glasses line, identified in UI as Rokid x Bolon, is not the
 Current verified local facts from the strict hardware probe:
 
 - ADB exists at `C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe`, version 36.0.0, but it is not on PATH in the current shell.
-- One sanitized USB ADB device is in `device` state with model `RG_stationPro` / device `stationPro`.
+- One Station Pro is visible through two sanitized ADB transports, USB and TCP, both in `device` state with model `RG_stationPro` / device `stationPro`; tooling must select one transport explicitly and avoid raw serial output.
 - Windows PnP shows sanitized `RG-stationPro` WPD and `ADB Interface` entries using VID/PID `18D1/4EE2`.
 - Android SDK build-tools `36.0.0`, platforms `android-35` and `android-36`, cmdline-tools `latest`, Node, npm, Java, Maven, Unity Hub, and Unity Editor `6000.3.19f1` are present.
 - `device-probe` is now bounded against Windows/ADB enumeration hangs: ADB/tool commands and PnP enumeration have internal timeouts, `check:device-probe` has an outer 90s timeout, and probe reports expose timeout flags without leaking raw identifiers.

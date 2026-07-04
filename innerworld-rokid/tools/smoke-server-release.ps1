@@ -70,10 +70,10 @@ function Assert-ReleaseFieldEndpoints {
   if ($OperatorPlan.endpoint.path -ne "/api/field/operator-plan") {
     throw "Release smoke operator-plan endpoint path mismatch"
   }
-  if ($OperatorPlan.scope_guard.p0_only -ne $true -or $OperatorPlan.scope_guard.a1_a2_a3_user_b_only -ne $true) {
+  if ($OperatorPlan.scope_guard.p0_only -ne $true -or $OperatorPlan.scope_guard.campus_wall_only -ne $true -or $OperatorPlan.scope_guard.a1_a2_a3_user_b_only -ne $true) {
     throw "Release smoke operator-plan P0 scope guard missing"
   }
-  if ($OperatorPlan.scope_guard.guide_app_or_ppt -ne $false -or $OperatorPlan.scope_guard.phone_page -ne $false -or $OperatorPlan.scope_guard.open_ugc -ne $false) {
+  if ($OperatorPlan.scope_guard.guide_app_or_ppt -ne $false -or $OperatorPlan.scope_guard.phone_page -ne $false -or $OperatorPlan.scope_guard.open_ugc -ne $false -or $OperatorPlan.scope_guard.backend_expansion -ne $false -or $OperatorPlan.scope_guard.broad_route -ne $false) {
     throw "Release smoke operator-plan scope drift guard failed"
   }
   if ($OperatorPlan.readiness.hardware_ready_claim_allowed -ne $false) {

@@ -6,6 +6,8 @@ Latest field acceptance wrapper checkpoint: `field:acceptance-session` now captu
 
 Latest product HUD/release-smoke checkpoint: Unity HUD now consumes `/api/field/operator-plan` for phase progress, hardware-ready claim guard, next action, and blocker display; `server:smoke` verifies packaged localhost release endpoints plus field-live-pass while preserving hardware-ready=false for fresh packages.
 
+Latest hardware probe checkpoint: `device:probe` now sees the same Station Pro through sanitized USB and TCP ADB transports, both in `device` state. `station:glasses:diagnose` selects USB and still reports internal display only, `dsp_connected=false`, USB role device/MTP, head-pose failures, and `hardware_ready_claim_allowed=false`.
+
 ## 2026-07-04
 
 - Productization checkpoint at 21:59 Asia/Shanghai: added read-only `/api/field/operator-plan` and a Web Field Pass panel as the现场 P0 command center. The plan exposes six phases only: preflight, A1 spatial entry, A2 memory read, A3 TimeMark write-back, User B readback, and closeout.
