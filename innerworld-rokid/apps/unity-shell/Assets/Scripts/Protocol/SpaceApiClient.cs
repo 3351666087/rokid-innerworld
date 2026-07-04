@@ -90,6 +90,11 @@ namespace InnerWorld.Rokid.Protocol
             get { return BuildFieldAcceptanceUrl(BaseUrl); }
         }
 
+        public string FieldOperatorPlanUrl
+        {
+            get { return BuildFieldOperatorPlanUrl(BaseUrl); }
+        }
+
         public string SpaceUrl
         {
             get { return BuildSpaceUrl(BaseUrl, SpaceId); }
@@ -260,6 +265,11 @@ namespace InnerWorld.Rokid.Protocol
             return BuildUrl(baseUrl, "/api/field/acceptance");
         }
 
+        public static string BuildFieldOperatorPlanUrl(string baseUrl)
+        {
+            return BuildUrl(baseUrl, "/api/field/operator-plan");
+        }
+
         public static string BuildEvidenceChainUrl(string baseUrl)
         {
             return BuildUrl(baseUrl, "/api/evidence/chain");
@@ -358,6 +368,7 @@ namespace InnerWorld.Rokid.Protocol
                 field_markers = Endpoint(cleanBaseUrl, "GET", "/api/field/markers"),
                 field_acceptance = Endpoint(cleanBaseUrl, "GET", "/api/field/acceptance"),
                 field_target_readiness = Endpoint(cleanBaseUrl, "GET", "/api/field/target-readiness"),
+                field_operator_plan = Endpoint(cleanBaseUrl, "GET", "/api/field/operator-plan"),
                 ai_schema = Endpoint(cleanBaseUrl, "GET", "/api/ai/schema"),
                 ai_prompt = Endpoint(cleanBaseUrl, "GET", "/api/ai/prompt"),
                 ai_hud = Endpoint(cleanBaseUrl, "POST", "/api/ai/hud"),

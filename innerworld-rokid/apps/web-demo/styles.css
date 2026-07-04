@@ -1184,6 +1184,10 @@ textarea:focus {
   border-left: 3px solid var(--green);
 }
 
+.field-pass-card.good {
+  border-left: 3px solid var(--green);
+}
+
 .acceptance-card.good {
   border-left: 3px solid var(--green);
 }
@@ -1202,6 +1206,10 @@ textarea:focus {
   border-left: 3px solid var(--amber);
 }
 
+.field-pass-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
 .acceptance-card.warn {
   border-left: 3px solid var(--amber);
 }
@@ -1217,6 +1225,10 @@ textarea:focus {
 }
 
 .hardware-card.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.field-pass-card.bad {
   border-left: 3px solid var(--rose);
 }
 
@@ -1323,6 +1335,114 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
   gap: 8px;
+}
+
+.field-pass-actions,
+.field-pass-phase-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.field-pass-actions {
+  border: 1px solid rgba(84, 214, 255, 0.24);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: rgba(84, 214, 255, 0.058);
+}
+
+.field-pass-actions strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.field-pass-actions p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.field-pass-phase {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(74px, auto);
+  align-items: center;
+  gap: 9px;
+  min-height: 66px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.046);
+}
+
+.field-pass-phase.ready {
+  border-left: 3px solid var(--green);
+}
+
+.field-pass-phase.active {
+  border-left: 3px solid var(--cyan);
+  border-color: rgba(84, 214, 255, 0.5);
+  background: rgba(84, 214, 255, 0.07);
+}
+
+.field-pass-phase.blocked {
+  border-left: 3px solid var(--rose);
+}
+
+.field-pass-phase.pending {
+  border-left: 3px solid var(--amber);
+}
+
+.field-pass-phase-badge {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #061014;
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.field-pass-phase.blocked .field-pass-phase-badge {
+  background: linear-gradient(135deg, var(--rose), rgba(255, 255, 255, 0.68));
+}
+
+.field-pass-phase.pending .field-pass-phase-badge {
+  background: linear-gradient(135deg, var(--amber), rgba(255, 255, 255, 0.68));
+}
+
+.field-pass-phase strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.field-pass-phase p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.field-pass-phase-status {
+  justify-self: end;
+  max-width: 112px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1.2;
+  text-align: right;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .field-marker-list,

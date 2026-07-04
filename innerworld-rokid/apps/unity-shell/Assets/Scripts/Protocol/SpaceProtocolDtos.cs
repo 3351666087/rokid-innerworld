@@ -135,6 +135,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint field_acceptance;
         public SpaceApiEndpoint field_target_readiness;
+        public SpaceApiEndpoint field_operator_plan;
         public SpaceApiEndpoint ai_schema;
         public SpaceApiEndpoint ai_prompt;
         public SpaceApiEndpoint ai_hud;
@@ -639,6 +640,7 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint field_acceptance;
         public SpaceApiEndpoint field_target_readiness;
+        public SpaceApiEndpoint field_operator_plan;
         public SpaceApiEndpoint ai_hud;
         public SpaceApiEndpoint interactions;
         public SpaceApiEndpoint service_actions;

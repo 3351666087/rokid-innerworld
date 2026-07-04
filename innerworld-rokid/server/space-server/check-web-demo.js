@@ -29,6 +29,19 @@ const requiredModules = [
     needles: ["Operator Console", "operator-panel", "command-center"]
   },
   {
+    name: "Field Pass",
+    needles: [
+      "Field Pass",
+      "Site Run",
+      "fieldPassGrid",
+      "field-pass-grid",
+      "fieldPassPlan",
+      "renderFieldPass",
+      "innerworld-field-operator-plan/v1",
+      "/api/field/operator-plan"
+    ]
+  },
+  {
     name: "Mission Flow",
     needles: ["Mission Flow", "workflow-section", "stepper"]
   },
@@ -225,6 +238,7 @@ const requiredContainers = [
   ".product-grid",
   ".agent-queue",
   ".showcase-grid",
+  ".field-pass-grid",
   ".route-grid",
   ".lens-grid",
   ".binding-grid",
@@ -271,6 +285,7 @@ const requiredContainerGroups = [
   { name: ".product-grid", selectors: [".product-grid"] },
   { name: ".agent-queue", selectors: [".agent-queue"] },
   { name: ".showcase-grid", selectors: [".showcase-grid"] },
+  { name: ".field-pass-grid", selectors: [".field-pass-grid"] },
   { name: ".route-grid", selectors: [".route-grid"] },
   { name: ".lens-grid", selectors: [".lens-grid"] },
   { name: ".binding-grid", selectors: [".binding-grid"] },
@@ -343,6 +358,7 @@ function checkStaticSources(sources) {
   const errors = [];
   const moduleResults = checkModules(sources.combined);
   const missingModules = moduleResults.filter((module) => !module.ok).map((module) => module.name);
+  const fieldPassSource = sources.js.match(/function fieldPassPlan\(\)[\s\S]*?\n}\n\nfunction calibratedAnchorIds/)?.[0] || "";
 
   if (missingModules.length) {
     errors.push(`Missing required web modules: ${missingModules.join(", ")}`);
@@ -444,6 +460,8 @@ function checkStaticSources(sources) {
     { name: "wall calibration rehearsal evidence label", ok: sources.js.includes("simulator rehearsal") && sources.js.includes("hardware evidence candidate") },
     { name: "field kit readiness separation", ok: sources.js.includes("print kit ready") && sources.js.includes("print kit pending") && sources.js.includes("trusted lock candidate") && sources.js.includes("hardware pending") },
     { name: "field target readiness separation", ok: sources.js.includes("precheck_ok") && sources.js.includes("physical_acceptance_ready") && sources.js.includes("Target Physical Blockers") && sources.js.includes("field_acceptance_not_ready") && sources.js.includes("A3 TimeMark write-back") },
+    { name: "field pass operator plan rendering", ok: sources.js.includes("fieldPassPlan") && sources.js.includes("renderFieldPass") && sources.js.includes("getFieldOperatorPlan") && sources.js.includes("/api/field/operator-plan") && sources.js.includes("innerworld-field-operator-plan/v1") && sources.js.includes("A1 spatial entry") && sources.js.includes("A2 memory read") && sources.js.includes("User B readback") },
+    { name: "field pass remains read-only UI", ok: sources.js.includes("mutates_state") && fieldPassSource.includes("fieldPassPlan") && !/api\.(?:interact|serviceAction|writeBack|submitWallCalibrationObservation)/i.test(fieldPassSource) },
     { name: "field target readiness does not read output evidence", ok: !/output\/field-target-pass|field-target-pass-latest|output\\\\field-target-pass/i.test(sources.js) },
     { name: "field acceptance endpoint contract", ok: sources.fieldAcceptanceCheck.includes("/api/field/acceptance") && sources.fieldAcceptanceCheck.includes("innerworld-field-acceptance/v1") && sources.fieldAcceptanceCheck.includes("hardware_alignment") && sources.fieldAcceptanceCheck.includes("trusted_hardware_session") && sources.fieldAcceptanceCheck.includes("all_simulator_ready_for_hardware") },
     { name: "field marker contract details", ok: sources.js.includes("A1:qr-entry") && sources.js.includes("A2:image-target") && sources.js.includes("A3:image-target") && sources.js.includes("trackingModesLabel") && sources.js.includes("expected_pose") },

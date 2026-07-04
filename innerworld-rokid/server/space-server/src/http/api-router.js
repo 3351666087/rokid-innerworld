@@ -12,6 +12,7 @@ import { buildDeviceManifest, buildRokidLiveAdapterChecklist, createDeviceRuntim
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
 import { buildFieldAcceptance, buildFieldTargetReadiness } from "../domain/field-acceptance.js";
 import { buildFieldMarkerManifest } from "../domain/field-markers.js";
+import { buildFieldOperatorPlan } from "../domain/field-operator-plan.js";
 import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
 import { buildServiceActionAck, createServiceActionRecord, sanitizeServiceActionValue } from "../domain/service-action-runtime.js";
@@ -313,6 +314,60 @@ export function createApiRouter({
     });
   }
 
+  async function loadFieldOperatorPlan(req, url) {
+    const [space, state, markerConfig, opsStatus] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(fieldMarkersPath),
+      buildOpsStatus()
+    ]);
+    const baseUrl = getRequestBaseUrl(req, url, port);
+    const wallCalibration = buildWallCalibrationManifest({
+      baseUrl,
+      space,
+      state,
+      summary: sqliteStore?.wallCalibrationSummary?.() || null
+    });
+    const fieldMarkers = buildFieldMarkerManifest({
+      baseUrl,
+      space,
+      markerConfig,
+      wallCalibration
+    });
+    const fieldAcceptance = buildFieldAcceptance({
+      baseUrl,
+      space,
+      state,
+      wallCalibration,
+      fieldMarkers,
+      ledgerSummary: sqliteStore?.missionLedgerSummary?.() || null,
+      opsStatus
+    });
+    const targetReadiness = buildFieldTargetReadiness({
+      baseUrl,
+      fieldAcceptance
+    });
+    const deviceSessions = deviceRuntime.sessionsSummary();
+    const adapterChecklist = buildRokidLiveAdapterChecklist({
+      baseUrl,
+      deviceSessions,
+      wallCalibration,
+      fieldMarkers,
+      opsStatus
+    });
+
+    return buildFieldOperatorPlan({
+      space,
+      state,
+      fieldAcceptance,
+      targetReadiness,
+      deviceSessions,
+      adapterChecklist,
+      wallCalibration,
+      opsStatus
+    });
+  }
+
   function serveFieldTargetAsset(res, fileName) {
     if (!fieldTargetAssetsDir || !fileName) {
       sendError(res, 404, "field_target_asset_not_found");
@@ -480,6 +535,11 @@ export function createApiRouter({
 
     if (req.method === "GET" && url.pathname === "/api/field/target-readiness") {
       sendJson(res, 200, await loadFieldTargetReadiness(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/field/operator-plan") {
+      sendJson(res, 200, await loadFieldOperatorPlan(req, url));
       return;
     }
 

@@ -65,6 +65,8 @@ function assertEndpointMap(endpoints) {
     wall_calibration_observations: ["POST", "/api/calibration/observations"],
     field_markers: ["GET", "/api/field/markers"],
     field_acceptance: ["GET", "/api/field/acceptance"],
+    field_target_readiness: ["GET", "/api/field/target-readiness"],
+    field_operator_plan: ["GET", "/api/field/operator-plan"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
     device_manifest: ["GET", "/api/device/manifest"],
     device_adapter_checklist: ["GET", "/api/device/adapter-checklist"],
@@ -827,6 +829,8 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("WallCalibrationObservationsUrl"), "Unity wall calibration observations URL property missing");
   assert(client.includes("BuildWallCalibrationUrl"), "Unity wall calibration URL builder missing");
   assert(client.includes("BuildWallCalibrationObservationsUrl"), "Unity wall calibration observations URL builder missing");
+  assert(client.includes("FieldOperatorPlanUrl"), "Unity field operator plan URL property missing");
+  assert(client.includes("BuildFieldOperatorPlanUrl"), "Unity field operator plan URL builder missing");
   assert(client.includes("BuildServiceActionAckUrl"), "Unity service action ack URL builder missing");
   assert(client.includes("AiHudUrl"), "Unity AI HUD URL property missing");
   assert(client.includes("/api/ai/hud"), "Unity AI HUD route missing");
@@ -844,6 +848,7 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("device_pairing = Endpoint(cleanBaseUrl, \"POST\", \"/api/device/pairing\")"), "Unity device pairing endpoint mismatch");
   assert(client.includes("wall_calibration = Endpoint(cleanBaseUrl, \"GET\", \"/api/calibration/wall\")"), "Unity wall calibration endpoint mismatch");
   assert(client.includes("wall_calibration_observations = Endpoint(cleanBaseUrl, \"POST\", \"/api/calibration/observations\")"), "Unity wall calibration observations endpoint mismatch");
+  assert(client.includes("field_operator_plan = Endpoint(cleanBaseUrl, \"GET\", \"/api/field/operator-plan\")"), "Unity field operator plan endpoint mismatch");
   assert(client.includes("write_back = Endpoint(cleanBaseUrl, \"POST\", writeBackPath)"), "Unity write_back endpoint mismatch");
 
   assert(dtos.includes("public sealed class DeviceBootstrapResponse"), "Unity DeviceBootstrapResponse DTO missing");
@@ -860,6 +865,7 @@ async function assertUnityProtocolSkeleton() {
   assert(dtos.includes("public SpaceApiEndpoint wall_calibration_observations;"), "Unity wall calibration observations endpoint DTO missing");
   assert(dtos.includes("public SpaceEndpointMap endpoints;"), "Unity endpoint map DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ai_hud;"), "Unity AI HUD endpoint DTO missing");
+  assert(dtos.includes("public SpaceApiEndpoint field_operator_plan;"), "Unity field operator plan endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_events;"), "Unity ledger events endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_summary;"), "Unity ledger summary endpoint DTO missing");
   assert(dtos.includes("public sealed class LedgerEventsResponse"), "Unity ledger events response DTO missing");
@@ -951,7 +957,7 @@ async function assertRokidSimulatorSkeleton() {
 }
 
 async function assertServerCoreSkeleton() {
-  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration] = await Promise.all([
+  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration, fieldOperatorPlan] = await Promise.all([
     readText("server/space-server/index.js"),
     readText("server/space-server/src/http/api-router.js"),
     readText("server/space-server/src/http/response.js"),
@@ -959,7 +965,8 @@ async function assertServerCoreSkeleton() {
     readText("server/space-server/src/ops/status-service.js"),
     readText("server/space-server/src/domain/device-runtime.js"),
     readText("server/space-server/src/store/sqlite-store.js"),
-    readText("server/space-server/src/domain/wall-calibration.js")
+    readText("server/space-server/src/domain/wall-calibration.js"),
+    readText("server/space-server/src/domain/field-operator-plan.js")
   ]);
 
   assert(index.includes("createApiRouter"), "server index does not use api router module");
@@ -974,7 +981,11 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
   assert(apiRouter.includes("/api/ledger/summary"), "api router ledger summary route missing");
   assert(apiRouter.includes("/api/ledger/events"), "api router ledger events route missing");
+  assert(apiRouter.includes("/api/field/operator-plan"), "api router field operator plan route missing");
   assert(apiRouter.includes("/api/device/register"), "api router device register route missing");
+  assert(fieldOperatorPlan.includes("innerworld-field-operator-plan/v1"), "field operator plan schema missing");
+  assert(fieldOperatorPlan.includes("service_action") && fieldOperatorPlan.includes("User B Readback"), "field operator plan P0 phases missing");
+  assert(fieldOperatorPlan.includes("raw_logcat_or_dumpsys_included: false"), "field operator plan privacy guard missing");
   assert(deviceRuntime.includes("buildRokidLiveAdapterChecklist"), "device runtime adapter checklist builder missing");
   assert(deviceRuntime.includes("innerworld-rokid-live-adapter-checklist/v1"), "device runtime adapter checklist schema missing");
   assert(deviceRuntime.includes("a1_entry_lock") && deviceRuntime.includes("performance_gate"), "device runtime adapter checklist item coverage missing");
@@ -1251,6 +1262,7 @@ async function main() {
   assert(typeof client.getWallCalibration === "function", "client wall calibration method missing");
   assert(typeof client.submitWallCalibrationObservation === "function", "client wall calibration observation method missing");
   assert(typeof client.getFieldMarkers === "function", "client field markers method missing");
+  assert(typeof client.getFieldOperatorPlan === "function", "client field operator plan method missing");
   assert(client.endpoints().space.path === `/api/spaces/${INNERWORLD_SPACE_ID}`, "client endpoints mismatch");
   assert(client.endpoints().store_status.path === "/api/store/status", "client store endpoint mismatch");
   assert(client.endpoints().dataset_call.path === "/api/datasets/call", "client dataset call endpoint mismatch");
@@ -1261,6 +1273,7 @@ async function main() {
   assert(client.endpoints().wall_calibration.path === "/api/calibration/wall", "client wall calibration endpoint mismatch");
   assert(client.endpoints().wall_calibration_observations.path === "/api/calibration/observations", "client wall calibration observations endpoint mismatch");
   assert(client.endpoints().field_markers.path === "/api/field/markers", "client field markers endpoint mismatch");
+  assert(client.endpoints().field_operator_plan.path === "/api/field/operator-plan", "client field operator plan endpoint mismatch");
   assert(client.endpoints().device_pairing.path === "/api/device/pairing", "client device pairing endpoint mismatch");
   assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");
   assert(client.endpoints().service_actions_outbox.path === "/api/service-actions/outbox", "client service actions outbox endpoint mismatch");
