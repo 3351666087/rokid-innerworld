@@ -1094,6 +1094,131 @@ namespace InnerWorld.Rokid.Protocol
     }
 
     [Serializable]
+    public sealed class FieldOperatorPlanManifest
+    {
+        public bool ok;
+        public string schema;
+        public string generated_at;
+        public SpaceApiEndpoint endpoint;
+        public string space_id;
+        public string current_phase;
+        public int phase_index;
+        public int total_phases;
+        public string[] next_actions;
+        public string[] blockers;
+        public FieldOperatorPlanPhase[] phases;
+        public FieldOperatorPlanPhaseRow[] phase_table;
+        public FieldOperatorPlanReadiness readiness;
+        public FieldOperatorPlanSanitizedSummary sanitized_summary;
+        public FieldOperatorPlanSourceOfTruth source_of_truth;
+        public FieldOperatorPlanPrivacy privacy;
+        public FieldOperatorPlanScopeGuard scope_guard;
+        public bool hardware_ready_claim_allowed;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanPhase
+    {
+        public string id;
+        public string label;
+        public string anchor_id;
+        public string status;
+        public string[] required_evidence;
+        public string[] blockers;
+        public string[] operator_actions;
+        public bool mutates_state;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanPhaseRow
+    {
+        public int index;
+        public string id;
+        public string label;
+        public string anchor_id;
+        public string status;
+        public bool mutates_state;
+        public string[] required_evidence;
+        public string[] blockers;
+        public string[] operator_actions;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanReadiness
+    {
+        public bool precheck_ok;
+        public bool physical_acceptance_ready;
+        public bool live_session_ready;
+        public bool trusted_a1_a2_a3_ready;
+        public bool mission_loop_ready;
+        public bool user_b_readback_ready;
+        public bool release_ready;
+        public bool hardware_ready_claim_allowed;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanSanitizedSummary
+    {
+        public int hardware_anchor_count;
+        public int trusted_anchor_count;
+        public string[] missing_trusted_anchor_ids;
+        public int paired_session_count;
+        public int live_sdk_session_count;
+        public string mission_state;
+        public int completed_step_count;
+        public int write_back_beacon_count;
+        public string field_acceptance_status;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanSourceOfTruth
+    {
+        public string field_acceptance;
+        public string field_target_readiness;
+        public string device_adapter_checklist;
+        public string device_sessions;
+        public string wall_calibration;
+        public string mission_state;
+        public string ops_status;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanPrivacy
+    {
+        public bool read_only_endpoint;
+        public bool mission_state_mutated;
+        public bool evidence_files_written;
+        public bool simulator_or_manual_observations_created;
+        public bool adb_or_logcat_run;
+        public bool raw_serials_included;
+        public bool usb_ids_included;
+        public bool raw_session_ids_included;
+        public bool session_ids_included;
+        public bool raw_device_ids_included;
+        public bool device_ids_included;
+        public bool private_ips_included;
+        public bool raw_pairing_codes_included;
+        public bool pairing_codes_included;
+        public bool raw_pose_or_ray_included;
+        public bool raw_logcat_included;
+        public bool raw_logcat_or_dumpsys_included;
+        public bool field_operator_plan_report_written;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanScopeGuard
+    {
+        public bool p0_only;
+        public bool campus_wall_only;
+        public bool a1_a2_a3_user_b_only;
+        public bool guide_app_or_ppt;
+        public bool phone_page;
+        public bool open_ugc;
+        public bool backend_expansion;
+        public bool broad_route;
+    }
+
+    [Serializable]
     public sealed class NearbyPinsResponse
     {
         public string space_id;

@@ -4,6 +4,8 @@ Latest field operator plan CLI checkpoint: `field:operator-plan` now snapshots r
 
 Latest field acceptance wrapper checkpoint: `field:acceptance-session` now captures `field:operator-plan` inside the same现场 session report. The session JSON/Markdown includes `operator_plan.current_phase`, phase table, next actions, blockers, readiness booleans, and hardware-ready claim guard before live/target pass output, so operators can follow one report without treating it as physical acceptance evidence.
 
+Latest product HUD/release-smoke checkpoint: Unity HUD now consumes `/api/field/operator-plan` for phase progress, hardware-ready claim guard, next action, and blocker display; `server:smoke` verifies packaged localhost release endpoints plus field-live-pass while preserving hardware-ready=false for fresh packages.
+
 ## 2026-07-04
 
 - Productization checkpoint at 21:59 Asia/Shanghai: added read-only `/api/field/operator-plan` and a Web Field Pass panel as the现场 P0 command center. The plan exposes six phases only: preflight, A1 spatial entry, A2 memory read, A3 TimeMark write-back, User B readback, and closeout.

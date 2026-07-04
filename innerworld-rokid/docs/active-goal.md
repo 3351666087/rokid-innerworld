@@ -1,10 +1,12 @@
 # Active Goal
 
-Updated: 2026-07-04 22:31 Asia/Shanghai
+Updated: 2026-07-04 22:55 Asia/Shanghai
 
 Latest execution slice: `field:operator-plan` is now the lightweight local/LAN operator-plan capture command for the productized field lane. It reads only `/api/field/operator-plan`, writes sanitized `output/field-operator-plan/field-operator-plan-latest.json` and `.md`, and keeps the same P0 boundary: one real wall, A1 entry, A2 read, A3 TimeMark write-back, User B readback, with no guide/PPT/phone-only/open-UGC/backend/route expansion and no hardware-ready claim without physical `/api/field/acceptance`.
 
 Current continuation: `field:acceptance-session` now embeds that operator-plan snapshot into the现场 session report. The wrapper still does not create simulator/manual observations; operator-plan is a read-only phase/blocker guide, and hardware-ready remains gated by trusted A1/A2/A3, A3 write-back, User B readback, and `/api/field/acceptance`.
+
+Current product slice: Unity HUD now loads `/api/field/operator-plan` and displays phase progress, hardware-ready claim guard, first next action, and blocker summary in the glasses/desktop HUD. `server:smoke` also checks the packaged local server against operator-plan, field acceptance, target readiness, and field-live-pass while keeping hardware-ready false for a fresh package.
 
 ## Objective
 

@@ -21,6 +21,7 @@ const files = {
   rootGitignore: path.join(root, ".gitignore"),
   packageDemo: path.join(root, "tools", "package-demo.ps1"),
   packageServerRelease: path.join(root, "tools", "package-server-release.ps1"),
+  smokeServerRelease: path.join(root, "tools", "smoke-server-release.ps1"),
   packageAudit: path.join(root, "tools", "audit-demo-package.ps1"),
   spaceData: path.join(root, "data", "space_demo.json"),
   hardwareManifest: path.join(root, "data", "hardware_manifest.json"),
@@ -187,6 +188,18 @@ const requiredBackupGuardTokens = [
   "sqlite-backup-latest.md"
 ];
 
+const requiredReleaseSmokeTokens = [
+  "/api/field/operator-plan",
+  "/api/field/acceptance",
+  "/api/field/target-readiness",
+  "tools\\field-live-pass.js",
+  "hardware_ready_claim_allowed",
+  "ready_for_hardware",
+  "physical_acceptance_ready",
+  "hardware_a1_a2_a3_ready",
+  "field_acceptance_ready"
+];
+
 const requiredUnityGitignoreTokens = [
   "Library/",
   "Temp/",
@@ -254,6 +267,7 @@ async function main() {
     sources.packageServerRelease,
     sources.packageAudit
   ].join("\n"), requiredBackupGuardTokens);
+  const releaseSmokeChecks = includesAll(sources.smokeServerRelease, requiredReleaseSmokeTokens);
   const syncChecks = includesAll(sources.gitAutoSync, [
     "git -C",
     "check:security",
@@ -279,6 +293,7 @@ async function main() {
     ...storageChecks.filter((item) => !item.ok).map((item) => `storage token missing: ${item.needle}`),
     ...backupChecks.filter((item) => !item.ok).map((item) => `SQLite backup token missing: ${item.needle}`),
     ...backupGuardChecks.filter((item) => !item.ok).map((item) => `SQLite backup guard missing: ${item.needle}`),
+    ...releaseSmokeChecks.filter((item) => !item.ok).map((item) => `release smoke token missing: ${item.needle}`),
     ...syncChecks.filter((item) => !item.ok).map((item) => `git auto-sync token missing: ${item.needle}`)
   ];
 
@@ -311,6 +326,7 @@ async function main() {
     hardware_connected_checkpoint: "station_pro_trusted_hardware_session",
     teammate_docs_bus_tokens: requiredTeammateDocsBusTokens.length,
     operator_plan_tokens: requiredOperatorPlanTokens.length,
+    release_smoke_tokens: requiredReleaseSmokeTokens.length,
     long_modules: [
       "a1_spatial_entry_experience",
       "story_graph_mission_runtime_v2",

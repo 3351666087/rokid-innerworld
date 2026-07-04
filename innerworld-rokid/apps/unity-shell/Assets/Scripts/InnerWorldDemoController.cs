@@ -51,6 +51,7 @@ namespace InnerWorld.Rokid
         private WallCalibrationManifest wallCalibrationManifest;
         private FieldMarkerManifest fieldMarkerManifest;
         private FieldAcceptanceManifest fieldAcceptanceManifest;
+        private FieldOperatorPlanManifest fieldOperatorPlan;
         private RokidPresentationStrategy presentationStrategy;
         private RokidAdapterBoundaryStatus rokidAdapterStatus;
         private EditorRokidInputSource editorRokidInputSource;
@@ -67,6 +68,7 @@ namespace InnerWorld.Rokid
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
         private string fieldAcceptanceLine = "field acceptance pending";
+        private string fieldOperatorPlanLine = "operator plan pending";
         private WallCalibrationObservationResult lastWallCalibrationObservationResult;
         private WallCalibrationObservation lastWallCalibrationObservation;
         private string wallCalibrationObservationLine = "calibration observation pending";
@@ -737,6 +739,55 @@ namespace InnerWorld.Rokid
             }
         }
 
+        private IEnumerator LoadFieldOperatorPlanManifest()
+        {
+            EnsureApiClient();
+            fieldOperatorPlan = null;
+            fieldOperatorPlanLine = "operator plan loading";
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.field_operator_plan : null, apiClient.FieldOperatorPlanUrl);
+
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        fieldOperatorPlan = JsonUtility.FromJson<FieldOperatorPlanManifest>(request.downloadHandler.text);
+                        if (fieldOperatorPlan == null || string.IsNullOrWhiteSpace(fieldOperatorPlan.schema))
+                        {
+                            fieldOperatorPlan = null;
+                            fieldOperatorPlanLine = "operator phase unknown";
+                            Debug.LogWarning(fieldOperatorPlanLine + ": missing schema | " + url);
+                        }
+                        else
+                        {
+                            fieldOperatorPlanLine = BuildFieldOperatorPlanStatusLine();
+                            Debug.Log("Field operator plan loaded: " + fieldOperatorPlanLine + " | " + url);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        fieldOperatorPlan = null;
+                        fieldOperatorPlanLine = "operator phase unknown";
+                        Debug.LogWarning("Field operator plan parse failed: " + error.Message + " | " + url);
+                    }
+                }
+                else
+                {
+                    fieldOperatorPlanLine = "operator phase unknown";
+                    Debug.LogWarning("Field operator plan unavailable: " + request.error + " | " + url);
+                }
+            }
+
+            if (space != null)
+            {
+                RefreshHud();
+            }
+        }
+
         private IEnumerator SubmitWallCalibrationObservation(string trackingMode)
         {
             EnsureApiClient();
@@ -828,6 +879,7 @@ namespace InnerWorld.Rokid
 
             wallCalibrationObservationInFlight = false;
             yield return LoadFieldAcceptanceManifest();
+            yield return LoadFieldOperatorPlanManifest();
             if (space != null)
             {
                 RefreshHud();
@@ -979,6 +1031,7 @@ namespace InnerWorld.Rokid
                 yield return AdvanceMissionFromTrustedImageObservation(anchorId, lastWallCalibrationObservation);
             }
             yield return LoadFieldAcceptanceManifest();
+            yield return LoadFieldOperatorPlanManifest();
             if (space != null)
             {
                 RefreshHud();
@@ -1254,6 +1307,7 @@ namespace InnerWorld.Rokid
                 + "\nAdapter " + BuildAdapterReadinessStatusLine()
                 + "\nWall " + WallCalibrationHudBadge() + " | " + BuildFieldMarkerReadinessLine()
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
+                + "\nOperator " + BuildFieldOperatorPlanHudLine()
                 + "\nShell " + ArShellStatusCompactLabel()
                 + "\nTarget " + ActiveAnchorSummaryLabel();
         }
@@ -1894,7 +1948,7 @@ namespace InnerWorld.Rokid
         {
             if (targetText == null) return;
 
-            string debugLine = BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine();
+            string debugLine = BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine() + "\n" + BuildFieldOperatorPlanDebugLine();
             targetText.text = BuildPremiumTargetCardLine(debugLine);
             if (systemText != null) systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel();
             RefreshRadarHud();
@@ -1908,7 +1962,8 @@ namespace InnerWorld.Rokid
                 + "\n" + FieldMarkerTargetSummary(marker)
                 + "\n" + ImageTargetAssetCardLine(marker)
                 + "\n" + CalibrationCompactLine()
-                + "\n" + AcceptanceCompactLine();
+                + "\n" + AcceptanceCompactLine()
+                + "\n" + BuildFieldOperatorPlanTargetLine();
         }
 
         private string SpatialFocusLine()
@@ -2561,6 +2616,7 @@ namespace InnerWorld.Rokid
             yield return LoadEvidenceChain();
             yield return LoadSessionPlan();
             yield return LoadFieldAcceptanceManifest();
+            yield return LoadFieldOperatorPlanManifest();
             RefreshHud();
         }
 
@@ -2616,7 +2672,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -3794,6 +3850,256 @@ namespace InnerWorld.Rokid
             if (string.IsNullOrWhiteSpace(value)) return "sha pending";
             string clean = value.Trim();
             return clean.Length <= 12 ? clean : clean.Substring(0, 12);
+        }
+
+        private string BuildFieldOperatorPlanHudLine()
+        {
+            return FieldOperatorPlanHudBadge()
+                + " | hw-claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed())
+                + " | " + BuildFieldOperatorPlanNextActionLine();
+        }
+
+        private string BuildFieldOperatorPlanTargetLine()
+        {
+            return "Operator " + BuildFieldOperatorPlanHudLine()
+                + " | block " + ShortHudText(FieldOperatorPlanFirstBlocker(), 44);
+        }
+
+        private string BuildFieldOperatorPlanDebugLine()
+        {
+            return "Operator: " + FieldOperatorPlanPhaseProgress()
+                + " " + FieldOperatorPlanPhaseLabel()
+                + " | hw-claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed())
+                + " | next_actions " + FieldOperatorPlanNextActionCount()
+                + " | blockers " + FieldOperatorPlanBlockerCount()
+                + " | scope " + FieldOperatorPlanScopeGuardLabel();
+        }
+
+        private string BuildFieldOperatorPlanStatusLine()
+        {
+            if (fieldOperatorPlan == null)
+            {
+                string state = string.IsNullOrWhiteSpace(fieldOperatorPlanLine) ? "operator plan pending" : fieldOperatorPlanLine.Trim();
+                return "field operator plan " + state
+                    + " | " + FieldOperatorPlanPhaseProgress()
+                    + " " + FieldOperatorPlanPhaseLabel()
+                    + " | hw_claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed());
+            }
+
+            return "field operator plan schema " + FieldOperatorPlanSchemaLabel()
+                + " | " + FieldOperatorPlanPhaseProgress()
+                + " " + FieldOperatorPlanPhaseLabel()
+                + " | hw_claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed())
+                + " | next " + ShortHudText(FieldOperatorPlanFirstNextAction(), 64)
+                + " | block " + ShortHudText(FieldOperatorPlanFirstBlocker(), 64)
+                + " | " + FieldOperatorPlanScopeGuardLabel();
+        }
+
+        private string BuildFieldOperatorPlanNextActionLine()
+        {
+            return "next " + ShortHudText(FieldOperatorPlanFirstNextAction(), 54);
+        }
+
+        private string FieldOperatorPlanHudBadge()
+        {
+            return FieldOperatorPlanPhaseProgress() + " " + FieldOperatorPlanPhaseLabel();
+        }
+
+        private string FieldOperatorPlanSchemaLabel()
+        {
+            return fieldOperatorPlan != null && !string.IsNullOrWhiteSpace(fieldOperatorPlan.schema)
+                ? fieldOperatorPlan.schema.Trim()
+                : "schema unknown";
+        }
+
+        private string FieldOperatorPlanPhaseProgress()
+        {
+            if (fieldOperatorPlan == null)
+            {
+                return "phase ?/?";
+            }
+
+            int total = fieldOperatorPlan.total_phases > 0
+                ? fieldOperatorPlan.total_phases
+                : Mathf.Max(fieldOperatorPlan.phases != null ? fieldOperatorPlan.phases.Length : 0, fieldOperatorPlan.phase_table != null ? fieldOperatorPlan.phase_table.Length : 0);
+            int index = fieldOperatorPlan.phase_index > 0 ? fieldOperatorPlan.phase_index : 0;
+            return "phase " + (index > 0 ? index.ToString() : "?") + "/" + (total > 0 ? total.ToString() : "?");
+        }
+
+        private string FieldOperatorPlanPhaseLabel()
+        {
+            if (fieldOperatorPlan == null)
+            {
+                return "unknown";
+            }
+
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            if (phase != null)
+            {
+                if (!string.IsNullOrWhiteSpace(phase.id)) return phase.id.Trim();
+                if (!string.IsNullOrWhiteSpace(phase.label)) return phase.label.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(fieldOperatorPlan.current_phase)) return fieldOperatorPlan.current_phase.Trim();
+            return "unknown";
+        }
+
+        private bool FieldOperatorPlanHardwareReadyClaimAllowed()
+        {
+            return fieldOperatorPlan != null
+                && ((fieldOperatorPlan.readiness != null && fieldOperatorPlan.readiness.hardware_ready_claim_allowed)
+                    || fieldOperatorPlan.hardware_ready_claim_allowed);
+        }
+
+        private int FieldOperatorPlanNextActionCount()
+        {
+            return fieldOperatorPlan != null && fieldOperatorPlan.next_actions != null
+                ? fieldOperatorPlan.next_actions.Length
+                : 0;
+        }
+
+        private int FieldOperatorPlanBlockerCount()
+        {
+            if (fieldOperatorPlan == null) return 0;
+            int count = fieldOperatorPlan.blockers != null ? fieldOperatorPlan.blockers.Length : 0;
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            if (phase != null && phase.blockers != null) count += phase.blockers.Length;
+            return count;
+        }
+
+        private string FieldOperatorPlanFirstNextAction()
+        {
+            string action = FirstNonEmpty(fieldOperatorPlan != null ? fieldOperatorPlan.next_actions : null);
+            if (!string.IsNullOrWhiteSpace(action)) return action;
+
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            action = FirstNonEmpty(phase != null ? phase.operator_actions : null);
+            return string.IsNullOrWhiteSpace(action) ? "pending" : action;
+        }
+
+        private string FieldOperatorPlanFirstBlocker()
+        {
+            string blocker = FirstNonEmpty(fieldOperatorPlan != null ? fieldOperatorPlan.blockers : null);
+            if (!string.IsNullOrWhiteSpace(blocker)) return blocker;
+
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            blocker = FirstNonEmpty(phase != null ? phase.blockers : null);
+            if (!string.IsNullOrWhiteSpace(blocker)) return blocker;
+
+            FieldOperatorPlanPhaseRow row = CurrentFieldOperatorPlanPhaseRow();
+            blocker = FirstNonEmpty(row != null ? row.blockers : null);
+            return string.IsNullOrWhiteSpace(blocker) ? "none" : blocker;
+        }
+
+        private FieldOperatorPlanPhase CurrentFieldOperatorPlanPhase()
+        {
+            if (fieldOperatorPlan == null || fieldOperatorPlan.phases == null || fieldOperatorPlan.phases.Length == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fieldOperatorPlan.current_phase))
+            {
+                string current = fieldOperatorPlan.current_phase.Trim();
+                foreach (FieldOperatorPlanPhase phase in fieldOperatorPlan.phases)
+                {
+                    if (phase != null && !string.IsNullOrWhiteSpace(phase.id) && string.Equals(phase.id.Trim(), current, StringComparison.Ordinal))
+                    {
+                        return phase;
+                    }
+                }
+            }
+
+            int index = fieldOperatorPlan.phase_index - 1;
+            if (index >= 0 && index < fieldOperatorPlan.phases.Length)
+            {
+                return fieldOperatorPlan.phases[index];
+            }
+
+            return null;
+        }
+
+        private FieldOperatorPlanPhaseRow CurrentFieldOperatorPlanPhaseRow()
+        {
+            if (fieldOperatorPlan == null || fieldOperatorPlan.phase_table == null || fieldOperatorPlan.phase_table.Length == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fieldOperatorPlan.current_phase))
+            {
+                string current = fieldOperatorPlan.current_phase.Trim();
+                foreach (FieldOperatorPlanPhaseRow row in fieldOperatorPlan.phase_table)
+                {
+                    if (row != null && !string.IsNullOrWhiteSpace(row.id) && string.Equals(row.id.Trim(), current, StringComparison.Ordinal))
+                    {
+                        return row;
+                    }
+                }
+            }
+
+            int index = fieldOperatorPlan.phase_index - 1;
+            if (index >= 0 && index < fieldOperatorPlan.phase_table.Length)
+            {
+                return fieldOperatorPlan.phase_table[index];
+            }
+
+            return null;
+        }
+
+        private string FieldOperatorPlanScopeGuardLabel()
+        {
+            FieldOperatorPlanScopeGuard guard = fieldOperatorPlan != null ? fieldOperatorPlan.scope_guard : null;
+            if (guard == null)
+            {
+                return "P0 A1/A2/A3/User B";
+            }
+
+            bool p0Only = (guard.p0_only || guard.campus_wall_only) && guard.a1_a2_a3_user_b_only;
+            bool noExpansion = !guard.guide_app_or_ppt && !guard.phone_page && !guard.open_ugc && !guard.backend_expansion && !guard.broad_route;
+            return p0Only && noExpansion ? "P0 A1/A2/A3/User B" : "scope guard warn";
+        }
+
+        private string FirstNonEmpty(string[] values)
+        {
+            if (values == null || values.Length == 0) return string.Empty;
+            foreach (string value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+            }
+
+            return string.Empty;
+        }
+
+        private string ShortHudText(string value, int maxChars)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "pending";
+            int limit = Mathf.Max(8, maxChars);
+            StringBuilder builder = new StringBuilder();
+            bool lastWasSpace = false;
+            string clean = value.Trim();
+            for (int index = 0; index < clean.Length; index++)
+            {
+                char ch = clean[index];
+                if (char.IsWhiteSpace(ch))
+                {
+                    if (!lastWasSpace && builder.Length > 0)
+                    {
+                        builder.Append(' ');
+                        lastWasSpace = true;
+                    }
+                }
+                else
+                {
+                    builder.Append(ch);
+                    lastWasSpace = false;
+                }
+
+                if (builder.Length >= limit) break;
+            }
+
+            string result = builder.ToString().Trim();
+            return clean.Length > result.Length ? result.TrimEnd('.') + "..." : result;
         }
 
         private string BuildFieldAcceptanceHeartbeatLine()
