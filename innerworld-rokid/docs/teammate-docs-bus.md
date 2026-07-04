@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-03 22:18 Asia/Shanghai
+Updated: 2026-07-04 12:31 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -55,6 +55,14 @@ Evidence reconciliation checkpoint on 2026-07-03 22:18 Asia/Shanghai:
 - `tools/build-unity-android.ps1` records final APK size/SHA after post-checks, preventing stale build reports when the APK changes after an earlier sample point.
 - `uxr-readiness-latest` now compares current APK SHA, latest inspect SHA, and latest mutating-launch SHA. It warns `latest_mutating_launch_apk_sha_mismatch_current_apk` because the last mutating launch belongs to previous APK SHA `70592a5dfec4...`.
 - The bus must treat the 21:05/22:01 Station Pro launch as historical proof for earlier APKs, not launch proof for the current `ce3f...` APK. Next P0 proof is `user_confirmed_current_apk_station_pro_install_launch_smoke`, followed by live SDK binding, operator pairing, trusted A1/A2/A3 observations, A3 write-back, User B readback, and `/api/field/acceptance`.
+
+Real-device probe and evidence-pointer checkpoint on 2026-07-04 12:31 Asia/Shanghai:
+
+- The current PR branch is `codex/rokid-real-device-sync`, and PR #1 is open as a draft. The current APK remains SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142` with `assets/RKImage.db` and Rokid/OpenXR native libraries packaged.
+- Carver's fresh source/PDF audit for this checkpoint is `.agents/carver/carver-source-audit-2026-07-04-1231.md`; it confirms 19 target PDFs are readable through PyMuPDF text extraction and that the teammate/group materials still converge on the P0 one-wall A1/A2/A3/User B loop.
+- `device-probe` now has bounded ADB/tool/PnP timeouts plus an outer `check:device-probe` timeout, so Windows hardware enumeration cannot hang the real-device gate indefinitely.
+- `check:station-apk:rkimage` now consumes `station-pro-apk-smoke-latest-inspect.*` and asserts `evidence_kind=inspect_only`; this keeps inspect/package evidence separate from mutating Station Pro install/launch/pairing evidence.
+- Latest live boundary is correct: LAN server is up, `station:apk:pair-smoke` passed, and `check:field-live-pass` sees one online operator-paired live session. Hardware-ready remains false because trusted A1/A2/A3 observations, A3 TimeMark write-back, and User B readback are still missing.
 
 Already merged into the mainline:
 

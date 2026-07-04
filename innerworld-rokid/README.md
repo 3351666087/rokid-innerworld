@@ -8,6 +8,8 @@ Station Pro is connected and the project is in the real-device lane. The current
 
 The current APK has passed Station Pro install/cold-launch/process/operator-pairing smoke. After clearing logcat and relaunching, sanitized counts for `DllNotFoundException`, `rokid_openxr_api`, and `UnsatisfiedLinkError` are zero. This is still not hardware acceptance: `/api/field/acceptance` remains `rehearsal_ready` until operator-paired trusted A1/A2/A3 observations, A3 write-back, and explicit User B readback (`active_user=B`) pass on the real wall.
 
+`device-probe` is bounded against real Windows/ADB enumeration hangs: command/PnP timeouts are recorded in the sanitized report, and `check:device-probe` has an outer timeout. Station APK package gates also read inspect-only evidence so a later `station:apk:pair-smoke` cannot be mistaken for a non-mutating APK inspection.
+
 Use `npm run field:live-pass` for a read-only live field snapshot, `npm run check:field-live-pass` to verify the current operator-paired live session window, and `npm run field:live-pass -- --require-trusted --require-mission-loop` during final physical acceptance. These commands do not post simulator/manual observations.
 
 ## Quick Start

@@ -13,8 +13,8 @@ const requireRkImageDb = args.has("--require-rkimage-db");
 const requireRokidNativeLibs = args.has("--require-rokid-native-libs");
 
 const outputRoot = path.join(root, "output", "station-pro-apk-smoke");
-const latestJsonPath = path.join(outputRoot, "station-pro-apk-smoke-latest.json");
-const latestMdPath = path.join(outputRoot, "station-pro-apk-smoke-latest.md");
+const latestInspectJsonPath = path.join(outputRoot, "station-pro-apk-smoke-latest-inspect.json");
+const latestInspectMdPath = path.join(outputRoot, "station-pro-apk-smoke-latest-inspect.md");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -77,8 +77,8 @@ async function main() {
   if (!skipSmoke) runInspect();
 
   const [jsonTextRaw, markdownTextRaw] = await Promise.all([
-    readFile(latestJsonPath, "utf8"),
-    readFile(latestMdPath, "utf8")
+    readFile(latestInspectJsonPath, "utf8"),
+    readFile(latestInspectMdPath, "utf8")
   ]);
   const jsonText = jsonTextRaw.replace(/^\uFEFF/, "");
   const markdownText = markdownTextRaw.replace(/^\uFEFF/, "");
@@ -89,6 +89,7 @@ async function main() {
   const report = JSON.parse(jsonText);
   assert(report.schema === "innerworld-station-pro-apk-smoke/v1", "schema mismatch");
   assert(report.ok === true, "inspect report must be ok");
+  assert(report.evidence_kind === "inspect_only", "check must read inspect-only evidence, not mutating launch evidence");
   assert(report.install_and_launch === false, "check must not mutate hardware by installing/launching");
   assert(report.pair_with_operator === false, "inspect check must not issue operator pairing codes");
   assert(report.privacy?.raw_pairing_codes_included === false, "pairing code privacy flag must be false");

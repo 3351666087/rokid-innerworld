@@ -2,11 +2,13 @@
 
 ## Latest Checkpoint
 
-2026-07-04 00:05 Asia/Shanghai:
+2026-07-04 12:31 Asia/Shanghai:
 
 - PR #1 is open as a draft from `codex/rokid-real-device-sync`; Carver reviewed commit `1358664f` as directionally safe for the P0 real-device lane.
 - Current APK remains `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, with `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so` packaged.
-- LAN Space Server is back online, and `npm run station:apk:pair-smoke` passed on the connected Station Pro for the current APK: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and no raw pairing code persisted.
+- `device-probe` is hardened against Windows/ADB hangs: ADB/tool calls and PnP enumeration have internal timeouts, `check:device-probe` has an outer 90s timeout, and current strict probe still sees one sanitized Station Pro-class ADB device in `device` state.
+- LAN Space Server is back online on `0.0.0.0:5177`, and `npm run station:apk:pair-smoke` passed again on the connected Station Pro for the current APK: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and no raw pairing code persisted.
+- `check:station-apk:rkimage` now reads inspect-only APK evidence after mutating pair-smoke runs, so package gates cannot accidentally consume install/launch evidence. The latest inspect gate verifies LAN config, `assets/RKImage.db`, and Rokid native libraries.
 - Field acceptance now makes User B readback explicit: mission/write-back is not enough unless `/api/state.active_user` is `B` after the A3 write-back beacon exists. `npm run check:field-acceptance -- --api` and `npm run check:field-live-pass` both reflect `user_b_readback_ready=false` until the physical pass completes.
 - Hardware-ready remains false. The next P0 action is the real A1/A2/A3 target pass plus A1 entry -> A2 read -> A3 TimeMark write-back -> User B readback, then `field:live-pass -- --single --require-live-session --require-trusted --require-mission-loop` and `/api/field/acceptance`.
 

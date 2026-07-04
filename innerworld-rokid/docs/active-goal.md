@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-04 00:05 Asia/Shanghai
+Updated: 2026-07-04 12:31 Asia/Shanghai
 
 ## Objective
 
@@ -22,6 +22,7 @@ Current verified local facts from the strict hardware probe:
 - One sanitized USB ADB device is in `device` state with model `RG_stationPro` / device `stationPro`.
 - Windows PnP shows sanitized `RG-stationPro` WPD and `ADB Interface` entries using VID/PID `18D1/4EE2`.
 - Android SDK build-tools `36.0.0`, platforms `android-35` and `android-36`, cmdline-tools `latest`, Node, npm, Java, Maven, Unity Hub, and Unity Editor `6000.3.19f1` are present.
+- `device-probe` is now bounded against Windows/ADB enumeration hangs: ADB/tool commands and PnP enumeration have internal timeouts, `check:device-probe` has an outer 90s timeout, and probe reports expose timeout flags without leaking raw identifiers.
 - `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `JAVA_HOME`, `INNERWORLD_OPERATOR_PIN`, and `INNERWORLD_OPERATOR_PAIRING_CODE` are not set in the current shell.
 - These facts authorize live-adapter work, but they do not satisfy `trusted_hardware_session`, `ready_for_hardware`, or `hardware_acceptance_ready`.
 
@@ -29,7 +30,7 @@ Current Station Pro live APK checkpoint:
 
 - Current authoritative APK fact: `output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`. It includes `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`.
 - Current mutating Station Pro proof for that exact SHA is green: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and the launch evidence includes no raw pairing code, raw session id, raw serial, raw USB id, private IP, or MAC address.
-- Current live-pass snapshot after LAN server restart and pair smoke proves the operator-paired live SDK session window is open (`live_session_ready=true`, one online live operator-paired session). It still correctly reports `trusted_a1_a2_a3_ready=false`, `mission_loop_ready=false`, `field_acceptance_ready=false`, and `user_b_readback_ready=false`.
+- Current live-pass snapshot after the 2026-07-04 12:29 LAN server restart and pair smoke proves the operator-paired live SDK session window is open (`live_session_ready=true`, one online live operator-paired session). It still correctly reports `trusted_a1_a2_a3_ready=false`, `mission_loop_ready=false`, `field_acceptance_ready=false`, and `user_b_readback_ready=false`.
 - Field acceptance now explicitly requires User B readback. A completed read/service/write-back sequence cannot set hardware acceptance unless `/api/state.active_user` is `B` after an A3 write-back beacon exists.
 - Historical note: the 22:18 `ce3f...` and 21:05/22:01 `70592...` APK facts are superseded by the current `bd852...` APK and must not be used as the current next proof. The old `fallback_only`/unpaired boundary describes earlier evidence, not the current pair-smoke/live-session state.
 - Hardware-ready remains false. The next mainline gap is not current-APK launch or pairing; it is the physical target pass: trusted A1 QR plus A2/A3 image-tracking observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` green under `field:live-pass -- --single --require-live-session --require-trusted --require-mission-loop`.
@@ -38,6 +39,7 @@ Current non-mutating APK evidence:
 
 - `npm run station:apk:inspect` reads the Android fallback APK without installing it.
 - `npm run check:station-apk` passes and verifies package `com.innerworld.rokid.prototype`, launchable activity `com.unity3d.player.UnityPlayerGameActivity`, min SDK 25, target SDK 36, manifest network flags, and embedded `innerworld_campus_wall` config.
+- Non-mutating Station Pro checks now read `station-pro-apk-smoke-latest-inspect.*` and assert `evidence_kind=inspect_only`, so a later `station:apk:pair-smoke` cannot make package gates consume mutating install/launch evidence.
 - Earlier direct Gradle rebuild completed after adding Aliyun Maven mirrors to Unity's generated Gradle `settings.gradle`: `:launcher:assembleRelease` succeeded and `launcher-release.apk` was copied to `output/unity-android/InnerWorldRokid.apk` (24,752,749 bytes). This is historical LAN package evidence; the current disk APK is now the 45,719,155-byte `bd852...` artifact recorded above.
 - Latest LAN preflight on 2026-07-03 20:12 Asia/Shanghai restarted the Space Server in LAN mode, updated Unity config to a private-LAN URL, and kept reports/stdout redacted.
 - `npm run station:apk:patch-lan` created a config-only, zipaligned, debug-signed APK with v2 signature verification. `npm run check:station-apk:lan` now passes with `config_host_kind=private_lan` and `network_ready_for_device=true`.
@@ -66,6 +68,8 @@ P2/reference only: open UGC, institution dashboard, public social feeds, persona
 Carver completed the requested full-read source audit for the real-device phase. The durable record is `docs/carver-source-review.md`.
 
 Fresh re-audit requested on 2026-07-03 19:40 Asia/Shanghai completed in `.agents/carver/`. The final record is `.agents/carver/source-audit-2026-07-03.md`; Carver rendered `docs/策划案.pdf` into 13 page PNGs, smoke-rendered 19 raw PDFs, and confirmed the root proposal PDF is readable with `pypdf`/`pdfplumber`.
+
+Fresh Carver source/PDF audit requested on 2026-07-04 12:31 Asia/Shanghai completed in `.agents/carver/carver-source-audit-2026-07-04-1231.md`. It confirms 19 target PDFs were readable with PyMuPDF text extraction and restates the mainline: real Rokid hardware, one real campus wall, A1 entry, A2 memory read, A3 TimeMark write-back, and User B readback. It explicitly says current package/probe/pairing/live-session evidence is not hardware-ready without trusted physical A1/A2/A3 plus the User B loop.
 
 Carver's important PDF correction: old `analysis/extracted_attachments/**/pdfinfo.txt` files are mostly broken Poppler-wrapper output, not reliable metadata. Future PDF page counts or encryption checks should use `pages.json` or the real Poppler executables under `C:\Users\33516\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\poppler\Library\bin`.
 

@@ -1,6 +1,8 @@
 param(
   [switch]$RequireAdbDevice,
-  [string]$OutputRoot = ""
+  [string]$OutputRoot = "",
+  [int]$CommandTimeoutSeconds = 10,
+  [int]$PnpTimeoutSeconds = 15
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,28 +33,58 @@ function Get-Sha256Prefix {
 function Invoke-Capture {
   param(
     [string]$Command,
-    [string[]]$Arguments = @()
+    [string[]]$Arguments = @(),
+    [int]$TimeoutSeconds = $CommandTimeoutSeconds
   )
-  $previousErrorActionPreference = $ErrorActionPreference
+  $job = $null
   try {
-    $ErrorActionPreference = "Continue"
-    $output = & $Command @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    return [pscustomobject]@{
-      ok = $true
-      exit_code = $exitCode
-      lines = @($output | ForEach-Object { "$_" })
-      error = $null
+    $job = Start-Job -ScriptBlock {
+      param([string]$InnerCommand, [string[]]$InnerArguments)
+      $ErrorActionPreference = "Continue"
+      try {
+        $output = & $InnerCommand @InnerArguments 2>&1
+        $exitCode = $LASTEXITCODE
+        return [pscustomobject]@{
+          ok = $true
+          exit_code = $exitCode
+          lines = @($output | ForEach-Object { "$_" })
+          error = $null
+          timed_out = $false
+        }
+      } catch {
+        return [pscustomobject]@{
+          ok = $false
+          exit_code = $null
+          lines = @()
+          error = $_.Exception.Message
+          timed_out = $false
+        }
+      }
+    } -ArgumentList $Command, $Arguments
+
+    $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+    if (!$completed) {
+      Stop-Job -Job $job -ErrorAction SilentlyContinue | Out-Null
+      return [pscustomobject]@{
+        ok = $false
+        exit_code = $null
+        lines = @()
+        error = "$Command timed out after ${TimeoutSeconds}s"
+        timed_out = $true
+      }
     }
-  } catch {
+
+    $received = @(Receive-Job -Job $job)
+    if ($received.Count -gt 0) { return $received[-1] }
     return [pscustomobject]@{
       ok = $false
       exit_code = $null
       lines = @()
-      error = $_.Exception.Message
+      error = "$Command produced no probe output"
+      timed_out = $false
     }
   } finally {
-    $ErrorActionPreference = $previousErrorActionPreference
+    if ($job) { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue | Out-Null }
   }
 }
 
@@ -174,8 +206,8 @@ function Get-AdbInfo {
   foreach ($candidate in $Candidates) {
     if ($candidate.path -eq $AdbPath) { $candidate.selected = $true }
   }
-  $version = Invoke-Capture -Command $AdbPath -Arguments @("version")
-  $devices = Invoke-Capture -Command $AdbPath -Arguments @("devices", "-l")
+  $version = Invoke-Capture -Command $AdbPath -Arguments @("version") -TimeoutSeconds $CommandTimeoutSeconds
+  $devices = Invoke-Capture -Command $AdbPath -Arguments @("devices", "-l") -TimeoutSeconds $CommandTimeoutSeconds
   $rows = @()
   foreach ($line in $devices.lines) {
     $row = Convert-AdbDeviceLine -Line $line
@@ -190,6 +222,7 @@ function Get-AdbInfo {
     device_count = @($rows).Count
     device_state_count = @($rows | Where-Object { $_.state -eq "device" }).Count
     error = $devices.error
+    timed_out = [bool]($version.timed_out -or $devices.timed_out)
   }
 }
 
@@ -272,21 +305,74 @@ function Convert-PnpDevice {
   }
 }
 
-function Get-PnpSummary {
+function Invoke-PnpDeviceQuery {
+  param([int]$TimeoutSeconds = $PnpTimeoutSeconds)
+  $job = $null
   try {
-    $devices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
-      $_.FriendlyName -match "Rokid|BOLON|Bolon|Android|ADB|MTP|Station|XR|Composite|USB|Portable|WPD" -or
-      $_.Class -match "Android|USB|WPD|Portable|USBDevice"
+    $job = Start-Job -ScriptBlock {
+      try {
+        $devices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
+          $_.FriendlyName -match "Rokid|BOLON|Bolon|Android|ADB|MTP|Station|XR|Composite|USB|Portable|WPD" -or
+          $_.Class -match "Android|USB|WPD|Portable|USBDevice"
+        } | ForEach-Object {
+          [pscustomobject]@{
+            Class = $_.Class
+            FriendlyName = $_.FriendlyName
+            Status = $_.Status
+            InstanceId = $_.InstanceId
+          }
+        }
+        return [pscustomobject]@{
+          ok = $true
+          devices = @($devices)
+          error = $null
+          timed_out = $false
+        }
+      } catch {
+        return [pscustomobject]@{
+          ok = $false
+          devices = @()
+          error = $_.Exception.Message
+          timed_out = $false
+        }
+      }
     }
-  } catch {
+
+    $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+    if (!$completed) {
+      Stop-Job -Job $job -ErrorAction SilentlyContinue | Out-Null
+      return [pscustomobject]@{
+        ok = $false
+        devices = @()
+        error = "Get-PnpDevice timed out after ${TimeoutSeconds}s"
+        timed_out = $true
+      }
+    }
+    $received = @(Receive-Job -Job $job)
+    if ($received.Count -gt 0) { return $received[-1] }
+    return [pscustomobject]@{
+      ok = $false
+      devices = @()
+      error = "Get-PnpDevice produced no probe output"
+      timed_out = $false
+    }
+  } finally {
+    if ($job) { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue | Out-Null }
+  }
+}
+
+function Get-PnpSummary {
+  $query = Invoke-PnpDeviceQuery -TimeoutSeconds $PnpTimeoutSeconds
+  if (!$query.ok) {
     return [pscustomobject]@{
       devices = @()
       counts_by_class = @()
       counts_by_status = @()
-      error = $_.Exception.Message
+      error = $query.error
+      timed_out = [bool]$query.timed_out
     }
   }
-  $rows = @($devices | Sort-Object Class,FriendlyName | ForEach-Object { Convert-PnpDevice -Device $_ })
+  $rows = @($query.devices | Sort-Object Class,FriendlyName | ForEach-Object { Convert-PnpDevice -Device $_ })
   $byClass = @($rows | Group-Object class | Sort-Object Name | ForEach-Object {
       [pscustomobject]@{ key = $_.Name; count = $_.Count }
     })
@@ -298,6 +384,7 @@ function Get-PnpSummary {
     counts_by_class = @($byClass)
     counts_by_status = @($byStatus)
     error = $null
+    timed_out = $false
   }
 }
 
@@ -342,6 +429,7 @@ $pnp = Get-PnpSummary
 $warnings = New-Object 'System.Collections.Generic.List[string]'
 $errors = New-Object 'System.Collections.Generic.List[string]'
 if (!$adb.found) { [void]$errors.Add("ADB executable was not found.") }
+if ($adb.timed_out) { [void]$warnings.Add("ADB probe command timed out; device list may be incomplete.") }
 if ($adb.device_state_count -lt 1) { [void]$warnings.Add("No ADB device is currently in device state.") }
 if ($androidSdk.existing_root_count -lt 1) { [void]$warnings.Add("No Android SDK root was found.") }
 if ($unity.editors.Count -lt 1) { [void]$warnings.Add("No Unity editor installation was found.") }
@@ -353,6 +441,12 @@ $summary = [pscustomobject]@{
   generated_at = (Get-Date).ToString("o")
   ok = [bool]$ok
   require_adb_device = [bool]$RequireAdbDevice
+  timeouts = [pscustomobject]@{
+    command_seconds = $CommandTimeoutSeconds
+    pnp_seconds = $PnpTimeoutSeconds
+    adb_timed_out = [bool]$adb.timed_out
+    pnp_timed_out = [bool]$pnp.timed_out
+  }
   privacy = [pscustomobject]@{
     full_serials_included = $false
     full_usb_instance_ids_included = $false
