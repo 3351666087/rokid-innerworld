@@ -30,6 +30,7 @@
     "check:field-live-pass": "node tools/field-live-pass.js --single --require-live-session",
     "check:field-target-pass": "node tools/field-target-pass.js --require-live-session",
     "check:field-operator-plan": "node server/space-server/check-field-operator-plan.js",
+    "check:field-operator-plan:api": "node server/space-server/check-field-operator-plan.js --api",
     "check:web": "node server/space-server/check-web-demo.js",
     "check:unity": "node server/space-server/check-unity.js",
     "context:export": "node tools/export-context.js",

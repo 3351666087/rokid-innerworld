@@ -2,6 +2,8 @@
 
 Latest field operator plan CLI checkpoint: `field:operator-plan` now snapshots read-only `/api/field/operator-plan` into sanitized JSON/Markdown under `output/field-operator-plan/field-operator-plan-latest.*`. It reports current phase, readiness, next actions, phase table, source-of-truth endpoints, P0 scope guard, and blockers, without running ADB/logcat, creating simulator/manual observations, mutating mission state, writing field evidence, or including raw serial/session/device/private-IP/pairing/pose/logcat/dumpsys data.
 
+Latest field acceptance wrapper checkpoint: `field:acceptance-session` now captures `field:operator-plan` inside the same现场 session report. The session JSON/Markdown includes `operator_plan.current_phase`, phase table, next actions, blockers, readiness booleans, and hardware-ready claim guard before live/target pass output, so operators can follow one report without treating it as physical acceptance evidence.
+
 ## 2026-07-04
 
 - Productization checkpoint at 21:59 Asia/Shanghai: added read-only `/api/field/operator-plan` and a Web Field Pass panel as the现场 P0 command center. The plan exposes six phases only: preflight, A1 spatial entry, A2 memory read, A3 TimeMark write-back, User B readback, and closeout.

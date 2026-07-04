@@ -113,10 +113,25 @@ function Get-OutputTail {
 function Convert-ToStringArray {
   param([AllowNull()][object]$Value)
   if ($null -eq $Value) { return ,([string[]]@()) }
-  if ($Value -is [string]) { return ,([string[]]@("$Value")) }
   $items = New-Object 'System.Collections.Generic.List[string]'
-  foreach ($item in @($Value)) {
-    if ($null -ne $item -and ![string]::IsNullOrWhiteSpace("$item")) {
+  $queue = New-Object System.Collections.Queue
+  [void]$queue.Enqueue($Value)
+  while ($queue.Count -gt 0) {
+    $item = $queue.Dequeue()
+    if ($null -eq $item) { continue }
+    if ($item -is [string]) {
+      if (![string]::IsNullOrWhiteSpace($item)) {
+        [void]$items.Add($item)
+      }
+      continue
+    }
+    if ($item -is [System.Collections.IEnumerable]) {
+      foreach ($nested in $item) {
+        [void]$queue.Enqueue($nested)
+      }
+      continue
+    }
+    if (![string]::IsNullOrWhiteSpace("$item")) {
       [void]$items.Add("$item")
     }
   }
@@ -244,6 +259,23 @@ function Convert-EndpointSummary {
     }
   }
 
+  if ($Path -eq "/api/field/operator-plan") {
+    return [pscustomobject]@{
+      schema = $Body.schema
+      current_phase = $Body.current_phase
+      phase_index = [int]($Body.phase_index)
+      total_phases = [int]($Body.total_phases)
+      precheck_ok = [bool]$Body.readiness.precheck_ok
+      live_session_ready = [bool]$Body.readiness.live_session_ready
+      trusted_a1_a2_a3_ready = [bool]$Body.readiness.trusted_a1_a2_a3_ready
+      mission_loop_ready = [bool]$Body.readiness.mission_loop_ready
+      physical_acceptance_ready = [bool]$Body.readiness.physical_acceptance_ready
+      hardware_ready_claim_allowed = [bool]$Body.readiness.hardware_ready_claim_allowed
+      next_actions = @(Convert-ToStringArray -Value $Body.next_actions)
+      missing_trusted_anchor_ids = @(Convert-ToStringArray -Value $Body.sanitized_summary.missing_trusted_anchor_ids)
+    }
+  }
+
   if ($Path -eq "/api/state") {
     return [pscustomobject]@{
       active_user = $Body.active_user
@@ -341,6 +373,21 @@ function Write-SessionMarkdown {
   $actionsBlock = $actionLines -join "`n"
   $targetBlockersBlock = $targetBlockerLines -join "`n"
   $targetPhysicalBlockersBlock = $targetPhysicalBlockerLines -join "`n"
+  $operatorActionLines = foreach ($action in @($Report.operator_plan.next_actions)) {
+    "- $action"
+  }
+  if (!$operatorActionLines) { $operatorActionLines = @("- none") }
+  $operatorBlockerLines = foreach ($blocker in @($Report.operator_plan.blockers)) {
+    "- $blocker"
+  }
+  if (!$operatorBlockerLines) { $operatorBlockerLines = @("- none") }
+  $operatorPhaseLines = foreach ($phase in @($Report.operator_plan.phase_table)) {
+    "- $($phase.id): status=$($phase.status), anchor=$($phase.anchor_id), mutates_state=$($phase.mutates_state)"
+  }
+  if (!$operatorPhaseLines) { $operatorPhaseLines = @("- none") }
+  $operatorActionsBlock = $operatorActionLines -join "`n"
+  $operatorBlockersBlock = $operatorBlockerLines -join "`n"
+  $operatorPhasesBlock = $operatorPhaseLines -join "`n"
 
   $md = @"
 # Field Acceptance Session
@@ -353,6 +400,8 @@ function Write-SessionMarkdown {
 - C free after: $($Report.disk.c_free_gb_after) GB
 - Pair smoke requested: $($Report.mutating_actions.pair_smoke_requested)
 - Watch requested: $($Report.watch.requested)
+- Operator plan current phase: $($Report.operator_plan.current_phase) ($($Report.operator_plan.phase_index)/$($Report.operator_plan.total_phases))
+- Operator plan command OK: $($Report.operator_plan.command_ok)
 - Live session ready: $($Report.live_pass.live_session_ready)
 - Trusted A1/A2/A3 ready: $($Report.live_pass.trusted_a1_a2_a3_ready)
 - Mission loop ready: $($Report.live_pass.mission_loop_ready)
@@ -369,6 +418,28 @@ function Write-SessionMarkdown {
 
 $commandsBlock
 
+## Operator Plan
+
+- Current phase: $($Report.operator_plan.current_phase)
+- Precheck OK: $($Report.operator_plan.precheck_ok)
+- Live session ready: $($Report.operator_plan.live_session_ready)
+- Trusted A1/A2/A3 ready: $($Report.operator_plan.trusted_a1_a2_a3_ready)
+- Mission loop ready: $($Report.operator_plan.mission_loop_ready)
+- Physical acceptance ready: $($Report.operator_plan.physical_acceptance_ready)
+- Hardware-ready claim allowed: $($Report.operator_plan.hardware_ready_claim_allowed)
+
+### Operator Plan Next Actions
+
+$operatorActionsBlock
+
+### Operator Plan Phase Table
+
+$operatorPhasesBlock
+
+### Operator Plan Blockers
+
+$operatorBlockersBlock
+
 ## Target Pass Blockers
 
 $targetBlockersBlock
@@ -383,7 +454,7 @@ $actionsBlock
 
 ## Boundary
 
-This session runner does not create simulator/manual observations. Pair-smoke and watch modes only install/launch/pair the APK and observe live/target gates. Mission/service/write-back/User B mutations only happen when the explicit target-pass action switches are used, and those actions remain gated by trusted A2/A3 evidence. Hardware-ready remains false until trusted A1/A2/A3, A3 write-back, User B readback, and /api/field/acceptance are all ready.
+This session runner does not create simulator/manual observations. The operator-plan step only reads /api/field/operator-plan and writes a local command report. Pair-smoke and watch modes only install/launch/pair the APK and observe live/target gates. Mission/service/write-back/User B mutations only happen when the explicit target-pass action switches are used, and those actions remain gated by trusted A2/A3 evidence. Hardware-ready remains false until trusted A1/A2/A3, A3 write-back, User B readback, and /api/field/acceptance are all ready.
 "@
   $md | Set-Content -Encoding UTF8 -Path $Path
 }
@@ -394,7 +465,7 @@ $BaseUrl = $BaseUrl.Trim().TrimEnd("/")
 $cFreeBefore = Get-CFreeGB
 $commands = @()
 $apiSnapshots = [ordered]@{}
-foreach ($path in @("/api/health", "/api/device/sessions", "/api/calibration/wall", "/api/field/acceptance", "/api/state")) {
+foreach ($path in @("/api/health", "/api/device/sessions", "/api/calibration/wall", "/api/field/acceptance", "/api/field/operator-plan", "/api/state")) {
   $apiSnapshots[$path] = Invoke-JsonEndpoint -Path $path
 }
 
@@ -428,6 +499,20 @@ if ($PairSmoke) {
   $commands += New-SkippedCommand -Name "station-apk-pair-smoke" -Reason "PairSmoke switch not set"
 }
 
+$operatorPlanCommand = Invoke-ProcessCapture `
+  -Name "field-operator-plan" `
+  -FileName "node" `
+  -Arguments @("tools/field-operator-plan.js", "--base-url", $BaseUrl) `
+  -TimeoutSec 60
+$commands += $operatorPlanCommand
+$operatorPlanJson = Convert-JsonOutput -Command $operatorPlanCommand
+if ($operatorPlanJson -and $operatorPlanJson.ok -eq $false) {
+  $operatorPlanCommand.ok = $false
+  if ($null -eq $operatorPlanCommand.exit_code -or $operatorPlanCommand.exit_code -eq 0) {
+    $operatorPlanCommand.exit_code = 2
+  }
+}
+
 $liveArgs = @("tools/field-live-pass.js", "--single", "--base-url", $BaseUrl, "--require-live-session")
 if ($RequireTrusted) { $liveArgs += "--require-trusted" }
 if ($RequireMissionLoop) { $liveArgs += "--require-mission-loop" }
@@ -438,6 +523,24 @@ $livePassCommand = Invoke-ProcessCapture `
   -TimeoutSec 90
 $commands += $livePassCommand
 $livePassJson = Convert-JsonOutput -Command $livePassCommand
+$livePassReportJson = $null
+if ($livePassJson -and $livePassJson.json -and (Test-Path -LiteralPath "$($livePassJson.json)")) {
+  try {
+    $livePassReportJson = Get-Content -Raw -LiteralPath "$($livePassJson.json)" | ConvertFrom-Json
+  } catch {
+    $livePassReportJson = $null
+  }
+}
+if ($null -eq $livePassReportJson) {
+  $livePassLatestReportPath = Join-Path $root "output\field-live-pass\field-live-pass-latest.json"
+  if (Test-Path -LiteralPath $livePassLatestReportPath) {
+    try {
+      $livePassReportJson = Get-Content -Raw -LiteralPath $livePassLatestReportPath | ConvertFrom-Json
+    } catch {
+      $livePassReportJson = $null
+    }
+  }
+}
 if ($livePassJson -and $livePassJson.ok -eq $false) {
   $livePassCommand.ok = $false
   if ($null -eq $livePassCommand.exit_code -or $livePassCommand.exit_code -eq 0) {
@@ -504,10 +607,34 @@ $missionReady = [bool]($livePassJson -and $livePassJson.mission_loop_ready -eq $
 $hardwareReadyClaimAllowed = [bool]($fieldAcceptanceReady -and $trustedReady -and $missionReady)
 $hostHashPrefix = try { Get-Sha256Prefix ([System.Uri]$BaseUrl).Host } catch { $null }
 
-$nextActions = @()
-if ($livePassJson -and $livePassJson.next_required_actions) {
-  $nextActions = Convert-ToStringArray $livePassJson.next_required_actions
+$operatorPlanNextActions = @()
+if ($operatorPlanJson -and $operatorPlanJson.next_actions) {
+  $operatorPlanNextActions = Convert-ToStringArray -Value $operatorPlanJson.next_actions
 }
+$livePassNextActions = @()
+if ($livePassReportJson -and $livePassReportJson.latest_snapshot.next_required_actions) {
+  $actionItems = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($action in $livePassReportJson.latest_snapshot.next_required_actions) {
+    if ($null -ne $action -and ![string]::IsNullOrWhiteSpace("$action")) {
+      [void]$actionItems.Add("$action")
+    }
+  }
+  $livePassNextActions = [string[]]$actionItems.ToArray()
+} elseif ($livePassJson -and $livePassJson.next_required_actions) {
+  $livePassNextActions = Convert-ToStringArray -Value $livePassJson.next_required_actions
+}
+$nextActionItems = New-Object 'System.Collections.Generic.List[string]'
+foreach ($action in $operatorPlanNextActions) {
+  if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
+    [void]$nextActionItems.Add($action)
+  }
+}
+foreach ($action in $livePassNextActions) {
+  if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
+    [void]$nextActionItems.Add($action)
+  }
+}
+$nextActions = [string[]]$nextActionItems.ToArray()
 if ($nextActions.Count -eq 0) {
   $nextActions = @(
     "Start or keep LAN server running.",
@@ -537,6 +664,25 @@ $report = [pscustomobject]@{
     simulator_or_manual_observations_created = $false
     mission_or_writeback_mutated = [bool]($targetAppliedActions.Count -gt 0)
   }
+  operator_plan = [pscustomobject]@{
+    command_ok = [bool]$operatorPlanCommand.ok
+    schema = if ($operatorPlanJson) { $operatorPlanJson.schema } else { $null }
+    current_phase = if ($operatorPlanJson) { $operatorPlanJson.current_phase } else { $null }
+    phase_index = if ($operatorPlanJson) { [int]$operatorPlanJson.phase_index } else { 0 }
+    total_phases = if ($operatorPlanJson) { [int]$operatorPlanJson.total_phases } else { 0 }
+    precheck_ok = [bool]($operatorPlanJson -and $operatorPlanJson.precheck_ok -eq $true)
+    live_session_ready = [bool]($operatorPlanJson -and $operatorPlanJson.live_session_ready -eq $true)
+    trusted_a1_a2_a3_ready = [bool]($operatorPlanJson -and $operatorPlanJson.trusted_a1_a2_a3_ready -eq $true)
+    mission_loop_ready = [bool]($operatorPlanJson -and $operatorPlanJson.mission_loop_ready -eq $true)
+    user_b_readback_ready = [bool]($operatorPlanJson -and $operatorPlanJson.user_b_readback_ready -eq $true)
+    physical_acceptance_ready = [bool]($operatorPlanJson -and $operatorPlanJson.physical_acceptance_ready -eq $true)
+    hardware_ready_claim_allowed = [bool]($operatorPlanJson -and $operatorPlanJson.hardware_ready_claim_allowed -eq $true)
+    missing_trusted_anchor_ids = if ($operatorPlanJson) { Convert-ToStringArray -Value $operatorPlanJson.missing_trusted_anchor_ids } else { Convert-ToStringArray -Value $null }
+    write_back_beacon_count = if ($operatorPlanJson) { [int]$operatorPlanJson.write_back_beacon_count } else { 0 }
+    next_actions = [string[]]$operatorPlanNextActions
+    blockers = if ($operatorPlanJson) { Convert-ToStringArray -Value $operatorPlanJson.blockers } else { Convert-ToStringArray -Value "field_operator_plan_summary_missing" }
+    phase_table = if ($operatorPlanJson -and $operatorPlanJson.phase_table) { @($operatorPlanJson.phase_table) } else { @() }
+  }
   watch = [pscustomobject]@{
     requested = [bool]$Watch
     duration_sec = $WatchDurationSec
@@ -550,10 +696,10 @@ $report = [pscustomobject]@{
     mission_loop_ready = $missionReady
     field_acceptance_ready = $fieldAcceptanceReady
     user_b_readback_ready = [bool]($livePassJson -and $livePassJson.user_b_readback_ready -eq $true)
-    missing_trusted_anchor_ids = if ($livePassJson) { Convert-ToStringArray $livePassJson.missing_trusted_anchor_ids } else { Convert-ToStringArray $null }
-    missing_hardware_anchor_ids = if ($livePassJson) { Convert-ToStringArray $livePassJson.missing_hardware_anchor_ids } else { Convert-ToStringArray $null }
-    missing_mission_step_ids = if ($livePassJson) { Convert-ToStringArray $livePassJson.missing_mission_step_ids } else { Convert-ToStringArray $null }
-    blockers = if ($livePassJson) { Convert-ToStringArray $livePassJson.blockers } else { Convert-ToStringArray "field_live_pass_summary_missing" }
+    missing_trusted_anchor_ids = if ($livePassJson) { Convert-ToStringArray -Value $livePassJson.missing_trusted_anchor_ids } else { Convert-ToStringArray -Value $null }
+    missing_hardware_anchor_ids = if ($livePassJson) { Convert-ToStringArray -Value $livePassJson.missing_hardware_anchor_ids } else { Convert-ToStringArray -Value $null }
+    missing_mission_step_ids = if ($livePassJson) { Convert-ToStringArray -Value $livePassJson.missing_mission_step_ids } else { Convert-ToStringArray -Value $null }
+    blockers = if ($livePassJson) { Convert-ToStringArray -Value $livePassJson.blockers } else { Convert-ToStringArray -Value "field_live_pass_summary_missing" }
   }
   target_pass = [pscustomobject]@{
     requested = [bool]$TargetPass
@@ -567,10 +713,10 @@ $report = [pscustomobject]@{
     trusted_a1_a2_a3_ready = [bool]($targetPassJson -and $targetPassJson.trusted_a1_a2_a3_ready -eq $true)
     mission_loop_ready = [bool]($targetPassJson -and $targetPassJson.mission_loop_ready -eq $true)
     field_acceptance_ready = [bool]($targetPassJson -and $targetPassJson.field_acceptance_ready -eq $true)
-    missing_trusted_anchor_ids = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.missing_trusted_anchor_ids } else { Convert-ToStringArray $null }
-    missing_mission_step_ids = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.missing_mission_step_ids } else { Convert-ToStringArray $null }
-    blockers = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.blockers } else { Convert-ToStringArray $null }
-    physical_blockers = if ($targetPassJson) { Convert-ToStringArray $targetPassJson.physical_blockers } else { Convert-ToStringArray $null }
+    missing_trusted_anchor_ids = if ($targetPassJson) { Convert-ToStringArray -Value $targetPassJson.missing_trusted_anchor_ids } else { Convert-ToStringArray -Value $null }
+    missing_mission_step_ids = if ($targetPassJson) { Convert-ToStringArray -Value $targetPassJson.missing_mission_step_ids } else { Convert-ToStringArray -Value $null }
+    blockers = if ($targetPassJson) { Convert-ToStringArray -Value $targetPassJson.blockers } else { Convert-ToStringArray -Value $null }
+    physical_blockers = if ($targetPassJson) { Convert-ToStringArray -Value $targetPassJson.physical_blockers } else { Convert-ToStringArray -Value $null }
   }
   hardware_ready_claim_allowed = $hardwareReadyClaimAllowed
   next_required_actions = [string[]]$nextActions
