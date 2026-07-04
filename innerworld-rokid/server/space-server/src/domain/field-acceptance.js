@@ -156,7 +156,7 @@ function trustedHardwareSessionGate(summary) {
   });
 }
 
-function missionLoopGate(space, state, ledgerSummary) {
+function missionLoopGate(space, state, ledgerSummary, calibrationSummary = {}) {
   const runtimeState = state && typeof state === "object"
     ? {
         ...state,
@@ -176,11 +176,16 @@ function missionLoopGate(space, state, ledgerSummary) {
   const userBReadbackReady = activeUser.toUpperCase() === "B"
     && runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
     && writeBackBeacons.length > 0;
-  const complete = runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
+  const trustedAnchorIds = list(calibrationSummary?.trusted_hardware_calibrated_anchor_ids);
+  const missingTrustedAnchorIds = REQUIRED_ANCHOR_IDS.filter((anchorId) => !trustedAnchorIds.includes(anchorId));
+  const trustedA1A2A3Ready = calibrationSummary?.ready_for_hardware === true
+    && missingTrustedAnchorIds.length === 0;
+  const missionLedgerReady = runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
     && missingSteps.length === 0
     && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons
     && userBReadbackReady
     && ledgerSummary?.trusted_mission_provenance?.ready === true;
+  const complete = missionLedgerReady && trustedA1A2A3Ready;
   const trustedProvenance = ledgerSummary?.trusted_mission_provenance || {
     ready: false,
     missing: ["trusted_mission_provenance_missing"]
@@ -192,7 +197,9 @@ function missionLoopGate(space, state, ledgerSummary) {
     status: complete ? "ready" : "pending",
     summary: complete
       ? "Read, service action, write-back, and User B readback loop are complete."
-      : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons; User B readback ${userBReadbackReady ? "ready" : "pending"}; trusted mission provenance ${trustedProvenance.ready === true ? "ready" : "pending"}.`,
+      : missionLedgerReady && !trustedA1A2A3Ready
+        ? `Mission ledger/User B/provenance is complete, but trusted A1/A2/A3 physical observations are missing: ${missingTrustedAnchorIds.join(", ") || "unknown"}.`
+        : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons; User B readback ${userBReadbackReady ? "ready" : "pending"}; trusted mission provenance ${trustedProvenance.ready === true ? "ready" : "pending"}.`,
     source: "/api/state",
     required: [...requiredStepIds, "user_b_readback"],
     evidence: {
@@ -204,6 +211,9 @@ function missionLoopGate(space, state, ledgerSummary) {
       beacon_count: runtimeBeacons.length,
       write_back_beacons: writeBackBeacons.length,
       user_b_readback_ready: userBReadbackReady,
+      mission_ledger_ready: missionLedgerReady,
+      trusted_a1_a2_a3_ready: trustedA1A2A3Ready,
+      missing_trusted_anchor_ids: missingTrustedAnchorIds,
       trusted_mission_provenance_ready: trustedProvenance.ready === true,
       trusted_mission_provenance: trustedProvenance
     }
@@ -341,14 +351,19 @@ export function buildFieldTargetReadiness({
   const physicalAcceptanceReady = fieldAcceptance?.ready === true
     && fieldAcceptance?.status === "hardware_acceptance_ready";
   const precheckOk = gateReady(gates, "print_kit")
-    && gateReady(gates, "hardware_kit")
-    && trustedSessionCount > 0;
+    && gateReady(gates, "hardware_kit");
 
   const physicalBlockers = [];
   if (precheckOk !== true) physicalBlockers.push("target_api_precheck_missing");
   if (missingAnchorIds(hardwareAnchorIds).length) physicalBlockers.push("raw_a1_a2_a3_hardware_observations_missing");
   if (missingAnchorIds(trustedAnchorIds).length) physicalBlockers.push("trusted_a1_a2_a3_observations_missing");
-  if (!missionReady) physicalBlockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (!missionReady) {
+    if (mission.mission_ledger_ready === true && list(mission.missing_trusted_anchor_ids).length) {
+      physicalBlockers.push("mission_loop_waiting_for_trusted_a1_a2_a3");
+    } else {
+      physicalBlockers.push("p0_mission_writeback_user_b_loop_missing");
+    }
+  }
   if (!physicalAcceptanceReady) physicalBlockers.push("field_acceptance_not_ready");
   for (const item of list(fieldAcceptance?.blocking_items)) {
     if (item?.gate_id) physicalBlockers.push(`${item.gate_id}_pending`);
@@ -390,7 +405,10 @@ export function buildFieldTargetReadiness({
       missing_steps: list(mission.missing_steps),
       beacon_count: Number(mission.beacon_count) || 0,
       write_back_beacons: Number(mission.write_back_beacons) || 0,
-      user_b_readback_ready: mission.user_b_readback_ready === true
+      user_b_readback_ready: mission.user_b_readback_ready === true,
+      mission_ledger_ready: mission.mission_ledger_ready === true,
+      trusted_a1_a2_a3_ready: mission.trusted_a1_a2_a3_ready === true,
+      missing_trusted_anchor_ids: list(mission.missing_trusted_anchor_ids)
     },
     field_acceptance: {
       schema: fieldAcceptance?.schema || null,
@@ -428,7 +446,7 @@ export function buildFieldAcceptance({
     wallRehearsalGate(summary),
     hardwareAlignmentGate(summary),
     trustedHardwareSessionGate(summary),
-    missionLoopGate(space, state, ledgerSummary),
+    missionLoopGate(space, state, ledgerSummary, summary),
     ledgerGate(ledgerSummary),
     releaseGate(opsStatus),
     hardwareKitGate(opsStatus)

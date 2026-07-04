@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 17:55 Asia/Shanghai
+Updated: 2026-07-04 18:15 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -78,6 +78,11 @@ APK target-index preflight checkpoint on 2026-07-04 15:25 Asia/Shanghai:
 
 - The current APK-packaged `assets/RKImage.db` is now opened by `station-pro-apk-smoke.ps1` and `uxr-readiness.js`; both parse nested `Data.json` and require `innerworld-rokid-target-index-map/v1` with `1:A1`, `2:A2`, `3:A3`.
 - `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-target-pass`, `check:contract`, and `check:mainline` pass with the target map green. `field:target-pass:strict` still fails only on missing trusted A1/A2/A3 observations and the P0 mission/User B loop.
+
+Mission-loop physical prerequisite checkpoint on 2026-07-04 18:15 Asia/Shanghai:
+
+- The bus now treats mission ledger/User B/provenance readiness as necessary but not sufficient. `mission_loop_ready` must remain false until trusted A1/A2/A3 physical observations are also present, so teammate SDK/image-target material still enters through the real wall scan path instead of a script-completed mission ledger.
+- Current strict blocker wording is `mission_loop_waiting_for_trusted_a1_a2_a3` alongside `trusted_a1_a2_a3_observations_missing`. This is still not hardware-ready acceptance.
 
 Target readiness operator panel checkpoint on 2026-07-04 16:52 Asia/Shanghai:
 

@@ -330,6 +330,10 @@ function summarizeFieldAcceptance(payload) {
     hardware_calibrated_anchor_ids: list(hardwareEvidence.hardware_calibrated_anchor_ids),
     missing_trusted_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !list(trustedEvidence.trusted_hardware_calibrated_anchor_ids).includes(anchorId)),
     missing_hardware_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !list(hardwareEvidence.hardware_calibrated_anchor_ids).includes(anchorId)),
+    mission_loop_ready: missionGate.status === "ready",
+    mission_ledger_ready: missionEvidence.mission_ledger_ready === true,
+    mission_missing_trusted_anchor_ids: list(missionEvidence.missing_trusted_anchor_ids),
+    mission_trusted_a1_a2_a3_ready: missionEvidence.trusted_a1_a2_a3_ready === true,
     missing_mission_steps: list(missionEvidence.missing_steps),
     write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
     user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
@@ -706,10 +710,7 @@ async function captureSnapshot(baseUrl) {
   };
   snapshot.live_session_ready = snapshot.session.live_operator_paired_ready_count > 0;
   snapshot.trusted_a1_a2_a3_ready = REQUIRED_ANCHOR_IDS.every((anchorId) => hasTrustedAnchor(snapshot, anchorId));
-  snapshot.mission_loop_ready = snapshot.state.missing_mission_steps.length === 0
-    && snapshot.state.write_back_beacon_count > 0
-    && snapshot.state.user_b_readback_ready === true
-    && snapshot.field_acceptance.trusted_mission_provenance_ready === true;
+  snapshot.mission_loop_ready = snapshot.field_acceptance.mission_loop_ready === true;
   snapshot.field_acceptance_ready = snapshot.field_acceptance.ready === true;
   snapshot.phases = buildPhases(snapshot);
   return snapshot;
@@ -832,7 +833,14 @@ function buildBlockers(snapshot, targetDiagnostics) {
   if (options.requireLiveSession && !snapshot.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
   if (options.requireTargetDiagnostics && targetDiagnostics.ready !== true) blockers.push("current_target_diagnostics_apk_preflight_missing");
   if (options.requireTrusted && !snapshot.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
-  if (options.requireMissionLoop && !snapshot.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (options.requireMissionLoop && !snapshot.mission_loop_ready) {
+    blockers.push(
+      snapshot.field_acceptance.mission_ledger_ready === true
+        && snapshot.field_acceptance.mission_missing_trusted_anchor_ids.length
+        ? "mission_loop_waiting_for_trusted_a1_a2_a3"
+        : "p0_mission_writeback_user_b_loop_missing"
+    );
+  }
   if (options.requireMissionLoop && snapshot.field_acceptance.trusted_mission_provenance_ready !== true) blockers.push("trusted_mission_provenance_missing");
   return blockers;
 }
@@ -842,7 +850,14 @@ function buildPhysicalBlockers(snapshot, targetDiagnostics) {
   if (!snapshot.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
   if (targetDiagnostics.ready !== true) blockers.push("current_target_diagnostics_apk_preflight_missing");
   if (!snapshot.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
-  if (!snapshot.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (!snapshot.mission_loop_ready) {
+    blockers.push(
+      snapshot.field_acceptance.mission_ledger_ready === true
+        && snapshot.field_acceptance.mission_missing_trusted_anchor_ids.length
+        ? "mission_loop_waiting_for_trusted_a1_a2_a3"
+        : "p0_mission_writeback_user_b_loop_missing"
+    );
+  }
   if (snapshot.field_acceptance.trusted_mission_provenance_ready !== true) blockers.push("trusted_mission_provenance_missing");
   if (!snapshot.field_acceptance_ready) blockers.push("field_acceptance_not_ready");
   return blockers;
@@ -1063,6 +1078,8 @@ async function main() {
     missing_trusted_anchor_ids: latestSnapshot.field_acceptance.missing_trusted_anchor_ids,
     missing_mission_step_ids: latestSnapshot.state.missing_mission_steps,
     user_b_readback_ready: latestSnapshot.state.user_b_readback_ready,
+    mission_ledger_ready: latestSnapshot.field_acceptance.mission_ledger_ready,
+    mission_missing_trusted_anchor_ids: latestSnapshot.field_acceptance.mission_missing_trusted_anchor_ids,
     trusted_mission_provenance_ready: latestSnapshot.field_acceptance.trusted_mission_provenance_ready,
     actions: actions.map((action) => ({
       id: action.id,

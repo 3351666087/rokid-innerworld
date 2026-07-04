@@ -166,6 +166,8 @@ function assertAcceptancePayload(payload) {
   assert(typeof mission.evidence?.user_b_readback_ready === "boolean", "mission loop User B readback evidence missing");
   assert(mission.status !== "ready" || mission.evidence.user_b_readback_ready === true, "mission loop ready requires User B readback evidence");
   assert(mission.status !== "ready" || String(mission.evidence.active_user || "").toUpperCase() === "B", "mission loop ready requires active User B readback");
+  assert(mission.status !== "ready" || mission.evidence.trusted_a1_a2_a3_ready === true, "mission loop ready requires trusted A1/A2/A3 observations");
+  assert(mission.evidence.mission_ledger_ready !== true || Array.isArray(mission.evidence.missing_trusted_anchor_ids), "mission loop must expose trusted anchor prerequisite status");
   assert(Array.isArray(payload.hardware_modes_required), "top-level hardware modes missing");
   for (const mode of hardwareTrackingModes) {
     assert(payload.hardware_modes_required.includes(mode), `top-level hardware mode missing: ${mode}`);
@@ -192,6 +194,9 @@ function assertTargetReadinessPayload(payload, acceptance) {
   assert(Array.isArray(payload.target_summary?.missing_trusted_anchor_ids), "target readiness missing trusted anchors missing");
   assert(payload.mission_loop?.required_active_user === "B", "target readiness User B requirement missing");
   assert(typeof payload.mission_loop?.user_b_readback_ready === "boolean", "target readiness User B readback status missing");
+  assert(typeof payload.mission_loop?.mission_ledger_ready === "boolean", "target readiness mission ledger status missing");
+  assert(typeof payload.mission_loop?.trusted_a1_a2_a3_ready === "boolean", "target readiness trusted A1/A2/A3 status missing");
+  assert(Array.isArray(payload.mission_loop?.missing_trusted_anchor_ids), "target readiness missing trusted mission anchors missing");
   assert(payload.privacy?.raw_pairing_codes_included === false, "target readiness must not include pairing codes");
   assert(payload.privacy?.raw_logcat_included === false, "target readiness must not include raw logcat");
 }
@@ -503,6 +508,11 @@ function assertHardwareTrackingRequiresLiveSdkSession(space, fieldMarkers) {
   assertTargetReadinessPayload(targetReadiness, payload);
   assert(targetReadiness.physical_acceptance_ready === false, "tracking-mode-only target readiness must remain false");
   assert(targetReadiness.physical_blockers.includes("trusted_a1_a2_a3_observations_missing"), "target readiness trusted A1/A2/A3 blocker missing");
+  const missionGate = payload.gates.find((gate) => gate.id === "mission_loop");
+  assert(missionGate?.status === "pending", "mission loop must wait for trusted A1/A2/A3 observations even when the mission ledger is complete");
+  assert(missionGate?.evidence?.mission_ledger_ready === true, "mission loop should expose completed mission ledger separately");
+  assert(missionGate?.evidence?.trusted_a1_a2_a3_ready === false, "mission loop should expose missing trusted A1/A2/A3 prerequisite");
+  assert(targetReadiness.physical_blockers.includes("mission_loop_waiting_for_trusted_a1_a2_a3"), "target readiness trusted physical prerequisite blocker missing");
 }
 
 function assertHardwareReadyRequiresAllRequiredGates(space, fieldMarkers) {

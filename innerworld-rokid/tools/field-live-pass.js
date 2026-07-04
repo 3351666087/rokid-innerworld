@@ -256,6 +256,10 @@ function summarizeFieldAcceptance(payload) {
     hardware_calibrated_anchor_ids: list(hardwareEvidence.hardware_calibrated_anchor_ids),
     missing_trusted_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !list(trustedEvidence.trusted_hardware_calibrated_anchor_ids).includes(anchorId)),
     missing_hardware_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !list(hardwareEvidence.hardware_calibrated_anchor_ids).includes(anchorId)),
+    mission_loop_ready: missionGate.status === "ready",
+    mission_ledger_ready: missionEvidence.mission_ledger_ready === true,
+    mission_missing_trusted_anchor_ids: list(missionEvidence.missing_trusted_anchor_ids),
+    mission_trusted_a1_a2_a3_ready: missionEvidence.trusted_a1_a2_a3_ready === true,
     missing_mission_steps: list(missionEvidence.missing_steps),
     write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
     user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
@@ -471,10 +475,7 @@ async function captureSnapshot(baseUrl) {
     missing_trusted_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !trustedAnchorSet.has(anchorId)),
     missing_hardware_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !hardwareAnchorSet.has(anchorId)),
     missing_mission_step_ids: missingMissionStepIds,
-    mission_loop_ready: missingMissionStepIds.length === 0
-      && mission.write_back_beacon_count > 0
-      && mission.user_b_readback_ready === true
-      && field.trusted_mission_provenance_ready === true,
+    mission_loop_ready: field.mission_loop_ready === true,
     field_acceptance_ready: field.ready === true,
     session,
     field_acceptance: field,
@@ -600,6 +601,13 @@ async function main() {
   if (options.requireLiveSession && !latest.live_session_ready) blockers.push("live_operator_paired_sdk_session_missing");
   if (options.requireTrusted && !latest.trusted_a1_a2_a3_ready) blockers.push("trusted_a1_a2_a3_observations_missing");
   if (options.requireMissionLoop && !latest.mission_loop_ready) blockers.push("p0_mission_writeback_user_b_loop_missing");
+  if (
+    options.requireMissionLoop
+    && latest.field_acceptance.mission_ledger_ready === true
+    && latest.field_acceptance.mission_missing_trusted_anchor_ids.length
+  ) {
+    blockers[blockers.length - 1] = "mission_loop_waiting_for_trusted_a1_a2_a3";
+  }
   if (options.requireMissionLoop && latest.field_acceptance.trusted_mission_provenance_ready !== true) blockers.push("trusted_mission_provenance_missing");
 
   const report = {
@@ -663,6 +671,8 @@ async function main() {
     missing_hardware_anchor_ids: latest.missing_hardware_anchor_ids,
     missing_mission_step_ids: latest.missing_mission_step_ids,
     user_b_readback_ready: latest.mission.user_b_readback_ready,
+    mission_ledger_ready: latest.field_acceptance.mission_ledger_ready,
+    mission_missing_trusted_anchor_ids: latest.field_acceptance.mission_missing_trusted_anchor_ids,
     trusted_mission_provenance_ready: latest.field_acceptance.trusted_mission_provenance_ready,
     pending_gate_ids: latest.field_acceptance.pending_gate_ids,
     next_required_actions: latest.next_required_actions,
