@@ -110,6 +110,8 @@ async function main() {
   assert(report.apk.rokid_image_db && typeof report.apk.rokid_image_db === "object", "RKImage.db package evidence missing");
   assert(report.apk.rokid_image_db.required_for_trusted_image_tracking === true, "RKImage.db must be marked required for trusted image tracking");
   assert(typeof report.apk.rokid_image_db.expected_path === "string" && report.apk.rokid_image_db.expected_path.endsWith("RKImage.db"), "RKImage.db expected path missing");
+  assert(report.apk.rokid_image_db.target_index_map?.schema === "innerworld-rokid-target-index-map/v1", "RKImage.db target index map evidence missing");
+  assert(report.apk.rokid_image_db.target_index_map.required_for_trusted_image_tracking === true, "RKImage.db target index map must be required for trusted image tracking");
   assert(report.apk.native_libraries && typeof report.apk.native_libraries === "object", "Rokid native library package evidence missing");
   assert(report.apk.native_libraries.required_for_live_rokid_openxr === true, "Rokid native libraries must be marked required for live OpenXR");
   assert(report.apk.config?.found === true, "embedded config missing");
@@ -128,6 +130,9 @@ async function main() {
     assert(/^[0-9a-f]{8,16}$/i.test(report.apk.rokid_image_db.sha256_prefix || ""), "RKImage.db short SHA missing");
     assert(report.apk.rokid_image_db.contains_image_db_core === true, "RKImage.db must contain ImageDB.core");
     assert(Number(report.apk.rokid_image_db.image_db_core_bytes) >= 1024, "RKImage.db ImageDB.core is unexpectedly small");
+    assert(report.apk.rokid_image_db.contains_data_json === true, "RKImage.db must contain Data.json target metadata");
+    assert(report.apk.rokid_image_db.target_index_map.ready === true, `RKImage.db target index map invalid: ${(report.apk.rokid_image_db.target_index_map.issues || []).join(", ")}`);
+    assert(report.apk.rokid_image_db.target_index_map.actual.map((item) => `${item.index}:${item.anchor_id}`).join(",") === "1:A1,2:A2,3:A3", "RKImage.db target index map must be 1:A1,2:A2,3:A3");
   }
   if (requireRokidNativeLibs) {
     assertRokidNativeLibraries(report);
@@ -176,6 +181,7 @@ async function main() {
     rkimage_db_streaming_assets_candidate: report.apk.rokid_image_db.streaming_assets_candidate,
     rkimage_db_core_packaged: report.apk.rokid_image_db.contains_image_db_core,
     rkimage_db_core_bytes: report.apk.rokid_image_db.image_db_core_bytes,
+    rkimage_db_target_index_map_ready: report.apk.rokid_image_db.target_index_map?.ready === true,
     require_rkimage_db: requireRkImageDb,
     rokid_native_libs_packaged: report.apk.native_libraries.found_all,
     rokid_native_libs_missing: report.apk.native_libraries.missing_names,

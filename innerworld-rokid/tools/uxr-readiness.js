@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -34,9 +35,13 @@ function fileSha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-function listZipEntries(file) {
-  if (!existsSync(file)) return [];
-  const buffer = readFileSync(file);
+const EXPECTED_ROKID_TARGET_INDEX_MAP = [
+  { index: 1, anchor_id: "A1", guid: "innerworld-a1-qr-entry-v1", tracking_mode: "qr", physical_width_m: 0.15, physical_height_m: 0.1 },
+  { index: 2, anchor_id: "A2", guid: "innerworld-a2-memory-beacon-v1", tracking_mode: "image_tracking", physical_width_m: 0.15, physical_height_m: 0.1 },
+  { index: 3, anchor_id: "A3", guid: "innerworld-a3-writeback-v1", tracking_mode: "image_tracking", physical_width_m: 0.15, physical_height_m: 0.1 }
+];
+
+function listZipEntriesFromBuffer(buffer) {
   const eocdSignature = 0x06054b50;
   const centralDirectorySignature = 0x02014b50;
   const searchStart = Math.max(0, buffer.length - 0xffff - 22);
@@ -65,11 +70,94 @@ function listZipEntries(file) {
     entries.push({
       path: name,
       compressed_size: compressedSize,
-      size_bytes: uncompressedSize
+      size_bytes: uncompressedSize,
+      compression_method: buffer.readUInt16LE(offset + 10),
+      local_header_offset: buffer.readUInt32LE(offset + 42)
     });
     offset = nameEnd + extraLength + commentLength;
   }
   return entries;
+}
+
+function listZipEntries(file) {
+  if (!existsSync(file)) return [];
+  return listZipEntriesFromBuffer(readFileSync(file));
+}
+
+function extractZipEntryBuffer(buffer, entry) {
+  const localFileHeaderSignature = 0x04034b50;
+  const offset = Number(entry?.local_header_offset);
+  if (!Number.isFinite(offset) || offset < 0 || offset + 30 > buffer.length || buffer.readUInt32LE(offset) !== localFileHeaderSignature) {
+    throw new Error("zip_local_header_missing");
+  }
+  const fileNameLength = buffer.readUInt16LE(offset + 26);
+  const extraLength = buffer.readUInt16LE(offset + 28);
+  const dataStart = offset + 30 + fileNameLength + extraLength;
+  const dataEnd = dataStart + Number(entry.compressed_size || 0);
+  if (dataStart < 0 || dataEnd > buffer.length || dataEnd < dataStart) {
+    throw new Error("zip_entry_bounds_invalid");
+  }
+  const compressed = buffer.subarray(dataStart, dataEnd);
+  if (entry.compression_method === 0) return Buffer.from(compressed);
+  if (entry.compression_method === 8) return inflateRawSync(compressed);
+  throw new Error(`zip_compression_method_unsupported_${entry.compression_method}`);
+}
+
+function inferTargetAnchorId(guid) {
+  const expected = EXPECTED_ROKID_TARGET_INDEX_MAP.find((item) => item.guid === guid);
+  return expected ? expected.anchor_id : null;
+}
+
+function buildRokidTargetIndexMap(rows = [], issues = []) {
+  const actual = rows.map((row) => {
+    const index = Number(row?.index ?? NaN);
+    const guid = String(row?.guid || "");
+    return {
+      index: Number.isFinite(index) ? index : null,
+      anchor_id: inferTargetAnchorId(guid),
+      guid,
+      image_name: row?.imageName || null,
+      physical_width_m: Number.isFinite(Number(row?.physicalWidth)) ? Number(row.physicalWidth) : null,
+      physical_height_m: Number.isFinite(Number(row?.physicalHeight)) ? Number(row.physicalHeight) : null
+    };
+  });
+  const expectedIndexes = new Set(EXPECTED_ROKID_TARGET_INDEX_MAP.map((item) => item.index));
+  const exactMap = actual.length === 3
+    && actual.map((item) => `${item.index}:${item.anchor_id}`).join(",") === "1:A1,2:A2,3:A3";
+  const missingAnchorIds = EXPECTED_ROKID_TARGET_INDEX_MAP
+    .filter((expected) => !actual.some((item) => item.index === expected.index && item.guid === expected.guid))
+    .map((item) => item.anchor_id);
+  const unexpectedIndexes = actual
+    .filter((item) => !expectedIndexes.has(item.index) || !item.anchor_id)
+    .map((item) => item.index)
+    .filter((item) => Number.isFinite(item));
+  const indexCounts = new Map();
+  for (const item of actual) {
+    indexCounts.set(item.index, (indexCounts.get(item.index) || 0) + 1);
+  }
+  const duplicateIndexes = [...indexCounts.entries()]
+    .filter(([index, count]) => Number.isFinite(index) && count > 1)
+    .map(([index]) => index);
+  const cleanIssues = [
+    ...issues.filter(Boolean),
+    ...(missingAnchorIds.length ? ["target_index_map_missing_expected_a1_a2_a3"] : []),
+    ...(unexpectedIndexes.length ? ["target_index_map_contains_unexpected_targets"] : []),
+    ...(duplicateIndexes.length ? ["target_index_map_duplicate_indexes"] : []),
+    ...(!exactMap ? ["target_index_map_not_exact_a1_a2_a3"] : [])
+  ];
+  return {
+    schema: "innerworld-rokid-target-index-map/v1",
+    required_for_trusted_image_tracking: true,
+    ready: cleanIssues.length === 0,
+    expected: EXPECTED_ROKID_TARGET_INDEX_MAP,
+    actual,
+    missing_anchor_ids: missingAnchorIds,
+    unexpected_indexes: [...new Set(unexpectedIndexes)],
+    duplicate_indexes: duplicateIndexes,
+    exact_a1_a2_a3_map: exactMap,
+    issues: [...new Set(cleanIssues)],
+    boundary: "This verifies the APK-packaged RKImage.db target index map only; it does not prove physical target observation or hardware acceptance."
+  };
 }
 
 function inspectRokidImageDatabase(apkPath) {
@@ -80,15 +168,22 @@ function inspectRokidImageDatabase(apkPath) {
     path: null,
     size_bytes: 0,
     streaming_assets_candidate: false,
+    zip_entries: [],
+    contains_image_db_core: false,
+    contains_data_json: false,
+    image_db_core_bytes: 0,
+    target_index_map: buildRokidTargetIndexMap([], ["rkimage_db_missing"]),
     required_for_trusted_image_tracking: true
   };
   if (!existsSync(apkPath)) {
     return {
       ...base,
+      target_index_map: buildRokidTargetIndexMap([], ["apk_not_found"]),
       missing_reason: "apk_not_found"
     };
   }
-  const matches = listZipEntries(apkPath)
+  const apkBuffer = readFileSync(apkPath);
+  const matches = listZipEntriesFromBuffer(apkBuffer)
     .filter((entry) => /(^|\/)RKImage\.db$/i.test(entry.path))
     .sort((left, right) => {
       const rank = (entry) => {
@@ -105,12 +200,45 @@ function inspectRokidImageDatabase(apkPath) {
     };
   }
   const entry = matches[0];
+  let zipEntries = [];
+  let containsImageDbCore = false;
+  let containsDataJson = false;
+  let imageDbCoreBytes = 0;
+  let targetRows = [];
+  const targetMapIssues = [];
+  try {
+    const rkImageDbBuffer = extractZipEntryBuffer(apkBuffer, entry);
+    zipEntries = listZipEntriesFromBuffer(rkImageDbBuffer);
+    const coreEntry = zipEntries.find((item) => item.path === "ImageDB.core");
+    const dataEntry = zipEntries.find((item) => item.path === "Data.json");
+    containsImageDbCore = Boolean(coreEntry);
+    containsDataJson = Boolean(dataEntry);
+    imageDbCoreBytes = Number(coreEntry?.size_bytes || 0);
+    if (dataEntry) {
+      try {
+        const dataJson = extractZipEntryBuffer(rkImageDbBuffer, dataEntry).toString("utf8").replace(/^\uFEFF/, "");
+        const parsed = JSON.parse(dataJson);
+        targetRows = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        targetMapIssues.push("rkimage_db_data_json_parse_failed");
+      }
+    } else {
+      targetMapIssues.push("rkimage_db_data_json_missing");
+    }
+  } catch {
+    targetMapIssues.push("rkimage_db_zip_parse_failed");
+  }
   return {
     found: true,
     expected_path: expectedPath,
     path: entry.path,
     size_bytes: entry.size_bytes,
     streaming_assets_candidate: entry.path.startsWith("assets/"),
+    zip_entries: zipEntries.map((item) => item.path),
+    contains_image_db_core: containsImageDbCore,
+    contains_data_json: containsDataJson,
+    image_db_core_bytes: imageDbCoreBytes,
+    target_index_map: buildRokidTargetIndexMap(targetRows, targetMapIssues),
     required_for_trusted_image_tracking: true,
     missing_reason: null
   };
@@ -378,12 +506,13 @@ function buildFindings(unityPackages, projectSettings, androidManifest, adapterB
     blockers.push("rokid_image_db_missing_for_a2_a3_image_tracking");
   } else if (!currentImageDb.streaming_assets_candidate) {
     blockers.push("rokid_image_db_not_packaged_under_streaming_assets");
-  } else if (inspectedImageDb?.contains_image_db_core === false) {
+  } else if (currentImageDb.contains_image_db_core === false || inspectedImageDb?.contains_image_db_core === false) {
     blockers.push("rokid_image_db_core_missing_for_a2_a3_image_tracking");
-  } else if (inspectedImageDb?.contains_image_db_core === true && Number(inspectedImageDb.image_db_core_bytes || 0) < 1024) {
+  } else if ((currentImageDb.contains_image_db_core === true && Number(currentImageDb.image_db_core_bytes || 0) < 1024)
+    || (inspectedImageDb?.contains_image_db_core === true && Number(inspectedImageDb.image_db_core_bytes || 0) < 1024)) {
     blockers.push("rokid_image_db_core_too_small_for_a2_a3_image_tracking");
-  } else if (!inspectedImageDb) {
-    warnings.push("rkimage_db_core_not_verified_by_latest_inspect");
+  } else if (currentImageDb.target_index_map?.ready !== true) {
+    blockers.push("rokid_image_db_target_index_map_invalid_for_a1_a2_a3");
   }
   if (!adapterBoundary.has_compile_boundary || !adapterBoundary.has_adapter_resolver || !adapterBoundary.has_sdk_binding_probe) {
     blockers.push("compile_safe_adapter_boundary_incomplete");
@@ -452,6 +581,7 @@ function renderMarkdown(report) {
     `- Current APK: exists=${report.station_pro_evidence.current_apk?.exists ?? false} size=${report.station_pro_evidence.current_apk?.size_bytes ?? 0} sha=${report.station_pro_evidence.current_apk?.sha256_prefix ?? "n/a"}`,
     `- RKImage.db packaged: ${report.station_pro_evidence.current_apk?.rokid_image_db?.found ?? false}`,
     `- RKImage.db path: ${report.station_pro_evidence.current_apk?.rokid_image_db?.path ?? "missing"}`,
+    `- RKImage.db target index map ready: ${report.station_pro_evidence.current_apk?.rokid_image_db?.target_index_map?.ready ?? false}`,
     `- Latest inspect network-ready: ${report.station_pro_evidence.latest_inspect?.network_ready_for_device ?? false}`,
     `- Latest inspect APK sha: ${report.station_pro_evidence.latest_inspect?.apk_sha256_prefix ?? "n/a"}`,
     `- Latest mutating launch OK: ${report.station_pro_evidence.latest_mutating_launch?.launch_ok ?? "n/a"}`,

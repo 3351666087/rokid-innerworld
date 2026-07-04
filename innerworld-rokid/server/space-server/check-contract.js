@@ -1061,6 +1061,7 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("REQUIRED_TARGET_DIAGNOSTIC_TOKENS") && tool.includes("IW_TARGET_EVENT") && tool.includes("IW_TARGET_MISSION_ASSIST"), "field target pass target diagnostic token guard missing");
   assert(tool.includes("station-pro-apk-smoke-latest-mutating-launch.json") && tool.includes("uxr-readiness-latest.json"), "field target pass current APK evidence guards missing");
   assert(tool.includes("target_diagnostics_preflight") && tool.includes("current_target_diagnostics_apk_preflight_missing"), "field target pass diagnostics preflight blocker missing");
+  assert(tool.includes("target_index_map_ready") && tool.includes("Target index map ready"), "field target pass target index map preflight evidence missing");
   assert(packageJson.includes("--require-target-diagnostics"), "strict field target pass must require current target diagnostics preflight");
   assert(packageJson.includes("\"field:target-pass:watch\"") && packageJson.includes("--watch --require-live-session --require-target-diagnostics"), "field target pass watch script must require live session and target diagnostics");
   assert(tool.includes("captureWatchSnapshots") && tool.includes("duration_sec") && tool.includes("snapshot_count"), "field target pass watch snapshots missing");
@@ -1072,6 +1073,25 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("confirm_user_b_readback_flag_not_set"), "field target pass User B explicit confirmation guard missing");
   assert(tool.includes("source: \"field_target_pass_operator_confirmed_user_b_readback\""), "field target pass User B evidence source missing");
   assert(tool.includes("raw_pairing_codes_included: false") && tool.includes("raw_session_ids_included: false"), "field target pass privacy guards missing");
+  return "verified";
+}
+
+async function assertRokidApkPackageEvidenceSkeleton() {
+  const [stationSmoke, stationCheck, uxrReadiness, uxrCheck] = await Promise.all([
+    readText("tools/station-pro-apk-smoke.ps1"),
+    readText("server/space-server/check-station-pro-apk-smoke.js"),
+    readText("tools/uxr-readiness.js"),
+    readText("server/space-server/check-uxr-readiness.js")
+  ]);
+
+  assert(stationSmoke.includes("innerworld-rokid-target-index-map/v1"), "Station Pro smoke target index map schema missing");
+  assert(stationSmoke.includes("innerworld-a1-qr-entry-v1") && stationSmoke.includes("innerworld-a2-memory-beacon-v1") && stationSmoke.includes("innerworld-a3-writeback-v1"), "Station Pro smoke target GUID map missing");
+  assert(stationSmoke.includes("RKImage.db target index map ready"), "Station Pro smoke markdown target map line missing");
+  assert(stationCheck.includes("RKImage.db target index map must be 1:A1,2:A2,3:A3"), "Station Pro APK check must enforce A1/A2/A3 index map");
+  assert(uxrReadiness.includes("EXPECTED_ROKID_TARGET_INDEX_MAP"), "UXR readiness target index map expectation missing");
+  assert(uxrReadiness.includes("rokid_image_db_target_index_map_invalid_for_a1_a2_a3"), "UXR readiness target index map blocker missing");
+  assert(uxrReadiness.includes("target_index_map_not_exact_a1_a2_a3"), "UXR readiness exact target index map issue missing");
+  assert(uxrCheck.includes("RKImage.db target index map evidence missing") && uxrCheck.includes("target_index_map.ready === true") && uxrCheck.includes("1:A1,2:A2,3:A3"), "UXR readiness check target map gate missing");
   return "verified";
 }
 
@@ -1117,6 +1137,7 @@ async function main() {
   const fieldLivePassCheck = await assertFieldLivePassCheckSkeleton();
   const fieldAcceptanceSessionCheck = await assertFieldAcceptanceSessionSkeleton();
   const fieldTargetPassCheck = await assertFieldTargetPassSkeleton();
+  const rokidApkPackageEvidenceCheck = await assertRokidApkPackageEvidenceSkeleton();
   const unityAndroidBuildCheck = await assertUnityAndroidBuildSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
@@ -1174,6 +1195,7 @@ async function main() {
     field_live_pass_check: fieldLivePassCheck,
     field_acceptance_session_check: fieldAcceptanceSessionCheck,
     field_target_pass_check: fieldTargetPassCheck,
+    rokid_apk_package_evidence_check: rokidApkPackageEvidenceCheck,
     unity_android_build_check: unityAndroidBuildCheck,
     server_core,
     unity_protocol: unityProtocol,

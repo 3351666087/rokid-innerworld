@@ -400,6 +400,8 @@ function collectTargetDiagnosticsPreflight() {
   const launchApkSha = launch?.apk?.sha256 || launch?.latest_mutating_launch?.apk_sha256 || null;
   const uxrCurrentApkSha = uxr?.current_apk?.sha256 || uxr?.station_pro_evidence?.current_apk?.sha256 || null;
   const uxrLaunchSha = uxr?.latest_mutating_launch?.apk_sha256 || uxr?.station_pro_evidence?.latest_mutating_launch?.apk_sha256 || null;
+  const targetIndexMap = uxr?.station_pro_evidence?.current_apk?.rokid_image_db?.target_index_map || null;
+  const targetIndexMapReady = targetIndexMap?.ready === true;
   const uxrMinimalReady = uxr?.readiness?.minimal_uxr_project_ready === true || uxr?.minimal_uxr_project_ready === true;
   const uxrHardwareReadyClaimAllowed = typeof uxr?.readiness?.hardware_ready_claim_allowed === "boolean"
     ? uxr.readiness.hardware_ready_claim_allowed
@@ -419,6 +421,7 @@ function collectTargetDiagnosticsPreflight() {
     && uxrMatchesCurrentApk
     && uxrLaunchMatchesCurrentApk
     && pairSmokeReady
+    && targetIndexMapReady
     && uxrHardwareReadyClaimAllowed === false;
 
   return {
@@ -455,7 +458,20 @@ function collectTargetDiagnosticsPreflight() {
       current_apk_sha256_prefix: uxrCurrentApkSha ? uxrCurrentApkSha.slice(0, 12) : null,
       latest_mutating_launch_apk_sha256_prefix: uxrLaunchSha ? uxrLaunchSha.slice(0, 12) : null,
       current_apk_matches: uxrMatchesCurrentApk,
-      latest_mutating_launch_matches_current_apk: uxrLaunchMatchesCurrentApk
+      latest_mutating_launch_matches_current_apk: uxrLaunchMatchesCurrentApk,
+      target_index_map_ready: targetIndexMapReady,
+      target_index_map: targetIndexMap ? {
+        schema: targetIndexMap.schema || null,
+        ready: targetIndexMap.ready === true,
+        actual: list(targetIndexMap.actual).map((item) => ({
+          index: Number(item.index),
+          anchor_id: item.anchor_id || null,
+          guid: item.guid || null
+        })),
+        missing_anchor_ids: list(targetIndexMap.missing_anchor_ids),
+        issues: list(targetIndexMap.issues),
+        boundary: targetIndexMap.boundary || "Target index map evidence only; physical target observation still required."
+      } : null
     },
     privacy: {
       full_apk_sha256_included: false,
@@ -715,6 +731,7 @@ function buildMarkdown(report) {
     `- Mutating launch operator pairing verified: ${targetDiagnostics.mutating_launch.operator_pairing_verified}`,
     `- UXR current APK matches: ${targetDiagnostics.uxr_readiness.current_apk_matches}`,
     `- UXR latest mutating launch matches current APK: ${targetDiagnostics.uxr_readiness.latest_mutating_launch_matches_current_apk}`,
+    `- Target index map ready: ${targetDiagnostics.uxr_readiness.target_index_map_ready}`,
     `- Hardware-ready claim allowed: ${targetDiagnostics.uxr_readiness.hardware_ready_claim_allowed}`,
     "",
     ...tokenLines,

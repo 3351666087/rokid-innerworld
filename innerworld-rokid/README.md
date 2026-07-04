@@ -4,7 +4,7 @@
 
 ## Current Hardware Checkpoint
 
-Station Pro is connected and the project is in the real-device lane. The current disk APK is LAN-ready, UXR-manifest-ready, and packaged with the Rokid image database/native libraries: 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`, min SDK 28, target SDK 36, `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`.
+Station Pro is connected and the project is in the real-device lane. The current disk APK is LAN-ready, UXR-manifest-ready, and packaged with the Rokid image database/native libraries: 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`, min SDK 28, target SDK 36, `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`. The APK-packaged `RKImage.db/Data.json` target map is now parsed by package gates and is green for the P0 mapping `1:A1`, `2:A2`, `3:A3`.
 
 The current APK has passed Station Pro install/cold-launch/process/operator-pairing smoke. It also contains the `IW_TARGET_*` target-observation diagnostics in APK metadata, and `field:live-pass -- --single --logcat` reports those counters without writing raw logcat. This is still not hardware acceptance: `/api/field/acceptance` remains `rehearsal_ready` until operator-paired trusted A1/A2/A3 observations, A3 write-back, and explicit User B readback (`active_user=B`) pass on the real wall.
 
@@ -16,7 +16,7 @@ Use `npm run field:live-pass` for a read-only live field snapshot, `npm run chec
 
 Use `npm run field:target-pass` during the physical wall pass to get the phase-by-phase A1/A2/A3/User B checklist as sanitized JSON/MD. It is read-only by default. `npm run field:target-pass:apply` may post A2 mission progress, the controlled service action, and A3 TimeMark only after trusted A2/A3 evidence exists; `npm run field:target-pass:strict` also requires explicit User B readback confirmation and must stay red until the real hardware loop is complete.
 
-`field:target-pass:strict` also verifies the current target-diagnostics APK preflight before acceptance: current APK SHA prefix, `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, and UXR readiness must all match. This is a package/evidence freshness guard only; it does not replace trusted A1/A2/A3 observations or User B readback.
+`field:target-pass:strict` also verifies the current target-diagnostics APK preflight before acceptance: current APK SHA prefix, `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, UXR readiness, and the APK-packaged `RKImage.db` target index map must all match. This is a package/evidence freshness guard only; it does not replace trusted A1/A2/A3 observations or User B readback.
 
 Use `npm run field:target-pass:watch` during the live wall scan. It is read-only by default, records repeated API snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; counts stay zero until the glasses actually see A1/A2/A3 target events.
 

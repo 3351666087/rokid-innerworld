@@ -388,6 +388,60 @@ function Get-ApkRokidImageDatabase {
   param([string]$Path)
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $expectedPath = "assets/RKImage.db"
+  $expectedTargetIndexMap = @(
+    [pscustomobject]@{ index = 1; anchor_id = "A1"; guid = "innerworld-a1-qr-entry-v1"; tracking_mode = "qr"; physical_width_m = 0.150; physical_height_m = 0.100 },
+    [pscustomobject]@{ index = 2; anchor_id = "A2"; guid = "innerworld-a2-memory-beacon-v1"; tracking_mode = "image_tracking"; physical_width_m = 0.150; physical_height_m = 0.100 },
+    [pscustomobject]@{ index = 3; anchor_id = "A3"; guid = "innerworld-a3-writeback-v1"; tracking_mode = "image_tracking"; physical_width_m = 0.150; physical_height_m = 0.100 }
+  )
+  function Get-AnchorIdForRokidTargetGuid {
+    param([string]$Guid)
+    foreach ($expected in $expectedTargetIndexMap) {
+      if ($Guid -eq $expected.guid) { return $expected.anchor_id }
+    }
+    return $null
+  }
+  function New-RokidTargetIndexMap {
+    param(
+      [object[]]$Rows = @(),
+      [string[]]$Issues = @()
+    )
+    $actual = @()
+    foreach ($row in @($Rows)) {
+      $guid = if ($row.guid) { [string]$row.guid } else { "" }
+      $actual += [pscustomobject]@{
+        index = if ($null -ne $row.index) { [int]$row.index } else { $null }
+        anchor_id = Get-AnchorIdForRokidTargetGuid -Guid $guid
+        guid = $guid
+        image_name = if ($row.imageName) { [string]$row.imageName } else { $null }
+        physical_width_m = if ($null -ne $row.physicalWidth) { [double]$row.physicalWidth } else { $null }
+        physical_height_m = if ($null -ne $row.physicalHeight) { [double]$row.physicalHeight } else { $null }
+      }
+    }
+    $missing = @()
+    foreach ($expected in $expectedTargetIndexMap) {
+      $match = @($actual | Where-Object { $_.index -eq $expected.index -and $_.guid -eq $expected.guid }) | Select-Object -First 1
+      if (!$match) { $missing += $expected.anchor_id }
+    }
+    $expectedIndexes = @($expectedTargetIndexMap | ForEach-Object { $_.index })
+    $unexpected = @($actual | Where-Object { ($expectedIndexes -notcontains $_.index) -or [string]::IsNullOrWhiteSpace($_.anchor_id) } | ForEach-Object { $_.index })
+    $duplicateIndexes = @($actual | Group-Object -Property index | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+    $cleanIssues = @($Issues | Where-Object { ![string]::IsNullOrWhiteSpace($_) })
+    if ($missing.Count -gt 0) { $cleanIssues += "target_index_map_missing_expected_a1_a2_a3" }
+    if ($unexpected.Count -gt 0) { $cleanIssues += "target_index_map_contains_unexpected_targets" }
+    if ($duplicateIndexes.Count -gt 0) { $cleanIssues += "target_index_map_duplicate_indexes" }
+    return [pscustomobject]@{
+      schema = "innerworld-rokid-target-index-map/v1"
+      required_for_trusted_image_tracking = $true
+      ready = ($cleanIssues.Count -eq 0)
+      expected = $expectedTargetIndexMap
+      actual = $actual
+      missing_anchor_ids = $missing
+      unexpected_indexes = @($unexpected)
+      duplicate_indexes = @($duplicateIndexes)
+      issues = @($cleanIssues | Select-Object -Unique)
+      boundary = "This verifies the APK-packaged RKImage.db target index map only; it does not prove physical target observation or hardware acceptance."
+    }
+  }
   if (!(Test-Path -LiteralPath $Path)) {
     return [pscustomobject]@{
       found = $false
@@ -401,6 +455,7 @@ function Get-ApkRokidImageDatabase {
       contains_image_db_core = $false
       contains_data_json = $false
       image_db_core_bytes = 0
+      target_index_map = New-RokidTargetIndexMap -Issues @("apk_not_found")
       required_for_trusted_image_tracking = $true
       missing_reason = "apk_not_found"
     }
@@ -421,6 +476,7 @@ function Get-ApkRokidImageDatabase {
         contains_image_db_core = $false
         contains_data_json = $false
         image_db_core_bytes = 0
+        target_index_map = New-RokidTargetIndexMap -Issues @("rkimage_db_missing")
         required_for_trusted_image_tracking = $true
         missing_reason = "RKImage.db not found in APK assets"
       }
@@ -454,6 +510,8 @@ function Get-ApkRokidImageDatabase {
     $hasCore = $false
     $hasData = $false
     $nestedError = $null
+    $dataRows = @()
+    $targetIndexMapIssues = @()
     try {
       $memory.Position = 0
       $nested = New-Object System.IO.Compression.ZipArchive($memory, [System.IO.Compression.ZipArchiveMode]::Read, $true)
@@ -464,11 +522,31 @@ function Get-ApkRokidImageDatabase {
         $hasCore = [bool]$coreEntry
         $hasData = [bool]$dataEntry
         $coreBytes = if ($coreEntry) { [int64]$coreEntry.Length } else { 0 }
+        if ($dataEntry) {
+          $dataStream = $dataEntry.Open()
+          try {
+            $reader = New-Object System.IO.StreamReader($dataStream, [System.Text.Encoding]::UTF8)
+            try {
+              $json = $reader.ReadToEnd()
+              $parsed = $json | ConvertFrom-Json
+              $dataRows = @($parsed)
+            } catch {
+              $targetIndexMapIssues += "rkimage_db_data_json_parse_failed"
+            } finally {
+              $reader.Dispose()
+            }
+          } finally {
+            $dataStream.Dispose()
+          }
+        } else {
+          $targetIndexMapIssues += "rkimage_db_data_json_missing"
+        }
       } finally {
         $nested.Dispose()
       }
     } catch {
       $nestedError = "rkimage_db_zip_parse_failed"
+      $targetIndexMapIssues += $nestedError
     } finally {
       $memory.Dispose()
     }
@@ -485,6 +563,7 @@ function Get-ApkRokidImageDatabase {
       contains_image_db_core = $hasCore
       contains_data_json = $hasData
       image_db_core_bytes = $coreBytes
+      target_index_map = New-RokidTargetIndexMap -Rows $dataRows -Issues $targetIndexMapIssues
       required_for_trusted_image_tracking = $true
       missing_reason = $nestedError
     }
@@ -1078,6 +1157,8 @@ $markdown = @(
   "- RKImage.db StreamingAssets candidate: $($report.apk.rokid_image_db.streaming_assets_candidate)",
   "- RKImage.db contains ImageDB.core: $($report.apk.rokid_image_db.contains_image_db_core)",
   "- RKImage.db ImageDB.core bytes: $($report.apk.rokid_image_db.image_db_core_bytes)",
+  "- RKImage.db target index map ready: $($report.apk.rokid_image_db.target_index_map.ready)",
+  "- RKImage.db target index map: $(@($report.apk.rokid_image_db.target_index_map.actual | ForEach-Object { "$($_.index)->$($_.anchor_id)" }) -join ', ')",
   "- Rokid native libs packaged: $($report.apk.native_libraries.found_all)",
   "- Rokid native libs missing: $(@($report.apk.native_libraries.missing_names) -join ', ')",
   "- Install/launch intent accepted: $($report.readiness.install_launch_intent_accepted)",

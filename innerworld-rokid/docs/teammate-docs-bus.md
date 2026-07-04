@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 13:06 Asia/Shanghai
+Updated: 2026-07-04 15:25 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -73,6 +73,12 @@ Target-diagnostics APK checkpoint on 2026-07-04 14:31 Asia/Shanghai:
 - `field:target-pass` strict mode now requires a target-diagnostics preflight that matches current APK SHA prefix, APK token scan, latest mutating launch evidence, and UXR readiness before the physical pass can be accepted. The guard is green for `e447...` and still leaves trusted A1/A2/A3 plus mission/User B as the remaining blockers.
 - `tools/build-unity-android.ps1` now timeout-bounds external post-build checks, so Unity success can refresh build evidence without hanging. This is build/evidence reliability only, not hardware-ready proof.
 - The bus remains unchanged: teammate SDK material still enters only through the single-wall A1/A2/A3/User B loop. Trusted A1/A2/A3 observations, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` are still the missing proof.
+
+APK target-index preflight checkpoint on 2026-07-04 15:25 Asia/Shanghai:
+
+- The current APK-packaged `assets/RKImage.db` is now opened by `station-pro-apk-smoke.ps1` and `uxr-readiness.js`; both parse nested `Data.json` and require `innerworld-rokid-target-index-map/v1` with `1:A1`, `2:A2`, `3:A3`.
+- `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-target-pass`, `check:contract`, and `check:mainline` pass with the target map green. `field:target-pass:strict` still fails only on missing trusted A1/A2/A3 observations and the P0 mission/User B loop.
+- This checkpoint strengthens the image-target package gate from “RKImage.db exists” to “the APK carries the correct one-wall A1/A2/A3 map.” It does not claim target events, live physical observations, write-back, User B readback, or hardware acceptance.
 
 Already merged into the mainline:
 

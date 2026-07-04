@@ -78,6 +78,8 @@ async function main() {
   assert(report.adapter_boundary?.has_sdk_binding_probe === true, "SDK binding probe missing");
   assert(report.station_pro_evidence?.current_apk?.rokid_image_db, "current APK RKImage.db evidence missing");
   assert(report.station_pro_evidence.current_apk.rokid_image_db.required_for_trusted_image_tracking === true, "RKImage.db evidence must be marked required for trusted image tracking");
+  assert(report.station_pro_evidence.current_apk.rokid_image_db.target_index_map?.schema === "innerworld-rokid-target-index-map/v1", "RKImage.db target index map evidence missing");
+  assert(report.station_pro_evidence.current_apk.rokid_image_db.target_index_map.required_for_trusted_image_tracking === true, "RKImage.db target index map must be marked required for trusted image tracking");
 
   if (requireReady) {
     assert(report.readiness.minimal_uxr_project_ready === true, `minimal UXR project not ready: ${report.readiness.blockers.join(", ")}`);
@@ -88,6 +90,10 @@ async function main() {
     assert(report.project_settings.xr_settings_files.length > 0, "XR project settings missing");
     assert(report.station_pro_evidence.current_apk.rokid_image_db.found === true, "RKImage.db missing from current APK");
     assert(report.station_pro_evidence.current_apk.rokid_image_db.streaming_assets_candidate === true, "RKImage.db must be packaged under StreamingAssets/assets");
+    assert(report.station_pro_evidence.current_apk.rokid_image_db.contains_image_db_core === true, "RKImage.db ImageDB.core missing");
+    assert(report.station_pro_evidence.current_apk.rokid_image_db.contains_data_json === true, "RKImage.db Data.json missing");
+    assert(report.station_pro_evidence.current_apk.rokid_image_db.target_index_map.ready === true, `RKImage.db target index map invalid: ${(report.station_pro_evidence.current_apk.rokid_image_db.target_index_map.issues || []).join(", ")}`);
+    assert(report.station_pro_evidence.current_apk.rokid_image_db.target_index_map.actual.map((item) => `${item.index}:${item.anchor_id}`).join(",") === "1:A1,2:A2,3:A3", "RKImage.db target index map must be exactly 1:A1,2:A2,3:A3");
   } else {
     assert(report.readiness.minimal_uxr_project_ready === false, "non-ready mode should not pass if minimal UXR project is already ready; rerun with --require-ready");
     assert(report.readiness.blockers.length > 0, "non-ready mode should report at least one current blocker");
@@ -102,6 +108,9 @@ async function main() {
     }
     if (report.station_pro_evidence.current_apk.rokid_image_db.found === false) {
       assert(report.readiness.blockers.includes("rokid_image_db_missing_for_a2_a3_image_tracking"), "missing RKImage.db should be reported as a blocker");
+    }
+    if (report.station_pro_evidence.current_apk.rokid_image_db.target_index_map?.ready === false) {
+      assert(report.readiness.blockers.includes("rokid_image_db_target_index_map_invalid_for_a1_a2_a3"), "invalid RKImage.db target index map should be reported as a blocker");
     }
     const latestLaunch = report.station_pro_evidence?.latest_mutating_launch || null;
     if (latestLaunch?.launch_error_code === "102") {
