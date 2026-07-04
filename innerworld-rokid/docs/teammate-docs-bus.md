@@ -63,6 +63,7 @@ Real-device probe and evidence-pointer checkpoint on 2026-07-04 12:31 Asia/Shang
 - `device-probe` now has bounded ADB/tool/PnP timeouts plus an outer `check:device-probe` timeout, so Windows hardware enumeration cannot hang the real-device gate indefinitely.
 - `check:station-apk:rkimage` now consumes `station-pro-apk-smoke-latest-inspect.*` and asserts `evidence_kind=inspect_only`; this keeps inspect/package evidence separate from mutating Station Pro install/launch/pairing evidence.
 - Latest live boundary is correct: LAN server is up, `station:apk:pair-smoke` passed, and `check:field-live-pass` sees one online operator-paired live session. Hardware-ready remains false because trusted A1/A2/A3 observations, A3 TimeMark write-back, and User B readback are still missing.
+- Follow-up live-pass watch hardening now reports missing trusted anchors, missing raw hardware anchors, missing mission steps, and next required field actions. The current baseline says A1 still needs raw hardware scan, while A2/A3 need re-scan or re-bind through the operator-paired live SDK session before they can become trusted evidence.
 
 Already merged into the mainline:
 

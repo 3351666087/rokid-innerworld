@@ -91,6 +91,14 @@ function list(value) {
   return Array.isArray(value) ? value : [];
 }
 
+const REQUIRED_ANCHOR_IDS = ["A1", "A2", "A3"];
+const REQUIRED_MISSION_STEP_IDS = ["read", "find_year", "service_action", "write_back"];
+const ANCHOR_ACTION_LABELS = {
+  A1: "Scan A1 QR entry and confirm the spatial entry.",
+  A2: "Scan A2 image target and read the memory.",
+  A3: "Scan A3 image target and complete TimeMark write-back."
+};
+
 async function getJson(baseUrl, apiPath) {
   const response = await fetch(`${baseUrl}${apiPath}`, {
     headers: { accept: "application/json" }
@@ -170,6 +178,8 @@ function summarizeFieldAcceptance(payload) {
     trusted_hardware_anchor_ids: list(trustedEvidence.trusted_hardware_calibrated_anchor_ids),
     untrusted_hardware_anchor_ids: list(trustedEvidence.untrusted_hardware_anchor_ids),
     hardware_calibrated_anchor_ids: list(hardwareEvidence.hardware_calibrated_anchor_ids),
+    missing_trusted_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !list(trustedEvidence.trusted_hardware_calibrated_anchor_ids).includes(anchorId)),
+    missing_hardware_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !list(hardwareEvidence.hardware_calibrated_anchor_ids).includes(anchorId)),
     missing_mission_steps: list(missionEvidence.missing_steps),
     write_back_beacons: Number(missionEvidence.write_back_beacons) || 0,
     user_b_readback_ready: missionEvidence.user_b_readback_ready === true,
@@ -213,6 +223,43 @@ function summarizeMission(payload) {
       && payload.mission_state === "complete"
       && writeBackBeacons.length > 0
   };
+}
+
+function buildNextRequiredActions(snapshot) {
+  const actions = [];
+  if (!snapshot.live_session_ready) {
+    actions.push("Start LAN server and run station:apk:pair-smoke to create an operator-paired live session.");
+  }
+
+  const hardwareAnchorSet = new Set(snapshot.field_acceptance.hardware_calibrated_anchor_ids);
+  const untrustedAnchorSet = new Set(snapshot.field_acceptance.untrusted_hardware_anchor_ids);
+  for (const anchorId of snapshot.field_acceptance.missing_trusted_anchor_ids) {
+    if (hardwareAnchorSet.has(anchorId) || untrustedAnchorSet.has(anchorId)) {
+      actions.push(`Re-scan or re-bind ${anchorId} through the operator-paired live SDK session; current hardware observation is not trusted.`);
+    } else {
+      actions.push(ANCHOR_ACTION_LABELS[anchorId] || `Scan ${anchorId} with the live Rokid session.`);
+    }
+  }
+
+  for (const stepId of snapshot.field_acceptance.missing_mission_steps) {
+    if (stepId === "read") actions.push("Complete the A2 memory read mission step.");
+    else if (stepId === "find_year") actions.push("Complete the A2 mission clue step.");
+    else if (stepId === "service_action") actions.push("Complete the controlled service action.");
+    else if (stepId === "write_back") actions.push("Complete the A3 TimeMark write-back step.");
+    else actions.push(`Complete mission step ${stepId}.`);
+  }
+
+  if (snapshot.mission.write_back_beacon_count < 1) {
+    actions.push("Verify an A3 write-back beacon exists in /api/state.");
+  }
+  if (!snapshot.mission.user_b_readback_ready) {
+    actions.push("Switch to User B and verify the new A3 memory is readable after write-back.");
+  }
+  if (!snapshot.field_acceptance_ready) {
+    actions.push("Re-run strict field-live-pass with --require-live-session --require-trusted --require-mission-loop.");
+  }
+
+  return [...new Set(actions)];
 }
 
 function findAdb() {
@@ -279,15 +326,20 @@ async function captureSnapshot(baseUrl) {
   const session = summarizeSessions(sessions);
   const wall = summarizeWall(wallCalibration);
   const mission = summarizeMission(missionState);
-  const requiredAnchors = ["A1", "A2", "A3"];
   const trustedAnchorSet = new Set(field.trusted_hardware_anchor_ids);
+  const hardwareAnchorSet = new Set(field.hardware_calibrated_anchor_ids);
   const missionStepSet = new Set(mission.completed_steps);
+  const missingMissionStepIds = REQUIRED_MISSION_STEP_IDS.filter((stepId) => !missionStepSet.has(stepId));
 
-  return {
+  const snapshot = {
     captured_at: new Date().toISOString(),
     live_session_ready: session.live_operator_paired_ready_count > 0,
-    trusted_a1_a2_a3_ready: requiredAnchors.every((anchorId) => trustedAnchorSet.has(anchorId)),
-    mission_loop_ready: ["read", "find_year", "service_action", "write_back"].every((stepId) => missionStepSet.has(stepId))
+    trusted_a1_a2_a3_ready: REQUIRED_ANCHOR_IDS.every((anchorId) => trustedAnchorSet.has(anchorId)),
+    hardware_a1_a2_a3_ready: REQUIRED_ANCHOR_IDS.every((anchorId) => hardwareAnchorSet.has(anchorId)),
+    missing_trusted_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !trustedAnchorSet.has(anchorId)),
+    missing_hardware_anchor_ids: REQUIRED_ANCHOR_IDS.filter((anchorId) => !hardwareAnchorSet.has(anchorId)),
+    missing_mission_step_ids: missingMissionStepIds,
+    mission_loop_ready: missingMissionStepIds.length === 0
       && mission.write_back_beacon_count > 0
       && mission.user_b_readback_ready === true,
     field_acceptance_ready: field.ready === true,
@@ -296,6 +348,8 @@ async function captureSnapshot(baseUrl) {
     wall_calibration: wall,
     mission
   };
+  snapshot.next_required_actions = buildNextRequiredActions(snapshot);
+  return snapshot;
 }
 
 function sleep(ms) {
@@ -323,6 +377,7 @@ function buildMarkdown(report) {
     `- API host kind: ${report.api.host_kind}`,
     `- Live session ready: ${latest.live_session_ready}`,
     `- Trusted A1/A2/A3 ready: ${latest.trusted_a1_a2_a3_ready}`,
+    `- Hardware A1/A2/A3 ready: ${latest.hardware_a1_a2_a3_ready}`,
     `- Mission loop ready: ${latest.mission_loop_ready}`,
     `- User B readback ready: ${latest.mission.user_b_readback_ready}`,
     `- Field acceptance ready: ${latest.field_acceptance_ready}`,
@@ -330,6 +385,9 @@ function buildMarkdown(report) {
     `- Live operator-paired sessions: ${latest.session.live_operator_paired_ready_count}`,
     `- Trusted hardware anchors: ${latest.field_acceptance.trusted_hardware_anchor_ids.join(",") || "none"}`,
     `- Hardware anchors: ${latest.field_acceptance.hardware_calibrated_anchor_ids.join(",") || "none"}`,
+    `- Missing trusted anchors: ${latest.missing_trusted_anchor_ids.join(",") || "none"}`,
+    `- Missing hardware anchors: ${latest.missing_hardware_anchor_ids.join(",") || "none"}`,
+    `- Missing mission steps: ${latest.missing_mission_step_ids.join(",") || "none"}`,
     `- Pending gates: ${latest.field_acceptance.pending_gate_ids.join(",") || "none"}`,
     `- Completed mission steps: ${latest.mission.completed_steps.join(",") || "none"}`,
     `- Active user: ${latest.mission.active_user || "unknown"}`,
@@ -341,6 +399,10 @@ function buildMarkdown(report) {
     "## Blockers",
     "",
     ...blockers,
+    "",
+    "## Next Required Actions",
+    "",
+    ...(latest.next_required_actions.length ? latest.next_required_actions.map((item) => `- ${item}`) : ["- none"]),
     "",
     "## Boundary",
     "",
@@ -421,13 +483,18 @@ async function main() {
     check: "field-live-pass",
     live_session_ready: latest.live_session_ready,
     trusted_a1_a2_a3_ready: latest.trusted_a1_a2_a3_ready,
+    hardware_a1_a2_a3_ready: latest.hardware_a1_a2_a3_ready,
     mission_loop_ready: latest.mission_loop_ready,
     field_acceptance_ready: latest.field_acceptance_ready,
     online_sessions: latest.session.online_count,
     live_operator_paired_sessions: latest.session.live_operator_paired_ready_count,
     trusted_hardware_anchor_ids: latest.field_acceptance.trusted_hardware_anchor_ids,
+    missing_trusted_anchor_ids: latest.missing_trusted_anchor_ids,
+    missing_hardware_anchor_ids: latest.missing_hardware_anchor_ids,
+    missing_mission_step_ids: latest.missing_mission_step_ids,
     user_b_readback_ready: latest.mission.user_b_readback_ready,
     pending_gate_ids: latest.field_acceptance.pending_gate_ids,
+    next_required_actions: latest.next_required_actions,
     blockers,
     json: jsonPath,
     markdown: mdPath

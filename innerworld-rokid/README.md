@@ -10,7 +10,7 @@ The current APK has passed Station Pro install/cold-launch/process/operator-pair
 
 `device-probe` is bounded against real Windows/ADB enumeration hangs: command/PnP timeouts are recorded in the sanitized report, and `check:device-probe` has an outer timeout. Station APK package gates also read inspect-only evidence so a later `station:apk:pair-smoke` cannot be mistaken for a non-mutating APK inspection.
 
-Use `npm run field:live-pass` for a read-only live field snapshot, `npm run check:field-live-pass` to verify the current operator-paired live session window, and `npm run field:live-pass -- --require-trusted --require-mission-loop` during final physical acceptance. These commands do not post simulator/manual observations.
+Use `npm run field:live-pass` for a read-only live field snapshot, `npm run check:field-live-pass` to verify the current operator-paired live session window, and `npm run field:live-pass -- --require-trusted --require-mission-loop` during final physical acceptance. The live-pass report now lists missing trusted anchors, missing raw hardware anchors, missing mission steps, and next required field actions. These commands do not post simulator/manual observations.
 
 ## Quick Start
 

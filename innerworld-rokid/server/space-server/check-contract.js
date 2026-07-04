@@ -1007,6 +1007,11 @@ async function assertFieldLivePassCheckSkeleton() {
   assert(tool.includes("user_b_readback_ready"), "field live pass User B readback evidence missing");
   assert(tool.includes("mission.user_b_readback_ready === true"), "field live pass mission loop must require User B readback");
   assert(tool.includes("p0_mission_writeback_user_b_loop_missing"), "field live pass mission/User B blocker missing");
+  assert(tool.includes("missing_trusted_anchor_ids"), "field live pass missing trusted anchor evidence missing");
+  assert(tool.includes("missing_hardware_anchor_ids"), "field live pass missing hardware anchor evidence missing");
+  assert(tool.includes("missing_mission_step_ids"), "field live pass missing mission step evidence missing");
+  assert(tool.includes("next_required_actions"), "field live pass next required actions missing");
+  assert(tool.includes("Scan A1 QR entry") && tool.includes("Scan A2 image target") && tool.includes("Scan A3 image target"), "field live pass physical target action prompts missing");
   return "verified";
 }
 
