@@ -1,6 +1,6 @@
 # Teammate Docs Bus
 
-Updated: 2026-07-04 12:31 Asia/Shanghai
+Updated: 2026-07-04 13:06 Asia/Shanghai
 
 This document records how teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` enters the InnerWorld mainline. Carver is the long-running mainline reviewer sub-agent name going forward. The rule is strict: the teammate docs are actionable only through the current one-wall A1/A2/A3/User B Rokid spatial memory loop. They do not create a parallel product line.
 
@@ -64,6 +64,7 @@ Real-device probe and evidence-pointer checkpoint on 2026-07-04 12:31 Asia/Shang
 - `check:station-apk:rkimage` now consumes `station-pro-apk-smoke-latest-inspect.*` and asserts `evidence_kind=inspect_only`; this keeps inspect/package evidence separate from mutating Station Pro install/launch/pairing evidence.
 - Latest live boundary is correct: LAN server is up, `station:apk:pair-smoke` passed, and `check:field-live-pass` sees one online operator-paired live session. Hardware-ready remains false because trusted A1/A2/A3 observations, A3 TimeMark write-back, and User B readback are still missing.
 - Follow-up live-pass watch hardening now reports missing trusted anchors, missing raw hardware anchors, missing mission steps, and next required field actions. The current baseline says A1 still needs raw hardware scan, while A2/A3 need re-scan or re-bind through the operator-paired live SDK session before they can become trusted evidence.
+- Follow-up field acceptance session runner now makes the next physical proof executable: default mode captures sanitized device/APK/API/live-pass prechecks without mutating observations or mission state, and `field:acceptance-session:live` explicitly wraps the mutating pair-smoke plus live watch for the real A1/A2/A3/User B pass. Latest default runner pass is green but still blocks hardware-ready with trusted anchors and mission/User B incomplete.
 
 Already merged into the mainline:
 

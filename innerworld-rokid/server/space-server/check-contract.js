@@ -1015,6 +1015,28 @@ async function assertFieldLivePassCheckSkeleton() {
   return "verified";
 }
 
+async function assertFieldAcceptanceSessionSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/field-acceptance-session.ps1"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"field:acceptance-session\""), "package field acceptance session script missing");
+  assert(packageJson.includes("\"field:acceptance-session:live\""), "package live field acceptance session script missing");
+  assert(packageJson.includes("\"field:acceptance-session:strict\""), "package strict field acceptance session script missing");
+  assert(tool.includes("innerworld-field-acceptance-session/v1"), "field acceptance session schema missing");
+  assert(tool.includes("tools/field-live-pass.js"), "field acceptance session live-pass invocation missing");
+  assert(tool.includes("tools/device-probe.ps1"), "field acceptance session device probe missing");
+  assert(tool.includes("tools/station-pro-apk-smoke.ps1"), "field acceptance session Station Pro smoke missing");
+  assert(tool.includes("simulator_or_manual_observations_created = $false"), "field acceptance session must not create rehearsal observations");
+  assert(tool.includes("mission_or_writeback_mutated = $false"), "field acceptance session must not mutate mission/write-back state");
+  assert(tool.includes("hardware_ready_claim_allowed"), "field acceptance session hardware-ready claim guard missing");
+  assert(tool.includes("livePassJson.ok -eq $false") && tool.includes("$livePassCommand.ok = $false"), "field acceptance session strict live-pass failure propagation missing");
+  assert(tool.includes("raw_pairing_codes_included = $false"), "field acceptance session pairing-code privacy guard missing");
+  assert(tool.includes("raw_logcat_included = $false"), "field acceptance session raw logcat guard missing");
+  return "verified";
+}
+
 async function main() {
   const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
     readJson("data/space_demo.json"),
@@ -1038,6 +1060,7 @@ async function main() {
   const server_core = await assertServerCoreSkeleton();
   const fieldAcceptanceCheck = await assertFieldAcceptanceCheckSkeleton();
   const fieldLivePassCheck = await assertFieldLivePassCheckSkeleton();
+  const fieldAcceptanceSessionCheck = await assertFieldAcceptanceSessionSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
 
@@ -1092,6 +1115,7 @@ async function main() {
     field_markers: FIELD_MARKER_SCHEMA,
     field_acceptance_check: fieldAcceptanceCheck,
     field_live_pass_check: fieldLivePassCheck,
+    field_acceptance_session_check: fieldAcceptanceSessionCheck,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,
