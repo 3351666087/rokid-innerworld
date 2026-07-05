@@ -460,6 +460,11 @@ $commandsBlock
 - Selected device hash prefix: $($Report.station_input_assist.selected_device_id_hash_prefix)
 - ADB device-state count: $($Report.station_input_assist.device_state_count)
 - Sent step count: $($Report.station_input_assist.sent_step_count)
+- Readback state OK: $($Report.station_input_assist.readback_state_ok)
+- Readback sessions OK: $($Report.station_input_assist.readback_sessions_ok)
+- Readback latest active anchor: $($Report.station_input_assist.readback_latest_active_anchor)
+- Readback mission state: $($Report.station_input_assist.readback_mission_state)
+- Readback proves hardware input: $($Report.station_input_assist.readback_proves_hardware_input)
 - Hardware acceptance evidence: $($Report.station_input_assist.hardware_acceptance_evidence)
 - Hardware-ready claim allowed: $($Report.station_input_assist.hardware_ready_claim_allowed)
 
@@ -804,6 +809,14 @@ $report = [pscustomobject]@{
     step_count = if ($stationInputAssistJson -and $stationInputAssistJson.steps) { @($stationInputAssistJson.steps).Count } else { 0 }
     sent_step_count = if ($stationInputAssistJson -and $stationInputAssistJson.sent_steps) { @($stationInputAssistJson.sent_steps).Count } else { 0 }
     steps = if ($stationInputAssistJson -and $stationInputAssistJson.steps) { @($stationInputAssistJson.steps) } else { @() }
+    readback_state_ok = [bool]($stationInputAssistJson -and $stationInputAssistJson.readback.after.state_ok -eq $true)
+    readback_sessions_ok = [bool]($stationInputAssistJson -and $stationInputAssistJson.readback.after.sessions_ok -eq $true)
+    readback_latest_active_anchor = if ($stationInputAssistJson) { $stationInputAssistJson.readback.after.latest_active_anchor } else { $null }
+    readback_mission_state = if ($stationInputAssistJson) { $stationInputAssistJson.readback.after.mission_state } else { $null }
+    readback_completed_step_delta = if ($stationInputAssistJson) { [int]$stationInputAssistJson.readback.delta.completed_step_delta } else { 0 }
+    readback_beacon_delta = if ($stationInputAssistJson) { [int]$stationInputAssistJson.readback.delta.beacon_delta } else { 0 }
+    readback_write_back_beacon_delta = if ($stationInputAssistJson) { [int]$stationInputAssistJson.readback.delta.write_back_beacon_delta } else { 0 }
+    readback_proves_hardware_input = $false
     hardware_acceptance_evidence = $false
     hardware_ready_claim_allowed = $false
   }

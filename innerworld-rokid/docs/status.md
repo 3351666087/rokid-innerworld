@@ -205,6 +205,13 @@ Latest hardware probe checkpoint: `device:probe` now sees the same Station Pro t
 - `field:acceptance-session` now runs Station Pro field input assist in dry-run mode by default and records `station_input_assist` in the same session JSON/Markdown as operator-plan, glasses diagnostics, live-pass, and target-pass.
 - New session switches: `-SkipInputAssist` to omit it, `-ApplyInputAssist` to send rehearsal keyevents through ADB with `-RequireDevice`. Even when applied, the session report keeps `hardware_acceptance_evidence=false` and `hardware_ready_claim_allowed=false`.
 - Latest smoke: `output/field-acceptance-session/field-acceptance-session-20260705-125426.json` showed `station_input_assist.command_ok=true`, `apply_requested=false`, `input_blocker=visible_but_no_remote_or_hand`, `sent_step_count=0`, and a next action reminding that `station:field-input-assist:apply` is rehearsal only.
+
+## 2026-07-05 - Input Assist Space API Readback
+
+- `station-pro-field-input-assist.ps1` now reads `/api/state` and `/api/device/sessions` before and after dry-run/apply. It records mission state, active user, completed steps, beacon counts, write-back beacon count, session counts, latest active anchor, latest input command, and sanitized privacy booleans without raw session IDs or raw device IDs.
+- The readback has an explicit `proves_hardware_input=false` guard. It is useful to verify whether ADB keyevents correlate with Space API summaries, but it still cannot replace RKInput/PointableUI/hand evidence.
+- `field:acceptance-session` now lifts the input assist readback into `station_input_assist`: `readback_state_ok`, `readback_sessions_ok`, latest active anchor, mission state, deltas, and `readback_proves_hardware_input=false`.
+- Latest smoke with localhost server up: `output/field-acceptance-session/field-acceptance-session-20260705-130413.json` had `readback_state_ok=true`, `readback_sessions_ok=true`, `readback_mission_state=entered`, `readback_proves_hardware_input=false`, and `hardware_acceptance_evidence=false`.
 ## Next
 
 - 重新生成最终交付包并验包，确认服务器部署计划、环境医生、release index、现场 LAN 预检脚本、Windows/Android fallback、Space Server 状态机修复和文档全部进入 zip。

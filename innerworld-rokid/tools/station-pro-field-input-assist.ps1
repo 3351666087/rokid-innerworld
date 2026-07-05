@@ -4,7 +4,9 @@ param(
   [string]$AdbPath = "",
   [string]$AdbSerial = "",
   [string]$OutputRoot = "",
+  [string]$ApiBaseUrl = "http://127.0.0.1:5177",
   [int]$DelayMs = 450,
+  [int]$ReadbackAfterApplySeconds = 2,
   [switch]$Apply,
   [switch]$RequireDevice
 )
@@ -149,6 +151,77 @@ function Select-AdbDevice {
   return $null
 }
 
+
+function Invoke-ApiJson {
+  param(
+    [string]$BaseUrl,
+    [string]$Path
+  )
+  $cleanBaseUrl = if ([string]::IsNullOrWhiteSpace($BaseUrl)) { "http://127.0.0.1:5177" } else { $BaseUrl.Trim().TrimEnd("/") }
+  try {
+    $response = Invoke-RestMethod -Method Get -Uri "$cleanBaseUrl$Path" -TimeoutSec 4
+    return [pscustomobject]@{ ok = $true; body = $response; error = $null }
+  } catch {
+    return [pscustomobject]@{ ok = $false; body = $null; error = $_.Exception.Message }
+  }
+}
+
+function Get-CountSafe {
+  param([AllowNull()]$Value)
+  if ($null -eq $Value) { return 0 }
+  return @($Value).Count
+}
+
+function Get-ReadbackSnapshot {
+  param([string]$BaseUrl)
+  $state = Invoke-ApiJson -BaseUrl $BaseUrl -Path "/api/state"
+  $sessions = Invoke-ApiJson -BaseUrl $BaseUrl -Path "/api/device/sessions"
+  $sessionRows = if ($sessions.ok -and $sessions.body.sessions) { @($sessions.body.sessions) } else { @() }
+  $liveRows = @($sessionRows | Where-Object { $_.session_status -eq "live" -or $_.session_status -eq "active" })
+  $pairedRows = @($sessionRows | Where-Object { $_.pairing_status -eq "operator_paired" })
+  $latest = if ($sessionRows.Count -gt 0) { $sessionRows[0] } else { $null }
+  $runtime = if ($state.ok) { $state.body } else { $null }
+  return [pscustomobject]@{
+    state_ok = [bool]$state.ok
+    sessions_ok = [bool]$sessions.ok
+    state_error = if ($state.ok) { $null } else { Redact-Text -Text $state.error }
+    sessions_error = if ($sessions.ok) { $null } else { Redact-Text -Text $sessions.error }
+    mission_state = if ($runtime) { $runtime.mission_state } else { $null }
+    active_user = if ($runtime) { $runtime.active_user } else { $null }
+    current_step_index = if ($runtime -and $null -ne $runtime.current_step_index) { [int]$runtime.current_step_index } else { $null }
+    completed_step_count = if ($runtime) { Get-CountSafe $runtime.completed_steps } else { 0 }
+    beacon_count = if ($runtime) { Get-CountSafe $runtime.beacons } else { 0 }
+    write_back_beacon_count = if ($runtime) { Get-CountSafe (@($runtime.beacons) | Where-Object { $_.anchor_id -eq "A3" -or $_.layer -eq "time_capsule" }) } else { 0 }
+    device_session_count = $sessionRows.Count
+    live_session_count = $liveRows.Count
+    paired_session_count = $pairedRows.Count
+    latest_session_status = if ($latest) { $latest.session_status } else { $null }
+    latest_pairing_status = if ($latest) { $latest.pairing_status } else { $null }
+    latest_active_anchor = if ($latest -and $latest.active_anchor) { $latest.active_anchor.anchor_id } else { $null }
+    latest_input_command = if ($latest -and $latest.input_frame) { $latest.input_frame.command } else { $null }
+    latest_input_blocker = if ($latest -and $latest.input_frame) { $latest.input_frame.input_blocker } else { $null }
+    latest_input_acceptance_mode = if ($latest -and $latest.input_frame) { $latest.input_frame.input_acceptance_mode } else { $null }
+    raw_session_ids_included = $false
+    raw_device_ids_included = $false
+  }
+}
+
+function Compare-ReadbackSnapshot {
+  param(
+    [AllowNull()]$Before,
+    [AllowNull()]$After
+  )
+  return [pscustomobject]@{
+    mission_state_changed = [bool]($Before -and $After -and $Before.mission_state -ne $After.mission_state)
+    active_user_changed = [bool]($Before -and $After -and $Before.active_user -ne $After.active_user)
+    active_anchor_changed = [bool]($Before -and $After -and $Before.latest_active_anchor -ne $After.latest_active_anchor)
+    completed_step_delta = if ($Before -and $After) { [int]$After.completed_step_count - [int]$Before.completed_step_count } else { 0 }
+    beacon_delta = if ($Before -and $After) { [int]$After.beacon_count - [int]$Before.beacon_count } else { 0 }
+    write_back_beacon_delta = if ($Before -and $After) { [int]$After.write_back_beacon_count - [int]$Before.write_back_beacon_count } else { 0 }
+    live_session_delta = if ($Before -and $After) { [int]$After.live_session_count - [int]$Before.live_session_count } else { 0 }
+    proves_hardware_input = $false
+  }
+}
 function Expand-ActionPlan {
   param([string[]]$RequestedActions)
   $map = @{
@@ -210,6 +283,11 @@ function Write-ReportMarkdown {
     "- Input blocker: $($Report.input_blocker)",
     "- Hardware acceptance evidence: $($Report.hardware_acceptance_evidence)",
     "- Hardware-ready claim allowed: $($Report.hardware_ready_claim_allowed)",
+    "- Readback state OK: $($Report.readback.after.state_ok)",
+    "- Readback sessions OK: $($Report.readback.after.sessions_ok)",
+    "- Readback latest active anchor: $($Report.readback.after.latest_active_anchor)",
+    "- Readback mission state: $($Report.readback.after.mission_state)",
+    "- Readback hardware evidence: $($Report.readback.hardware_acceptance_evidence)",
     "",
     "## Steps",
     "",
@@ -229,6 +307,7 @@ $selectedDevice = if ($adb) { Select-AdbDevice -Devices @($deviceProbe.devices) 
 $knownIds = @($deviceProbe.devices | ForEach-Object { $_.id })
 if (![string]::IsNullOrWhiteSpace($AdbSerial)) { $knownIds += $AdbSerial }
 $steps = Expand-ActionPlan -RequestedActions $Action
+$readbackBefore = Get-ReadbackSnapshot -BaseUrl $ApiBaseUrl
 $sent = New-Object 'System.Collections.Generic.List[object]'
 $ok = $true
 
@@ -252,6 +331,11 @@ if ($Apply -and $adb -and $selectedDevice -and $selectedDevice.state -eq "device
 } elseif ($Apply) {
   $ok = $false
 }
+if ($Apply -and $ReadbackAfterApplySeconds -gt 0) {
+  Start-Sleep -Seconds $ReadbackAfterApplySeconds
+}
+$readbackAfter = Get-ReadbackSnapshot -BaseUrl $ApiBaseUrl
+$readbackDelta = Compare-ReadbackSnapshot -Before $readbackBefore -After $readbackAfter
 
 $report = [pscustomobject]@{
   schema = "innerworld-station-pro-field-input-assist/v1"
@@ -274,12 +358,21 @@ $report = [pscustomobject]@{
   requested_actions = @($Action)
   steps = @($steps)
   sent_steps = @($sent.ToArray())
+  readback = [pscustomobject]@{
+    api_base_url_redacted = Redact-Text -Text $ApiBaseUrl
+    before = $readbackBefore
+    after = $readbackAfter
+    delta = $readbackDelta
+    hardware_acceptance_evidence = $false
+    note = "Readback only checks whether Space API summaries changed after ADB keyevents; it does not prove real RKInput/PointableUI/hand input."
+  }
   privacy = [pscustomobject]@{
     raw_device_ids_included = $false
     private_ips_included = $false
     raw_pairing_codes_included = $false
     raw_logcat_included = $false
     raw_dumpsys_included = $false
+    raw_session_ids_included = $false
   }
 }
 
