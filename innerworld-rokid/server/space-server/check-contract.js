@@ -973,7 +973,7 @@ async function assertRokidSimulatorSkeleton() {
 }
 
 async function assertServerCoreSkeleton() {
-  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration, fieldOperatorPlan, evidenceChain] = await Promise.all([
+  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration, fieldOperatorPlan, evidenceChain, readonlyCheck] = await Promise.all([
     readText("server/space-server/index.js"),
     readText("server/space-server/src/http/api-router.js"),
     readText("server/space-server/src/http/response.js"),
@@ -983,7 +983,8 @@ async function assertServerCoreSkeleton() {
     readText("server/space-server/src/store/sqlite-store.js"),
     readText("server/space-server/src/domain/wall-calibration.js"),
     readText("server/space-server/src/domain/field-operator-plan.js"),
-    readText("server/space-server/src/domain/evidence-chain.js")
+    readText("server/space-server/src/domain/evidence-chain.js"),
+    readText("server/space-server/check-readonly.js")
   ]);
 
   assert(index.includes("createApiRouter"), "server index does not use api router module");
@@ -995,6 +996,7 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/device/adapter-checklist"), "api router device adapter checklist route missing");
   assert(apiRouter.includes("/api/pins/nearby") && apiRouter.includes("semantic_preview_count") && apiRouter.includes("p0_anchor_count") && apiRouter.includes("pin_type"), "api router controlled semantic pin route summary missing");
   assert(evidenceChain.includes("summarizeControlledPreviews") && evidenceChain.includes("controlled_sky_pin_preview") && evidenceChain.includes("contributes_to_p0_acceptance"), "evidence chain controlled preview guard missing");
+  assert(readonlyCheck.includes("nearby.p0_anchor_count !== 3") && readonlyCheck.includes("semantic_preview_count") && readonlyCheck.includes("nearby controlled preview acceptance guard failed"), "readonly check controlled semantic pin guard missing");
   assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
   assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
