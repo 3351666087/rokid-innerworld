@@ -2,6 +2,7 @@
 
 ## 2026-07-05
 
+- Plan reset at 22:03 Asia/Shanghai: active development is explicitly aligned to PR #2 `docs/demo-plan.md` / `Campus Hidden Layer`. P0 remains the true Rokid one-wall A1 spatial entry, A2 memory read, A3 TimeMark write-back, and User B readback loop. `Whale Cloud Sky Pin` stays a controlled 3D Pin preview only and must not count as hardware/P0 acceptance evidence. Next execution lanes are real input recovery, spatial depth/product polish, demo package guards, field acceptance closure, and Carver long-line audit of teammate docs/PDFs and checkpoint diffs.
 - Demo plan alignment checkpoint: imported PR #2 `docs/demo-plan.md` as the narrative wrapper for `Campus Hidden Layer`. It does not replace P0. The mainline remains one real wall, A1 entry, A2 memory read, A3 TimeMark write-back, User B readback, and Rokid real-device acceptance. `Whale Cloud Sky Pin` is controlled preview content only, not open UGC, merchant dashboards, guide scope, phone-page scope, broad routing, or a platform pivot.
 - Carver audit note: use PR #2 as a source for `docs/demo-plan.md` only. Do not merge the PR branch wholesale because it can roll back current hardware-readiness, Unity XR, field scripts, checks, and docs.
 

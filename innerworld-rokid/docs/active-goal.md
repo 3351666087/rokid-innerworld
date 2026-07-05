@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-05 13:08 Asia/Shanghai
+Updated: 2026-07-05 22:03 Asia/Shanghai
 
 Latest execution slice: `field:operator-plan` is now the lightweight local/LAN operator-plan capture command for the productized field lane. It reads only `/api/field/operator-plan`, writes sanitized `output/field-operator-plan/field-operator-plan-latest.json` and `.md`, and keeps the same P0 boundary: one real wall, A1 entry, A2 read, A3 TimeMark write-back, User B readback, with no guide/PPT/phone-only/open-UGC/backend/route expansion and no hardware-ready claim without physical `/api/field/acceptance`.
 
@@ -14,6 +14,10 @@ Latest real-device input checkpoint: the real-device page is now visible, but th
 Spatial system checkpoint: the Unity shell is no longer treated as a flat panel stack only. A1/A2/A3 now use depth-layer offsets and a curved `Spatial Memory Depth Ribbon` so the memory-read node can float forward from the wall while entry/write-back sit on separate spatial layers. Continue growing the spatial memory field opportunistically, but keep every growth locked to the single P0 wall and the A1 entry / A2 memory read / A3 TimeMark write-back / User B readback loop: prefer anchored depth, breathing surfaces, route ribbons, focus state, and memory evidence layering over flat UI cards, and do not expand into general spatial navigation.
 
 Demo plan alignment: PR #2 `docs/demo-plan.md` is now the narrative wrapper for the final showing: `Campus Hidden Layer` over one real exhibition wall. It does not replace the current P0 goal. P0 remains one real wall, A1 entry, A2 memory read, A3 TimeMark write-back, and User B readback on the Rokid real-device route. `Whale Cloud Sky Pin` is allowed only as controlled demo extension preview content, not open UGC, merchant dashboards, normal guide scope, phone-page scope, broad routing, or a platform pivot.
+
+Current plan reset from the 2026-07-05 PR #2 teammate note: keep `docs/demo-plan.md` as the demo narrative contract and keep the engineering mainline on true Rokid hardware. The next work is ordered as follows: (1) real input recovery and proof, where Station Pro / RKInput / PointableUI / hand or equivalent SDK input must produce trusted evidence and the operator-assist rail remains rehearsal only; (2) spatial product polish, where A1/A2/A3 grow into a deeper Campus Hidden Layer memory field without leaving the one-wall P0 loop; (3) demo-package hardening, where packaged localhost/LAN releases must include the demo-plan contract, the controlled `SKY_WHALE_CLOUD_001` preview, and guards proving it is not P0 acceptance evidence; (4) field acceptance closure, where trusted A1/A2/A3 observations, A3 write-back, User B readback, and `/api/field/acceptance` are the only route to a hardware-ready claim; (5) Carver long-line audit, where Carver keeps rereading teammate docs/PDFs and checkpoint diffs and writes local findings before major direction changes.
+
+Do not expand the new plan into a general guide, phone-only page, PPT, open UGC feed, institution backend, merchant platform, broad route map, or campus/city navigation product. Sky Pin / Whale Cloud is a controlled future-facing scene after the wall loop, not a scope escape hatch.
 
 ## Objective
 
