@@ -62,6 +62,47 @@
       "created_at": "2026-07-01T00:00:00+08:00"
     }
   ],
+  "semantic_pins": [
+    {
+      "pin_id": "sky_whale_cloud_001",
+      "pin_kind": "semantic",
+      "pin_type": "sky",
+      "title": "鲸鱼云",
+      "subtitle": "西浦操场 · 开放世界 TimeMark",
+      "text": "今天没有鲸鱼，但有晚风。",
+      "display_text": "天空里有一枚高热度 TimeMark",
+      "anchor_mode": "world",
+      "demo_scope": "controlled_semantic_pin_demo",
+      "geo": {
+        "lat": 31.27532,
+        "lng": 120.73852,
+        "alt": null,
+        "accuracy_radius_m": 12,
+        "visible_radius_m": 80
+      },
+      "spatial": {
+        "height_mode": "semantic",
+        "height_offset_m": 18,
+        "display_distance_limit_m": 35,
+        "local_pose": { "x": 2.4, "y": 4.8, "z": 8.5 },
+        "billboard": true
+      },
+      "media": {
+        "type": "image",
+        "thumbnail_url": "/assets/demo/whale-cloud-thumb.svg",
+        "image_url": "/assets/demo/whale-cloud.svg",
+        "alt": "一张鲸鱼形状云朵的 TimeMark 配图"
+      },
+      "social": {
+        "likes": 217,
+        "comments": 42,
+        "checkins": 89,
+        "heat_score": 0.86
+      },
+      "created_at": "2026-07-01T17:23:00+08:00",
+      "source": "demo_seed"
+    }
+  ],
   "mission": {
     "mission_id": "M_FIND_YEAR",
     "state": "entered",
@@ -75,6 +116,7 @@
         "campus_wall_only": true,
         "generic_tour_or_ugc": false,
         "open_ugc": false,
+        "controlled_semantic_pin_demo": true,
         "phone_or_ppt_primary": false,
         "required_anchor_ids": ["A1", "A2", "A3"]
       },

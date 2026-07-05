@@ -337,7 +337,10 @@ async function main() {
 
     const { body: nearby } = await fetchJson("/api/pins/nearby?radius=20");
     assert(nearby.space_id === spaceId, "nearby space_id check failed");
-    assert(Array.isArray(nearby.pins) && nearby.pins.length === health.anchor_count, "nearby pins check failed");
+    assert(Array.isArray(nearby.pins) && nearby.pins.length >= health.anchor_count, "nearby pins check failed");
+    assert(nearby.pin_counts?.anchored === health.anchor_count, "nearby anchored pin count check failed");
+    assert(nearby.pin_counts?.semantic >= 1, "nearby semantic pin count check failed");
+    assert(nearby.pins.some((pin) => pin.pin_id === "sky_whale_cloud_001" && pin.pin_type === "sky"), "nearby semantic sky pin check failed");
 
     const { res: writeRes, body: write } = await fetchJson(`/api/spaces/${spaceId}/beacons`, {
       method: "POST",

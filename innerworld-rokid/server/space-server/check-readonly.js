@@ -10,13 +10,20 @@ async function main() {
 
   if (!health.ok) throw new Error("health check failed");
   if (space.space_id !== "innerworld_campus_wall") throw new Error("space check failed");
-  if (!Array.isArray(nearby.pins) || nearby.pins.length !== 3) throw new Error("nearby pins check failed");
+  if (!Array.isArray(nearby.pins) || nearby.pins.length < 3) throw new Error("nearby pins check failed");
+  const anchoredPins = nearby.pins.filter((pin) => pin.pin_kind === "anchored" || pin.anchor_id);
+  const semanticPins = nearby.pins.filter((pin) => pin.pin_kind === "semantic");
+  if (anchoredPins.length !== 3) throw new Error("nearby anchored pins check failed");
+  if (!semanticPins.some((pin) => pin.pin_id === "sky_whale_cloud_001" && pin.pin_type === "sky")) {
+    throw new Error("nearby semantic sky pin check failed");
+  }
   if (!Array.isArray(state.beacons)) throw new Error("state check failed");
 
   console.log(JSON.stringify({
     ok: true,
     base,
     pins: nearby.pins.length,
+    semantic_pins: semanticPins.length,
     beacons: state.beacons.length,
     mission_state: state.mission_state
   }, null, 2));

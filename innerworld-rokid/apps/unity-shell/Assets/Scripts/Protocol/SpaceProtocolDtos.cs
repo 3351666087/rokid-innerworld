@@ -1045,18 +1045,80 @@ namespace InnerWorld.Rokid.Protocol
     {
         public string space_id;
         public float radius_m;
+        public NearbyPinCounts pin_counts;
         public NearbyPin[] pins;
+    }
+
+    [Serializable]
+    public sealed class NearbyPinCounts
+    {
+        public int anchored;
+        public int semantic;
+        public int total;
     }
 
     [Serializable]
     public sealed class NearbyPin
     {
+        public string pin_id;
+        public string pin_kind;
+        public string pin_type;
         public string anchor_id;
+        public string anchor_mode;
         public string label;
+        public string title;
+        public string subtitle;
+        public string text;
+        public string display_text;
+        public string demo_scope;
         public string kind;
         public SpacePose pose;
         public GridPosition grid_pos;
         public string default_state;
+        public NearbyPinGeo geo;
+        public NearbyPinSpatial spatial;
+        public NearbyPinMedia media;
+        public NearbyPinSocial social;
+        public string source;
+        public string created_at;
         public SpaceBeacon[] beacons;
+    }
+
+    [Serializable]
+    public sealed class NearbyPinGeo
+    {
+        public double lat;
+        public double lng;
+        public float alt;
+        public float accuracy_radius_m;
+        public float visible_radius_m;
+    }
+
+    [Serializable]
+    public sealed class NearbyPinSpatial
+    {
+        public string height_mode;
+        public float height_offset_m;
+        public float display_distance_limit_m;
+        public SpacePose local_pose;
+        public bool billboard;
+    }
+
+    [Serializable]
+    public sealed class NearbyPinMedia
+    {
+        public string type;
+        public string thumbnail_url;
+        public string image_url;
+        public string alt;
+    }
+
+    [Serializable]
+    public sealed class NearbyPinSocial
+    {
+        public int likes;
+        public int comments;
+        public int checkins;
+        public float heat_score;
     }
 }

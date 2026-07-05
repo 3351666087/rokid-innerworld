@@ -34,7 +34,7 @@
       "image_target_asset": {
         "asset_id": "field-target-a2-memory-beacon-v1",
         "asset_path": "data/field-targets/a2-memory-beacon-target.svg",
-        "sha256": "fdf75b938db413487eca0810141f6bc494723fd164704a2f812c72ca78bfb447",
+        "sha256": "5c764287d1de518b54d20202ce291e80779cf31c81d872453ba075c0ec687b79",
         "physical_width_mm": 150,
         "physical_height_mm": 100,
         "dpi": 300,
@@ -56,7 +56,7 @@
       "image_target_asset": {
         "asset_id": "field-target-a3-writeback-v1",
         "asset_path": "data/field-targets/a3-writeback-target.svg",
-        "sha256": "db053a3bddb388b1fcae97770e7c6cd4cdbb31a132d09460eedc7dcf6b53d517",
+        "sha256": "5994ad59012ea2fdc7aad50a1aabe7028b200df9e36873c8ed3c5864ddaa9331",
         "physical_width_mm": 150,
         "physical_height_mm": 100,
         "dpi": 300,

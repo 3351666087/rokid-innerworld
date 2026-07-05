@@ -129,6 +129,31 @@ function missionResultSummary(type, updated) {
   };
 }
 
+function buildNearbyAnchorPin(anchor, state) {
+  return {
+    ...anchor,
+    pin_id: anchor.anchor_id,
+    pin_kind: "anchored",
+    pin_type: anchor.kind || "anchor",
+    anchor_mode: "wall_anchor",
+    beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
+  };
+}
+
+function buildNearbySemanticPin(pin) {
+  return {
+    ...pin,
+    pin_kind: pin.pin_kind || "semantic",
+    anchor_id: pin.anchor_id || null,
+    kind: pin.kind || pin.pin_type || "semantic",
+    label: pin.label || pin.title || pin.pin_id,
+    default_state: pin.default_state || "available",
+    pose: pin.pose || pin.spatial?.local_pose || null,
+    grid_pos: pin.grid_pos || null,
+    beacons: Array.isArray(pin.beacons) ? pin.beacons : []
+  };
+}
+
 export function createApiRouter({
   aiPromptPath,
   aiSchemaPath,
@@ -626,13 +651,19 @@ export function createApiRouter({
     if (req.method === "GET" && url.pathname === "/api/pins/nearby") {
       const space = await loadSpace();
       const state = await loadState();
+      const anchoredPins = space.anchors.map((anchor) => buildNearbyAnchorPin(anchor, state));
+      const semanticPins = Array.isArray(space.semantic_pins)
+        ? space.semantic_pins.map((pin) => buildNearbySemanticPin(pin))
+        : [];
       sendJson(res, 200, {
         space_id: space.space_id,
         radius_m: Number(url.searchParams.get("radius") || 20),
-        pins: space.anchors.map((anchor) => ({
-          ...anchor,
-          beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
-        }))
+        pin_counts: {
+          anchored: anchoredPins.length,
+          semantic: semanticPins.length,
+          total: anchoredPins.length + semanticPins.length
+        },
+        pins: [...anchoredPins, ...semanticPins]
       });
       return;
     }
