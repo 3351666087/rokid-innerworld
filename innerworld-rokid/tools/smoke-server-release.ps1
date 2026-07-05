@@ -95,6 +95,30 @@ function Assert-ReleaseFieldEndpoints {
   }
 }
 
+function Assert-ControlledPreviewEvidence {
+  param([object]$EvidenceChain)
+
+  if ($EvidenceChain.schema -ne "innerworld-evidence-chain/v1") {
+    throw "Release smoke /api/evidence/chain schema mismatch"
+  }
+  if ($EvidenceChain.controlled_previews.status -ne "preview_only") {
+    throw "Release smoke controlled preview status must be preview_only"
+  }
+  if ($EvidenceChain.controlled_previews.count -lt 1) {
+    throw "Release smoke controlled preview pin missing"
+  }
+  if ($EvidenceChain.controlled_previews.hardware_acceptance_evidence -ne $false -or $EvidenceChain.controlled_previews.contributes_to_p0_acceptance -ne $false) {
+    throw "Release smoke controlled preview must not count as hardware/P0 acceptance evidence"
+  }
+  if ($EvidenceChain.controlled_previews.open_ugc_allowed -ne $false) {
+    throw "Release smoke controlled preview must not allow open UGC"
+  }
+  $previewItem = @($EvidenceChain.evidence_items | Where-Object { $_.id -eq "controlled_sky_pin_preview" } | Select-Object -First 1)
+  if ($null -eq $previewItem -or $previewItem.status -ne "preview" -or $previewItem.contributes_to_p0_acceptance -ne $false) {
+    throw "Release smoke controlled Sky Pin evidence item guard missing"
+  }
+}
+
 function Convert-CommandJson {
   param(
     [AllowNull()][object]$Lines,
@@ -173,7 +197,9 @@ try {
   $operatorPlan = Invoke-SmokeJson -Path "/api/field/operator-plan"
   $fieldAcceptance = Invoke-SmokeJson -Path "/api/field/acceptance"
   $targetReadiness = Invoke-SmokeJson -Path "/api/field/target-readiness"
+  $evidenceChain = Invoke-SmokeJson -Path "/api/evidence/chain"
   Assert-ReleaseFieldEndpoints -OperatorPlan $operatorPlan -FieldAcceptance $fieldAcceptance -TargetReadiness $targetReadiness
+  Assert-ControlledPreviewEvidence -EvidenceChain $evidenceChain
 
   $livePassOutputRoot = Join-Path $target "field-live-pass-output"
   $livePassLines = & node (Join-Path $root "tools\field-live-pass.js") "--single" "--base-url" $baseUrl "--output-root" $livePassOutputRoot
@@ -231,6 +257,13 @@ try {
       precheck_ok = $targetReadiness.precheck_ok
       physical_acceptance_ready = $targetReadiness.physical_acceptance_ready
       hardware_ready_claim_allowed = $targetReadiness.hardware_ready_claim_allowed
+    }
+    controlled_previews = [pscustomobject]@{
+      status = $evidenceChain.controlled_previews.status
+      count = $evidenceChain.controlled_previews.count
+      hardware_acceptance_evidence = $evidenceChain.controlled_previews.hardware_acceptance_evidence
+      contributes_to_p0_acceptance = $evidenceChain.controlled_previews.contributes_to_p0_acceptance
+      open_ugc_allowed = $evidenceChain.controlled_previews.open_ugc_allowed
     }
     field_live_pass = [pscustomobject]@{
       ok = $livePass.ok
