@@ -139,7 +139,20 @@ function Convert-ToStringArray {
       [void]$items.Add("$item")
     }
   }
-  return ,([string[]]($items.ToArray()))
+  return [string[]]($items.ToArray())
+}
+
+function Convert-ToBlockerIdArray {
+  param([AllowNull()][object]$Value)
+  $items = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($item in @(Convert-ToStringArray -Value $Value)) {
+    foreach ($part in @($item -split '[,\s]+')) {
+      if (![string]::IsNullOrWhiteSpace($part) -and !$items.Contains($part)) {
+        [void]$items.Add($part)
+      }
+    }
+  }
+  return [string[]]($items.ToArray())
 }
 
 function Invoke-ProcessCapture {
@@ -404,6 +417,11 @@ function Write-SessionMarkdown {
   }
   if (!$fieldInputReadinessBlockerLines) { $fieldInputReadinessBlockerLines = @("- none") }
   $fieldInputReadinessBlockersBlock = $fieldInputReadinessBlockerLines -join "`n"
+  $p0PhysicalBlockerLines = foreach ($blocker in @($Report.p0_physical_blockers)) {
+    "- $blocker"
+  }
+  if (!$p0PhysicalBlockerLines) { $p0PhysicalBlockerLines = @("- none") }
+  $p0PhysicalBlockersBlock = $p0PhysicalBlockerLines -join "`n"
   $operatorActionsBlock = $operatorActionLines -join "`n"
   $operatorBlockersBlock = $operatorBlockerLines -join "`n"
   $operatorPhasesBlock = $operatorPhaseLines -join "`n"
@@ -427,6 +445,7 @@ function Write-SessionMarkdown {
 - Station input assist apply requested: $($Report.station_input_assist.apply_requested)
 - Real input ready: $($Report.field_input_readiness.real_input_ready)
 - Real input blocker count: $($Report.field_input_readiness.blocker_count)
+- P0 physical blocker count: $($Report.p0_physical_blocker_count)
 - Live session ready: $($Report.live_pass.live_session_ready)
 - Trusted A1/A2/A3 ready: $($Report.live_pass.trusted_a1_a2_a3_ready)
 - Mission loop ready: $($Report.live_pass.mission_loop_ready)
@@ -438,6 +457,10 @@ function Write-SessionMarkdown {
 - Target mutating launch matches APK: $($Report.target_pass.mutating_launch_matches_current_apk)
 - Target pass command OK: $($Report.target_pass.command_ok)
 - Hardware-ready claim allowed: $($Report.hardware_ready_claim_allowed)
+
+## P0 Physical Blockers
+
+$p0PhysicalBlockersBlock
 
 ## Commands
 
@@ -789,6 +812,30 @@ if ($nextActions.Count -eq 0) {
   )
 }
 
+$p0PhysicalBlockerItems = New-Object 'System.Collections.Generic.List[string]'
+$stationGlassesBlockerSource = if ($stationGlassesJson -and $stationGlassesJson.readiness) { $stationGlassesJson.readiness.blocker_ids } else { @("station_glasses_diagnostics_missing") }
+foreach ($blocker in @(Convert-ToBlockerIdArray -Value $stationGlassesBlockerSource)) {
+  if (![string]::IsNullOrWhiteSpace($blocker) -and !$p0PhysicalBlockerItems.Contains($blocker)) {
+    [void]$p0PhysicalBlockerItems.Add($blocker)
+  }
+}
+foreach ($blocker in @(if ($fieldInputReadinessJson) { Convert-ToBlockerIdArray -Value $fieldInputReadinessJson.blockers } else { @("field_input_readiness_missing") })) {
+  if (![string]::IsNullOrWhiteSpace($blocker) -and !$p0PhysicalBlockerItems.Contains($blocker)) {
+    [void]$p0PhysicalBlockerItems.Add($blocker)
+  }
+}
+foreach ($blocker in @(if ($livePassJson) { Convert-ToBlockerIdArray -Value $livePassJson.blockers } else { @("field_live_pass_summary_missing") })) {
+  if (![string]::IsNullOrWhiteSpace($blocker) -and !$p0PhysicalBlockerItems.Contains($blocker)) {
+    [void]$p0PhysicalBlockerItems.Add($blocker)
+  }
+}
+foreach ($blocker in @(if ($targetPassJson) { Convert-ToBlockerIdArray -Value $targetPassJson.physical_blockers } else { @() })) {
+  if (![string]::IsNullOrWhiteSpace($blocker) -and !$p0PhysicalBlockerItems.Contains($blocker)) {
+    [void]$p0PhysicalBlockerItems.Add($blocker)
+  }
+}
+$p0PhysicalBlockers = [string[]]$p0PhysicalBlockerItems.ToArray()
+
 $report = [pscustomobject]@{
   schema = "innerworld-field-acceptance-session/v1"
   generated_at = (Get-Date).ToString("o")
@@ -932,6 +979,8 @@ $report = [pscustomobject]@{
     physical_blockers = if ($targetPassJson) { Convert-ToStringArray -Value $targetPassJson.physical_blockers } else { Convert-ToStringArray -Value $null }
   }
   hardware_ready_claim_allowed = $hardwareReadyClaimAllowed
+  p0_physical_blocker_count = @($p0PhysicalBlockers).Count
+  p0_physical_blockers = [string[]]$p0PhysicalBlockers
   next_required_actions = [string[]]$nextActions
   api_snapshots = $apiSnapshots
   commands = @($commands | Select-Object name,ok,exit_code,timed_out,started_at,finished_at,duration_seconds,output_tail)
@@ -944,6 +993,7 @@ $report = [pscustomobject]@{
     raw_logcat_included = $false
     raw_dumpsys_included = $false
     raw_getprop_included = $false
+    p0_physical_blocker_summary_hardware_acceptance_evidence = $false
     field_input_readiness_hardware_acceptance_evidence = $false
     station_input_assist_hardware_acceptance_evidence = $false
     note = "Command tails are redacted. The runner never writes raw logcat, pairing codes, serials, USB instance ids, MACs, or private IPs."

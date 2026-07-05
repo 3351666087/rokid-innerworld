@@ -1155,6 +1155,9 @@ async function assertFieldAcceptanceSessionSkeleton() {
   assert(tool.includes("simulator_or_manual_observations_created = $false"), "field acceptance session must not create rehearsal observations");
   assert(tool.includes("mission_or_writeback_mutated = [bool]($targetAppliedActions.Count -gt 0)"), "field acceptance session must report actual mission/write-back mutation state");
   assert(tool.includes("precheck_ok") && tool.includes("physical_acceptance_ready") && tool.includes("physical_blockers"), "field acceptance session target pass physical readiness summary missing");
+  assert(tool.includes("P0 Physical Blockers") && tool.includes("p0_physical_blocker_count") && tool.includes("p0_physical_blockers"), "field acceptance session P0 physical blocker rollup missing");
+  assert(tool.includes("Convert-ToBlockerIdArray") && tool.includes("-split '[,\\s]+'"), "field acceptance session P0 blocker rollup must flatten blocker ids");
+  assert(tool.includes("p0_physical_blocker_summary_hardware_acceptance_evidence = $false"), "field acceptance session P0 blocker rollup privacy/evidence guard missing");
   assert(tool.includes("hardware_ready_claim_allowed"), "field acceptance session hardware-ready claim guard missing");
   assert(tool.includes("livePassJson.ok -eq $false") && tool.includes("$livePassCommand.ok = $false"), "field acceptance session strict live-pass failure propagation missing");
   assert(tool.includes("targetPassJson.ok -eq $false") && tool.includes("$targetPassCommand.ok = $false"), "field acceptance session strict target-pass failure propagation missing");
