@@ -566,8 +566,13 @@ function assertEvidenceChainContract(space, aiSchema, hardwareManifest) {
   assert(evidence.hardware.devices.length === 2, "evidence chain hardware devices mismatch");
   assert(evidence.release.status === "dry_run_verified", "evidence chain release status mismatch");
   assert(evidence.release.packages.server_package.file === "innerworld-space-server.zip", "evidence chain package filename mismatch");
+  assert(evidence.controlled_previews.status === "preview_only" && evidence.controlled_previews.count === 1, "evidence chain controlled preview summary mismatch");
+  assert(evidence.controlled_previews.hardware_acceptance_evidence === false && evidence.controlled_previews.contributes_to_p0_acceptance === false, "evidence chain controlled preview must not count as P0 evidence");
+  assert(evidence.controlled_previews.pins.some((pin) => pin.pin_id === "SKY_WHALE_CLOUD_001" && pin.user_generated === false && pin.merchant_or_marketplace === false && pin.broad_route === false), "evidence chain Whale Cloud safety summary missing");
   assert(Array.isArray(evidence.evidence_items) && evidence.evidence_items.length >= 6, "evidence chain items missing");
   assert(evidence.evidence_items.some((item) => item.id === "writeback_loop"), "evidence chain writeback item missing");
+  assert(evidence.evidence_items.some((item) => item.id === "controlled_sky_pin_preview" && item.status === "preview" && item.contributes_to_p0_acceptance === false), "evidence chain controlled Sky Pin preview item missing");
+  assert(evidence.evidence_replay_judge_mode.source_evidence.some((item) => item.id === "controlled_preview" && item.status === "preview" && item.hardware_acceptance_evidence === false), "evidence replay controlled preview guard missing");
   assert(JSON.stringify(evidence.hardware).includes(hardwareManifest.source?.path) === false, "evidence chain leaked source path");
 }
 
@@ -968,7 +973,7 @@ async function assertRokidSimulatorSkeleton() {
 }
 
 async function assertServerCoreSkeleton() {
-  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration, fieldOperatorPlan] = await Promise.all([
+  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration, fieldOperatorPlan, evidenceChain] = await Promise.all([
     readText("server/space-server/index.js"),
     readText("server/space-server/src/http/api-router.js"),
     readText("server/space-server/src/http/response.js"),
@@ -977,7 +982,8 @@ async function assertServerCoreSkeleton() {
     readText("server/space-server/src/domain/device-runtime.js"),
     readText("server/space-server/src/store/sqlite-store.js"),
     readText("server/space-server/src/domain/wall-calibration.js"),
-    readText("server/space-server/src/domain/field-operator-plan.js")
+    readText("server/space-server/src/domain/field-operator-plan.js"),
+    readText("server/space-server/src/domain/evidence-chain.js")
   ]);
 
   assert(index.includes("createApiRouter"), "server index does not use api router module");
@@ -988,6 +994,7 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/device/manifest"), "api router device manifest route missing");
   assert(apiRouter.includes("/api/device/adapter-checklist"), "api router device adapter checklist route missing");
   assert(apiRouter.includes("/api/pins/nearby") && apiRouter.includes("semantic_preview_count") && apiRouter.includes("p0_anchor_count") && apiRouter.includes("pin_type"), "api router controlled semantic pin route summary missing");
+  assert(evidenceChain.includes("summarizeControlledPreviews") && evidenceChain.includes("controlled_sky_pin_preview") && evidenceChain.includes("contributes_to_p0_acceptance"), "evidence chain controlled preview guard missing");
   assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
   assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
