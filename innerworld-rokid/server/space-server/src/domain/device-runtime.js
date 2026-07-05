@@ -919,6 +919,8 @@ function sanitizeInputFrame(value) {
   const anchorHit = sanitizeBoolean(value.anchor_hit ?? value.has_anchor_hit ?? value.anchorHit) === true;
   const pointableFocus = sanitizeBoolean(value.pointable_ui_focus ?? value.pointableFocus) === true || Boolean(focusedAnchorId);
   const rayReported = Boolean(value.ray_origin && value.ray_direction) || sanitizeBoolean(value.ray_reported) === true;
+  const fallbackInputVisible = sanitizeBoolean(value.fallback_input_visible ?? value.fallbackInputVisible) === true;
+  const operatorAssistInput = sanitizeBoolean(value.operator_assist_input ?? value.operatorAssistInput) === true;
   return {
     schema: "innerworld-rokid-input-frame/v1",
     source: sanitizeEnumText(value.source, 64) || "unknown",
@@ -940,6 +942,10 @@ function sanitizeInputFrame(value) {
     focused_anchor_label: redactSensitiveText(value.focused_anchor_label || value.anchor_label || value.focusedAnchorLabel, 80) || null,
     hit_distance_meters: sanitizeNumber(value.hit_distance_meters ?? value.hitDistanceMeters, 0, 20),
     ray_reported: rayReported,
+    fallback_input_visible: fallbackInputVisible,
+    operator_assist_input: operatorAssistInput,
+    input_blocker: sanitizeEnumText(value.input_blocker ?? value.inputBlocker, 80) || null,
+    input_acceptance_mode: sanitizeEnumText(value.input_acceptance_mode ?? value.inputAcceptanceMode, 80) || null,
     voice_text_present: sanitizeBoolean(value.voice_text_present ?? value.voiceTextPresent) === true
   };
 }
@@ -950,7 +956,11 @@ function summarizeInputFrame(inputFrame) {
       reported: false,
       ray_reported: false,
       focused_anchor_id: null,
-      pointable_ui_focus: false
+      pointable_ui_focus: false,
+      fallback_input_visible: false,
+      operator_assist_input: false,
+      input_blocker: null,
+      input_acceptance_mode: null
     };
   }
   return {
@@ -963,6 +973,10 @@ function summarizeInputFrame(inputFrame) {
     pointable_ui_focus: inputFrame.pointable_ui_focus === true,
     hit_distance_meters: inputFrame.hit_distance_meters ?? null,
     ray_reported: inputFrame.ray_reported === true,
+    fallback_input_visible: inputFrame.fallback_input_visible === true,
+    operator_assist_input: inputFrame.operator_assist_input === true,
+    input_blocker: inputFrame.input_blocker || null,
+    input_acceptance_mode: inputFrame.input_acceptance_mode || null,
     gaze_select_held: inputFrame.buttons?.gaze_select_held === true,
     confirm_down: inputFrame.buttons?.confirm_down === true,
     confirm_held: inputFrame.buttons?.confirm_held === true

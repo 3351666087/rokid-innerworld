@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "../..");
 
 const files = {
   goal: path.join(root, "docs", "active-goal.md"),
+  demoPlan: path.join(root, "docs", "demo-plan.md"),
   teammateDocsBus: path.join(root, "docs", "teammate-docs-bus.md"),
   contract: path.join(root, "shared", "innerworld-contract.js"),
   webHtml: path.join(root, "apps", "web-demo", "index.html"),
@@ -121,6 +122,22 @@ const requiredOperatorPlanTokens = [
   "simulator_or_manual_observations_created",
   "adb_or_logcat_run",
   "hardware_ready_claim_allowed"
+];
+
+const requiredDemoPlanTokens = [
+  "InnerWorld Demo Plan: Campus Hidden Layer",
+  "does not replace the current P0 goal",
+  "one real wall",
+  "A1 entry",
+  "A2 memory read",
+  "A3 TimeMark write-back",
+  "User B readback",
+  "Whale Cloud Sky Pin",
+  "controlled demo",
+  "not open UGC",
+  "merchant dashboards",
+  "not a normal guide app",
+  "not a phone page"
 ];
 
 const requiredWebModules = [
@@ -254,6 +271,7 @@ async function main() {
   const teammateDocsBusChecks = includesAll(`${sources.goal}\n${sources.teammateDocsBus}`, requiredTeammateDocsBusTokens);
   const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}\n${sources.apiRouter}\n${sources.deviceRuntime}`, requiredCombinedDirection);
   const operatorPlanChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldOperatorPlanTool}`, requiredOperatorPlanTokens);
+  const demoPlanChecks = includesAll(`${sources.goal}\n${sources.demoPlan}`, requiredDemoPlanTokens);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
   const unityChecks = includesAll(sources.unityController, requiredUnityTokens);
@@ -286,6 +304,7 @@ async function main() {
     ...teammateDocsBusChecks.filter((item) => !item.ok).map((item) => `teammate docs bus missing: ${item.needle}`),
     ...combinedDirectionChecks.filter((item) => !item.ok).map((item) => `mainline contract missing: ${item.needle}`),
     ...operatorPlanChecks.filter((item) => !item.ok).map((item) => `operator plan mainline missing: ${item.needle}`),
+    ...demoPlanChecks.filter((item) => !item.ok).map((item) => `demo plan alignment missing: ${item.needle}`),
     ...webChecks.filter((item) => !item.ok).map((item) => `web module missing: ${item.needle}`),
     ...contractChecks.filter((item) => !item.ok).map((item) => `contract token missing: ${item.needle}`),
     ...unityChecks.filter((item) => !item.ok).map((item) => `unity controller token missing: ${item.needle}`),
@@ -326,6 +345,7 @@ async function main() {
     hardware_connected_checkpoint: "station_pro_trusted_hardware_session",
     teammate_docs_bus_tokens: requiredTeammateDocsBusTokens.length,
     operator_plan_tokens: requiredOperatorPlanTokens.length,
+    demo_plan_tokens: requiredDemoPlanTokens.length,
     release_smoke_tokens: requiredReleaseSmokeTokens.length,
     long_modules: [
       "a1_spatial_entry_experience",

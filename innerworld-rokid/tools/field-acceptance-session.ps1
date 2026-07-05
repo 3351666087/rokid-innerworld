@@ -4,6 +4,7 @@
   [switch]$SkipDeviceProbe,
   [switch]$SkipGlassesDiagnostics,
   [switch]$SkipInputAssist,
+  [switch]$SkipInputReadiness,
   [switch]$SkipApkInspect,
   [switch]$PairSmoke,
   [switch]$ApplyInputAssist,
@@ -398,6 +399,11 @@ function Write-SessionMarkdown {
   }
   if (!$inputAssistStepLines) { $inputAssistStepLines = @("- none") }
   $inputAssistStepsBlock = $inputAssistStepLines -join "`n"
+  $fieldInputReadinessBlockerLines = foreach ($blocker in @($Report.field_input_readiness.blockers)) {
+    "- $blocker"
+  }
+  if (!$fieldInputReadinessBlockerLines) { $fieldInputReadinessBlockerLines = @("- none") }
+  $fieldInputReadinessBlockersBlock = $fieldInputReadinessBlockerLines -join "`n"
   $operatorActionsBlock = $operatorActionLines -join "`n"
   $operatorBlockersBlock = $operatorBlockerLines -join "`n"
   $operatorPhasesBlock = $operatorPhaseLines -join "`n"
@@ -419,6 +425,8 @@ function Write-SessionMarkdown {
 - Station glasses command OK: $($Report.station_glasses.command_ok)
 - Station input assist OK: $($Report.station_input_assist.command_ok)
 - Station input assist apply requested: $($Report.station_input_assist.apply_requested)
+- Real input ready: $($Report.field_input_readiness.real_input_ready)
+- Real input blocker count: $($Report.field_input_readiness.blocker_count)
 - Live session ready: $($Report.live_pass.live_session_ready)
 - Trusted A1/A2/A3 ready: $($Report.live_pass.trusted_a1_a2_a3_ready)
 - Mission loop ready: $($Report.live_pass.mission_loop_ready)
@@ -449,6 +457,18 @@ $commandsBlock
 - Station USB data role: $($Report.station_glasses.station_usb_current_data_role)
 - Head-pose failure count: $($Report.station_glasses.head_pose_failure_count)
 - Hardware-ready claim allowed: $($Report.station_glasses.hardware_ready_claim_allowed)
+
+### Real Input Readiness
+
+- Command OK: $($Report.field_input_readiness.command_ok)
+- Real input ready: $($Report.field_input_readiness.real_input_ready)
+- Real input frame count: $($Report.field_input_readiness.real_input_frame_count)
+- Operator assist frame count: $($Report.field_input_readiness.operator_assist_frame_count)
+- Pointable focus count: $($Report.field_input_readiness.pointable_focus_count)
+- Confirm ready count: $($Report.field_input_readiness.confirm_ready_count)
+- Hardware acceptance evidence: $($Report.field_input_readiness.hardware_acceptance_evidence)
+
+$fieldInputReadinessBlockersBlock
 
 ### Station Pro Input Assist
 
@@ -564,6 +584,19 @@ if (!$SkipInputAssist) {
   $commands += $stationInputAssistCommand
 }
 $stationInputAssistJson = Convert-JsonOutput -Command $stationInputAssistCommand
+
+if (!$SkipInputReadiness) {
+  $fieldInputReadinessCommand = Invoke-ProcessCapture `
+    -Name "field-input-readiness" `
+    -FileName "node" `
+    -Arguments @("tools/field-input-readiness.js", "--base-url=$BaseUrl") `
+    -TimeoutSec ([Math]::Min($CommandTimeoutSec, 90))
+  $commands += $fieldInputReadinessCommand
+} else {
+  $fieldInputReadinessCommand = New-SkippedCommand -Name "field-input-readiness" -Reason "SkipInputReadiness"
+  $commands += $fieldInputReadinessCommand
+}
+$fieldInputReadinessJson = Convert-JsonOutput -Command $fieldInputReadinessCommand
 
 if (!$SkipApkInspect) {
   $commands += Invoke-ProcessCapture `
@@ -796,6 +829,20 @@ $report = [pscustomobject]@{
     blockers = if ($operatorPlanJson) { Convert-ToStringArray -Value $operatorPlanJson.blockers } else { Convert-ToStringArray -Value "field_operator_plan_summary_missing" }
     phase_table = if ($operatorPlanJson -and $operatorPlanJson.phase_table) { @($operatorPlanJson.phase_table) } else { @() }
   }
+  field_input_readiness = [pscustomobject]@{
+    command_ok = [bool]$fieldInputReadinessCommand.ok
+    schema = if ($fieldInputReadinessJson) { $fieldInputReadinessJson.schema } else { $null }
+    real_input_ready = [bool]($fieldInputReadinessJson -and $fieldInputReadinessJson.real_input_ready -eq $true)
+    blocker_count = if ($fieldInputReadinessJson -and $fieldInputReadinessJson.blockers) { @($fieldInputReadinessJson.blockers).Count } else { 0 }
+    blockers = if ($fieldInputReadinessJson) { Convert-ToStringArray -Value $fieldInputReadinessJson.blockers } else { Convert-ToStringArray -Value "field_input_readiness_missing" }
+    session_count = if ($fieldInputReadinessJson) { [int]$fieldInputReadinessJson.summary.session_count } else { 0 }
+    real_input_frame_count = if ($fieldInputReadinessJson) { [int]$fieldInputReadinessJson.summary.real_input_frame_count } else { 0 }
+    operator_assist_frame_count = if ($fieldInputReadinessJson) { [int]$fieldInputReadinessJson.summary.operator_assist_frame_count } else { 0 }
+    pointable_focus_count = if ($fieldInputReadinessJson) { [int]$fieldInputReadinessJson.summary.pointable_focus_count } else { 0 }
+    confirm_ready_count = if ($fieldInputReadinessJson) { [int]$fieldInputReadinessJson.summary.confirm_ready_count } else { 0 }
+    hardware_acceptance_evidence = $false
+    hardware_ready_claim_allowed = $false
+  }
   station_input_assist = [pscustomobject]@{
     command_ok = [bool]$stationInputAssistCommand.ok
     schema = if ($stationInputAssistJson) { $stationInputAssistJson.schema } else { $null }
@@ -897,6 +944,7 @@ $report = [pscustomobject]@{
     raw_logcat_included = $false
     raw_dumpsys_included = $false
     raw_getprop_included = $false
+    field_input_readiness_hardware_acceptance_evidence = $false
     station_input_assist_hardware_acceptance_evidence = $false
     note = "Command tails are redacted. The runner never writes raw logcat, pairing codes, serials, USB instance ids, MACs, or private IPs."
   }

@@ -991,6 +991,7 @@ async function assertServerCoreSkeleton() {
   assert(deviceRuntime.includes("a1_entry_lock") && deviceRuntime.includes("performance_gate"), "device runtime adapter checklist item coverage missing");
   assert(deviceRuntime.includes("sanitizeInputFrame"), "device runtime input frame sanitizer missing");
   assert(deviceRuntime.includes("summarizeInputFrame"), "device runtime input frame summary missing");
+  assert(deviceRuntime.includes("fallback_input_visible") && deviceRuntime.includes("operator_assist_input") && deviceRuntime.includes("input_acceptance_mode"), "device runtime input assist summary missing");
   assert(deviceRuntime.includes("input_frame_ray_focus"), "device runtime RKInput ray/focus checklist check missing");
   assert(deviceRuntime.includes("resolveTrustedMissionProvenance"), "device runtime trusted mission provenance proof missing");
   assert(deviceRuntime.includes("innerworld-trusted-mission-provenance/v1"), "device runtime trusted mission provenance schema missing");
@@ -1121,6 +1122,8 @@ async function assertFieldAcceptanceSessionSkeleton() {
   assert(tool.includes("hardware_acceptance_evidence = $false"), "field acceptance session glasses diagnostics must not become hardware acceptance evidence");
   assert(tool.includes("[switch]$SkipInputAssist") && tool.includes("[switch]$ApplyInputAssist"), "field acceptance session Station Pro input assist switches missing");
   assert(tool.includes("tools/station-pro-field-input-assist.ps1") && tool.includes("station_input_assist = [pscustomobject]"), "field acceptance session Station Pro input assist summary missing");
+  assert(tool.includes("tools/field-input-readiness.js") && tool.includes("field_input_readiness = [pscustomobject]"), "field acceptance session real input readiness summary missing");
+  assert(tool.includes("Real Input Readiness") && tool.includes("field_input_readiness_hardware_acceptance_evidence = $false"), "field acceptance session real input readiness markdown/privacy guard missing");
   assert(tool.includes("Station Pro Input Assist") && tool.includes("station_input_assist_hardware_acceptance_evidence = $false"), "field acceptance session input assist markdown/privacy guard missing");
   assert(tool.includes("readback_state_ok") && tool.includes("readback_proves_hardware_input = $false"), "field acceptance session input assist readback summary missing");
   assert(tool.includes("operator_assist_rehearsal_not_hardware_ready") && tool.includes("visible_but_no_remote_or_hand"), "field acceptance session input assist must remain rehearsal-only");
@@ -1152,7 +1155,9 @@ async function assertFieldTargetPassSkeleton() {
   assert(packageJson.includes("\"field:target-pass:apply\""), "package field target pass apply script missing");
   assert(packageJson.includes("\"field:target-pass:strict\""), "package strict field target pass script missing");
   assert(packageJson.includes("\"station:field-input-assist\"") && packageJson.includes("\"station:field-input-assist:apply\"") && packageJson.includes("\"station:field-input-assist:p0\""), "package Station Pro field input assist scripts missing");
+  assert(packageJson.includes("\"field:input-readiness\"") && packageJson.includes("\"check:field-input-readiness\""), "package field input readiness scripts missing");
   assert(packageJson.includes("\"check:field-target-pass\""), "package field target pass check script missing");
+  const fieldInputReadiness = await readText("tools/field-input-readiness.js");
   const stationFieldAssist = await readText("tools/station-pro-field-input-assist.ps1");
   assert(stationFieldAssist.includes("innerworld-station-pro-field-input-assist/v1"), "Station Pro field input assist schema missing");
   assert(stationFieldAssist.includes("operator_assist_rehearsal_not_hardware_ready") && stationFieldAssist.includes("visible_but_no_remote_or_hand"), "Station Pro field input assist must stay rehearsal-only for visible-but-no-input blocker");
@@ -1160,6 +1165,9 @@ async function assertFieldTargetPassSkeleton() {
   assert(stationFieldAssist.includes("Get-ReadbackSnapshot") && stationFieldAssist.includes("proves_hardware_input = $false") && stationFieldAssist.includes("raw_session_ids_included = $false"), "Station Pro field input assist Space API readback guard missing");
   assert(stationFieldAssist.includes("raw_device_ids_included = $false") && stationFieldAssist.includes("selected_device_id_hash_prefix"), "Station Pro field input assist privacy guard missing");
   assert(stationFieldAssist.includes("keyevent = 8") && stationFieldAssist.includes("keyevent = 9") && stationFieldAssist.includes("keyevent = 10") && stationFieldAssist.includes("keyevent = 66"), "Station Pro field input assist P0 keyevent mapping missing");
+  assert(fieldInputReadiness.includes("innerworld-field-input-readiness/v1") && fieldInputReadiness.includes("real_rkinput_pointable_confirm_missing"), "field input readiness schema/blocker missing");
+  assert(fieldInputReadiness.includes("operator_assist_rehearsal_not_hardware_ready") && fieldInputReadiness.includes("hardware_acceptance_evidence: false"), "field input readiness hardware-ready guard missing");
+  assert(fieldInputReadiness.includes("raw_session_ids_included: false") && fieldInputReadiness.includes("raw_device_ids_included: false"), "field input readiness privacy guard missing");
   assert(tool.includes("innerworld-field-target-pass/v1"), "field target pass schema missing");
   assert(tool.includes("/api/field/acceptance") && tool.includes("/api/device/sessions") && tool.includes("/api/state"), "field target pass endpoint coverage missing");
   assert(tool.includes("--apply-mission-actions") && tool.includes("--confirm-user-b-readback") && tool.includes("--require-target-diagnostics"), "field target pass explicit mutation/diagnostic flags missing");

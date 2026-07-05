@@ -92,7 +92,9 @@
     "unity:android:install": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-unity-android.ps1",
     "station:field-input-assist": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1",
     "station:field-input-assist:apply": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Apply -RequireDevice",
-    "station:field-input-assist:p0": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Action P0Loop"
+    "station:field-input-assist:p0": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Action P0Loop",
+    "field:input-readiness": "node tools/field-input-readiness.js",
+    "check:field-input-readiness": "node tools/field-input-readiness.js --require-ready"
   },
   "engines": {
     "node": ">=20"
