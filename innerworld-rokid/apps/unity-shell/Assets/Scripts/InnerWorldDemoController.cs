@@ -1338,7 +1338,23 @@ namespace InnerWorld.Rokid
                 + "\nOperator " + BuildFieldOperatorPlanHudLine()
                 + "\nInput " + BuildFieldInputAssistStatusLine()
                 + "\nShell " + ArShellStatusCompactLabel()
+                + "\nPreview " + ControlledSemanticPinHudLine()
                 + "\nTarget " + ActiveAnchorSummaryLabel();
+        }
+
+        private string ControlledSemanticPinHudLine()
+        {
+            int count = 0;
+            if (space != null && space.semantic_pins != null)
+            {
+                foreach (NearbyPin pin in space.semantic_pins)
+                {
+                    if (IsControlledSemanticPreview(pin)) count++;
+                }
+            }
+
+            if (count == 0) return "SkyPin none";
+            return "SkyPin " + count + " controlled preview | not P0 evidence";
         }
 
         private string MissionProgressLabel()
@@ -1595,6 +1611,7 @@ namespace InnerWorld.Rokid
             }
 
             BuildSpatialRouteLine();
+            RenderControlledSemanticPins();
 
             if (!string.IsNullOrEmpty(selectedAnchorId) && !anchorVisuals.ContainsKey(selectedAnchorId))
             {
@@ -1716,6 +1733,127 @@ namespace InnerWorld.Rokid
             line.SetPosition(3, Vector3.Lerp(a2, a3, 0.5f) + new Vector3(0f, 0.12f, -0.09f));
             line.SetPosition(4, a3);
             spawnedObjects.Add(route);
+        }
+
+        private void RenderControlledSemanticPins()
+        {
+            if (space == null || space.semantic_pins == null || space.semantic_pins.Length == 0)
+            {
+                return;
+            }
+
+            foreach (NearbyPin pin in space.semantic_pins)
+            {
+                if (!IsControlledSemanticPreview(pin))
+                {
+                    continue;
+                }
+
+                Vector3 position = SemanticPinDisplayPosition(pin);
+                Color color = new Color(0.52f, 0.86f, 1f, 0.78f);
+                GameObject root = new GameObject("Controlled Whale Cloud Sky Pin");
+                root.transform.position = position;
+                spawnedObjects.Add(root);
+
+                CreateSemanticCloudLobe(root.transform, "Whale Cloud Core", Vector3.zero, new Vector3(0.26f, 0.12f, 0.1f), color);
+                CreateSemanticCloudLobe(root.transform, "Whale Cloud Left", new Vector3(-0.18f, -0.02f, 0.02f), new Vector3(0.18f, 0.09f, 0.08f), color * 0.9f);
+                CreateSemanticCloudLobe(root.transform, "Whale Cloud Right", new Vector3(0.18f, -0.02f, 0.015f), new Vector3(0.2f, 0.095f, 0.08f), color * 0.95f);
+
+                LineRenderer halo = CreateSemanticPinHalo(pin, position, color);
+                if (halo != null) spawnedObjects.Add(halo.gameObject);
+
+                CreateSemanticPinStem(pin, position, color);
+                CreateSemanticPinLabel(pin, position);
+            }
+        }
+
+        private bool IsControlledSemanticPreview(NearbyPin pin)
+        {
+            if (pin == null) return false;
+            return pin.pin_type == "semantic"
+                && pin.controlled_demo
+                && !pin.open_ugc_allowed
+                && !pin.hardware_acceptance_evidence
+                && !pin.p0_required;
+        }
+
+        private Vector3 SemanticPinDisplayPosition(NearbyPin pin)
+        {
+            SpacePose pose = pin != null ? pin.pose : null;
+            Vector3 source = pose != null ? new Vector3(pose.x, pose.y, pose.z) : new Vector3(0f, 4.8f, 11f);
+            float z = Mathf.Lerp(wallCenter.z, source.z, 0.32f);
+            return new Vector3(Mathf.Clamp(source.x, -1.4f, 1.4f), Mathf.Clamp(source.y, 2.45f, 3.25f), z);
+        }
+
+        private void CreateSemanticCloudLobe(Transform parent, string name, Vector3 localPosition, Vector3 scale, Color color)
+        {
+            GameObject lobe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            lobe.name = name;
+            lobe.transform.SetParent(parent, false);
+            lobe.transform.localPosition = localPosition;
+            lobe.transform.localScale = scale;
+            Collider collider = lobe.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            ApplyMaterial(lobe.GetComponent<Renderer>(), color);
+        }
+
+        private LineRenderer CreateSemanticPinHalo(NearbyPin pin, Vector3 position, Color color)
+        {
+            GameObject halo = new GameObject("Controlled Sky Pin Halo " + SafeLabel(pin.pin_id, "semantic"));
+            halo.transform.position = position + new Vector3(0f, 0f, -0.02f);
+            halo.transform.rotation = Quaternion.LookRotation((cameraPosition - position).normalized, Vector3.up);
+            LineRenderer line = halo.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.loop = true;
+            line.positionCount = 96;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.006f;
+            line.startColor = color;
+            line.endColor = color;
+            Material material = CreateLineMaterial(color, 0.45f);
+            if (material != null) line.material = material;
+            SetCircleLine(line, 0.34f);
+            return line;
+        }
+
+        private void CreateSemanticPinStem(NearbyPin pin, Vector3 position, Color color)
+        {
+            Vector3 origin = anchorVisuals.ContainsKey("A2") ? anchorVisuals["A2"].MarkerTransform.position : wallCenter;
+            GameObject stem = new GameObject("Controlled Sky Pin Preview Stem " + SafeLabel(pin.pin_id, "semantic"));
+            LineRenderer line = stem.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 3;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.003f;
+            line.startColor = new Color(color.r, color.g, color.b, 0.22f);
+            line.endColor = new Color(color.r, color.g, color.b, 0.72f);
+            Material material = CreateLineMaterial(color, 0.25f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, origin + new Vector3(0f, 0.08f, -0.12f));
+            line.SetPosition(1, Vector3.Lerp(origin, position, 0.55f) + new Vector3(0f, 0.45f, -0.08f));
+            line.SetPosition(2, position + new Vector3(0f, -0.18f, 0f));
+            spawnedObjects.Add(stem);
+        }
+
+        private void CreateSemanticPinLabel(NearbyPin pin, Vector3 position)
+        {
+            GameObject label = new GameObject("Controlled Sky Pin Label " + SafeLabel(pin.pin_id, "semantic"));
+            label.transform.position = position + new Vector3(0.34f, 0.13f, -0.02f);
+            label.transform.rotation = Quaternion.LookRotation((label.transform.position - cameraPosition).normalized, Vector3.up);
+            TextMesh mesh = label.AddComponent<TextMesh>();
+            string title = pin.media != null && !string.IsNullOrWhiteSpace(pin.media.title) ? pin.media.title : SafeLabel(pin.label, "Sky Pin");
+            string subtitle = pin.media != null && !string.IsNullOrWhiteSpace(pin.media.subtitle) ? pin.media.subtitle : "Controlled 3D Pin preview";
+            mesh.text = title + "\n" + subtitle + "\nnot UGC | not P0 evidence";
+            mesh.font = uiFont;
+            mesh.fontSize = 32;
+            mesh.characterSize = 0.016f;
+            mesh.anchor = TextAnchor.MiddleLeft;
+            mesh.color = new Color(0.86f, 0.96f, 1f);
+            MeshRenderer meshRenderer = label.GetComponent<MeshRenderer>();
+            if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
+            spawnedObjects.Add(label);
         }
 
         private string AnchorBeaconLine(string anchorId)
@@ -4848,6 +4986,7 @@ namespace InnerWorld.Rokid
         public string name;
         public AnchorData[] anchors;
         public BeaconData[] beacons;
+        public NearbyPin[] semantic_pins;
         public MissionData mission;
         public RuntimeData runtime;
         public ServiceActionData[] service_actions;

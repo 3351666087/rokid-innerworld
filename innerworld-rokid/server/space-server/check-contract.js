@@ -807,6 +807,9 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.InteractionsUrl"), "Unity controller interactions URL not using client");
   assert(controller.includes("apiClient.ServiceActionsUrl"), "Unity controller service URL not using client");
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
+  assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
+  assert(controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin HUD guard missing");
+  assert(controller.includes("public NearbyPin[] semantic_pins;"), "Unity SpaceResponse semantic_pins DTO missing");
   assert(controller.includes("apiClient.DeviceRegisterUrl"), "Unity controller device register URL not using client");
   assert(controller.includes("apiClient.DeviceHeartbeatUrl"), "Unity controller device heartbeat URL not using client");
   assert(controller.includes("RegisterDeviceSession"), "Unity controller device register coroutine missing");
@@ -875,6 +878,7 @@ async function assertUnityProtocolSkeleton() {
   assert(dtos.includes("public SpaceApiEndpoint field_operator_plan;"), "Unity field operator plan endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_events;"), "Unity ledger events endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_summary;"), "Unity ledger summary endpoint DTO missing");
+  assert(dtos.includes("public sealed class NearbyPin") && dtos.includes("public string pin_type;") && dtos.includes("public bool controlled_demo;") && dtos.includes("public SemanticPinSafety safety;"), "Unity controlled semantic pin DTO missing");
   assert(dtos.includes("public sealed class LedgerEventsResponse"), "Unity ledger events response DTO missing");
   assert(dtos.includes("public sealed class LedgerSummaryResponse"), "Unity ledger summary response DTO missing");
   assert(dtos.includes("public ClientHints client_hints;"), "Unity client hints DTO missing");
