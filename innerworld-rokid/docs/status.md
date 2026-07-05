@@ -199,6 +199,12 @@ Latest hardware probe checkpoint: `device:probe` now sees the same Station Pro t
 - Default mode is dry-run evidence only; real keyevents require explicit `-Apply -RequireDevice`. Reports write sanitized transport/hash evidence and never include raw device IDs, private IPs, pairing codes, logcat, or dumpsys.
 - P0 key mapping is constrained to A1, Confirm, A2, Confirm, Service, A3, Write, User B. It is tagged `operator_assist_rehearsal_not_hardware_ready` with blocker `visible_but_no_remote_or_hand`, so it cannot satisfy hardware-ready gates.
 - Latest dry-run evidence: `output/station-pro-field-input-assist/station-pro-field-input-assist-latest.json` showed ADB found, one USB device-state transport selected by hash prefix, `apply_requested=false`, and no sent keyevents.
+
+## 2026-07-05 - Field Session Captures Input Assist
+
+- `field:acceptance-session` now runs Station Pro field input assist in dry-run mode by default and records `station_input_assist` in the same session JSON/Markdown as operator-plan, glasses diagnostics, live-pass, and target-pass.
+- New session switches: `-SkipInputAssist` to omit it, `-ApplyInputAssist` to send rehearsal keyevents through ADB with `-RequireDevice`. Even when applied, the session report keeps `hardware_acceptance_evidence=false` and `hardware_ready_claim_allowed=false`.
+- Latest smoke: `output/field-acceptance-session/field-acceptance-session-20260705-125426.json` showed `station_input_assist.command_ok=true`, `apply_requested=false`, `input_blocker=visible_but_no_remote_or_hand`, `sent_step_count=0`, and a next action reminding that `station:field-input-assist:apply` is rehearsal only.
 ## Next
 
 - 重新生成最终交付包并验包，确认服务器部署计划、环境医生、release index、现场 LAN 预检脚本、Windows/Android fallback、Space Server 状态机修复和文档全部进入 zip。

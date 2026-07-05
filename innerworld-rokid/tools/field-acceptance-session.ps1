@@ -1,10 +1,12 @@
-param(
+﻿param(
   [string]$BaseUrl = "http://127.0.0.1:5177",
   [string]$OutputRoot = "",
   [switch]$SkipDeviceProbe,
   [switch]$SkipGlassesDiagnostics,
+  [switch]$SkipInputAssist,
   [switch]$SkipApkInspect,
   [switch]$PairSmoke,
+  [switch]$ApplyInputAssist,
   [switch]$Watch,
   [switch]$TargetPass,
   [switch]$ApplyMissionActions,
@@ -391,6 +393,11 @@ function Write-SessionMarkdown {
     "- $($phase.id): status=$($phase.status), anchor=$($phase.anchor_id), mutates_state=$($phase.mutates_state)"
   }
   if (!$operatorPhaseLines) { $operatorPhaseLines = @("- none") }
+  $inputAssistStepLines = foreach ($step in @($Report.station_input_assist.steps)) {
+    "- $($step.action): keyevent=$($step.keyevent), mode=$($step.input_mode)"
+  }
+  if (!$inputAssistStepLines) { $inputAssistStepLines = @("- none") }
+  $inputAssistStepsBlock = $inputAssistStepLines -join "`n"
   $operatorActionsBlock = $operatorActionLines -join "`n"
   $operatorBlockersBlock = $operatorBlockerLines -join "`n"
   $operatorPhasesBlock = $operatorPhaseLines -join "`n"
@@ -410,6 +417,8 @@ function Write-SessionMarkdown {
 - Operator plan command OK: $($Report.operator_plan.command_ok)
 - Station glasses display ready: $($Report.station_glasses.glasses_display_ready)
 - Station glasses command OK: $($Report.station_glasses.command_ok)
+- Station input assist OK: $($Report.station_input_assist.command_ok)
+- Station input assist apply requested: $($Report.station_input_assist.apply_requested)
 - Live session ready: $($Report.live_pass.live_session_ready)
 - Trusted A1/A2/A3 ready: $($Report.live_pass.trusted_a1_a2_a3_ready)
 - Mission loop ready: $($Report.live_pass.mission_loop_ready)
@@ -440,6 +449,21 @@ $commandsBlock
 - Station USB data role: $($Report.station_glasses.station_usb_current_data_role)
 - Head-pose failure count: $($Report.station_glasses.head_pose_failure_count)
 - Hardware-ready claim allowed: $($Report.station_glasses.hardware_ready_claim_allowed)
+
+### Station Pro Input Assist
+
+- Command OK: $($Report.station_input_assist.command_ok)
+- Apply requested: $($Report.station_input_assist.apply_requested)
+- Input mode: $($Report.station_input_assist.input_mode)
+- Input blocker: $($Report.station_input_assist.input_blocker)
+- Selected transport: $($Report.station_input_assist.selected_transport)
+- Selected device hash prefix: $($Report.station_input_assist.selected_device_id_hash_prefix)
+- ADB device-state count: $($Report.station_input_assist.device_state_count)
+- Sent step count: $($Report.station_input_assist.sent_step_count)
+- Hardware acceptance evidence: $($Report.station_input_assist.hardware_acceptance_evidence)
+- Hardware-ready claim allowed: $($Report.station_input_assist.hardware_ready_claim_allowed)
+
+$inputAssistStepsBlock
 
 ### Station Pro Glasses Blockers
 
@@ -518,6 +542,23 @@ if (!$SkipGlassesDiagnostics) {
   $commands += $stationGlassesCommand
 }
 $stationGlassesJson = Convert-JsonOutput -Command $stationGlassesCommand
+
+$inputAssistArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/station-pro-field-input-assist.ps1", "-Action", "P0Loop")
+if ($ApplyInputAssist) {
+  $inputAssistArguments += @("-Apply", "-RequireDevice")
+}
+if (!$SkipInputAssist) {
+  $stationInputAssistCommand = Invoke-ProcessCapture `
+    -Name "station-field-input-assist" `
+    -FileName "powershell" `
+    -Arguments $inputAssistArguments `
+    -TimeoutSec $CommandTimeoutSec
+  $commands += $stationInputAssistCommand
+} else {
+  $stationInputAssistCommand = New-SkippedCommand -Name "station-field-input-assist" -Reason "SkipInputAssist"
+  $commands += $stationInputAssistCommand
+}
+$stationInputAssistJson = Convert-JsonOutput -Command $stationInputAssistCommand
 
 if (!$SkipApkInspect) {
   $commands += Invoke-ProcessCapture `
@@ -664,6 +705,7 @@ if ($livePassReportJson -and $livePassReportJson.latest_snapshot.next_required_a
   $livePassNextActions = Convert-ToStringArray -Value $livePassJson.next_required_actions
 }
 $stationGlassesNextActions = @()
+$stationInputAssistNextActions = @()
 if ($stationGlassesJson -and $stationGlassesJson.readiness -and $stationGlassesJson.readiness.glasses_display_ready -ne $true) {
   $glassesBlockers = Convert-ToStringArray -Value $stationGlassesJson.readiness.blocker_ids
   if ($glassesBlockers.Count -gt 0) {
@@ -683,7 +725,19 @@ foreach ($action in $livePassNextActions) {
     [void]$nextActionItems.Add($action)
   }
 }
+if ($stationInputAssistCommand.ok -and $stationInputAssistJson -and $stationInputAssistJson.input_blocker -eq "visible_but_no_remote_or_hand") {
+  if ($stationInputAssistJson.apply_requested -eq $true) {
+    $stationInputAssistNextActions = @("Station Pro field input assist keyevents were applied for rehearsal only; verify real RKInput/PointableUI/hand evidence before hardware-ready.")
+  } else {
+    $stationInputAssistNextActions = @("Use station:field-input-assist:apply only as operator rehearsal for the visible-but-no-input blocker; it cannot satisfy hardware-ready.")
+  }
+}
 foreach ($action in $stationGlassesNextActions) {
+  if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
+    [void]$nextActionItems.Add($action)
+  }
+}
+foreach ($action in $stationInputAssistNextActions) {
   if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
     [void]$nextActionItems.Add($action)
   }
@@ -736,6 +790,22 @@ $report = [pscustomobject]@{
     next_actions = [string[]]$operatorPlanNextActions
     blockers = if ($operatorPlanJson) { Convert-ToStringArray -Value $operatorPlanJson.blockers } else { Convert-ToStringArray -Value "field_operator_plan_summary_missing" }
     phase_table = if ($operatorPlanJson -and $operatorPlanJson.phase_table) { @($operatorPlanJson.phase_table) } else { @() }
+  }
+  station_input_assist = [pscustomobject]@{
+    command_ok = [bool]$stationInputAssistCommand.ok
+    schema = if ($stationInputAssistJson) { $stationInputAssistJson.schema } else { $null }
+    apply_requested = [bool]($stationInputAssistJson -and $stationInputAssistJson.apply_requested -eq $true)
+    input_mode = if ($stationInputAssistJson) { $stationInputAssistJson.input_mode } else { "operator_assist_rehearsal_not_hardware_ready" }
+    input_blocker = if ($stationInputAssistJson) { $stationInputAssistJson.input_blocker } else { "visible_but_no_remote_or_hand" }
+    adb_found = [bool]($stationInputAssistJson -and $stationInputAssistJson.adb.found -eq $true)
+    selected_transport = if ($stationInputAssistJson) { $stationInputAssistJson.adb.selected_transport } else { $null }
+    selected_device_id_hash_prefix = if ($stationInputAssistJson) { $stationInputAssistJson.adb.selected_device_id_hash_prefix } else { $null }
+    device_state_count = if ($stationInputAssistJson) { [int]$stationInputAssistJson.adb.device_state_count } else { 0 }
+    step_count = if ($stationInputAssistJson -and $stationInputAssistJson.steps) { @($stationInputAssistJson.steps).Count } else { 0 }
+    sent_step_count = if ($stationInputAssistJson -and $stationInputAssistJson.sent_steps) { @($stationInputAssistJson.sent_steps).Count } else { 0 }
+    steps = if ($stationInputAssistJson -and $stationInputAssistJson.steps) { @($stationInputAssistJson.steps) } else { @() }
+    hardware_acceptance_evidence = $false
+    hardware_ready_claim_allowed = $false
   }
   station_glasses = [pscustomobject]@{
     command_ok = [bool]$stationGlassesCommand.ok
@@ -814,6 +884,7 @@ $report = [pscustomobject]@{
     raw_logcat_included = $false
     raw_dumpsys_included = $false
     raw_getprop_included = $false
+    station_input_assist_hardware_acceptance_evidence = $false
     note = "Command tails are redacted. The runner never writes raw logcat, pairing codes, serials, USB instance ids, MACs, or private IPs."
   }
 }
