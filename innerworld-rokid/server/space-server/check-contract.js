@@ -131,6 +131,13 @@ function assertSpaceContract(space) {
   assert(Array.isArray(space.anchors) && space.anchors.length === 3, "expected 3 anchors");
   assert(space.anchors.map((anchor) => anchor.anchor_id).join(",") === "A1,A2,A3", "anchor ids mismatch");
   assert(space.anchors.some((anchor) => anchor.anchor_id === "A3" && anchor.default_state === "locked"), "A3 locked default missing");
+  const semanticPins = Array.isArray(space.semantic_pins) ? space.semantic_pins : [];
+  const whaleCloud = semanticPins.find((pin) => pin.pin_id === "SKY_WHALE_CLOUD_001");
+  assert(whaleCloud?.label === "Whale Cloud Sky Pin", "controlled Whale Cloud Sky Pin missing");
+  assert(whaleCloud.kind === "sky_pin" && whaleCloud.demo_role === "controlled_extension_preview", "Whale Cloud demo role mismatch");
+  assert(whaleCloud.controlled_demo === true && whaleCloud.open_ugc_allowed === false, "Whale Cloud open UGC guard mismatch");
+  assert(whaleCloud.hardware_acceptance_evidence === false && whaleCloud.p0_required === false, "Whale Cloud must not become P0 hardware evidence");
+  assert(whaleCloud.safety?.user_generated === false && whaleCloud.safety?.merchant_or_marketplace === false && whaleCloud.safety?.broad_route === false, "Whale Cloud safety guard mismatch");
   assert(Array.isArray(space.mission?.steps), "mission steps missing");
   assert(space.mission.steps.map((step) => step.step_id).join(",") === MISSION_STEP_IDS.join(","), "mission step ids mismatch");
   assertStoryGraphContract(space.mission?.story_graph, "space mission story graph");
@@ -976,6 +983,7 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/device/bootstrap"), "api router bootstrap route missing");
   assert(apiRouter.includes("/api/device/manifest"), "api router device manifest route missing");
   assert(apiRouter.includes("/api/device/adapter-checklist"), "api router device adapter checklist route missing");
+  assert(apiRouter.includes("/api/pins/nearby") && apiRouter.includes("semantic_preview_count") && apiRouter.includes("p0_anchor_count") && apiRouter.includes("pin_type"), "api router controlled semantic pin route summary missing");
   assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
   assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");

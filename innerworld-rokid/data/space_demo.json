@@ -282,6 +282,41 @@
     "mode": "manual_advance",
     "data": "local_json"
   },
+  "semantic_pins": [
+    {
+      "pin_id": "SKY_WHALE_CLOUD_001",
+      "label": "Whale Cloud Sky Pin",
+      "kind": "sky_pin",
+      "demo_role": "controlled_extension_preview",
+      "controlled_demo": true,
+      "open_ugc_allowed": false,
+      "hardware_acceptance_evidence": false,
+      "p0_required": false,
+      "anchor_id": null,
+      "pose": { "x": 0.0, "y": 4.8, "z": 11.0 },
+      "spatial": {
+        "placement": "far_above_wall",
+        "scale": 1.8,
+        "depth_layer": "sky_preview",
+        "render_hint": "volumetric_cloud_pin"
+      },
+      "geo": {
+        "scope": "campus_hidden_layer_preview",
+        "url": "innerworld://space/innerworld_campus_wall/pins/SKY_WHALE_CLOUD_001"
+      },
+      "media": {
+        "title": "Whale Cloud",
+        "subtitle": "Controlled 3D Pin preview",
+        "body": "A high-heat semantic pin preview. It demonstrates future open-world 3D pins only after the A1/A2/A3/User B wall loop is proven."
+      },
+      "safety": {
+        "moderation_state": "curated_seed",
+        "user_generated": false,
+        "merchant_or_marketplace": false,
+        "broad_route": false
+      }
+    }
+  ],
   "service_actions": [
     {
       "action_id": "JOIN_EVENT_1430",

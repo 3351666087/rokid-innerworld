@@ -715,13 +715,22 @@ export function createApiRouter({
     if (req.method === "GET" && url.pathname === "/api/pins/nearby") {
       const space = await loadSpace();
       const state = await loadState();
+      const anchorPins = space.anchors.map((anchor) => ({
+        pin_type: "anchor",
+        ...anchor,
+        beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
+      }));
+      const semanticPins = (Array.isArray(space.semantic_pins) ? space.semantic_pins : []).map((pin) => ({
+        pin_type: "semantic",
+        ...pin,
+        beacons: []
+      }));
       sendJson(res, 200, {
         space_id: space.space_id,
         radius_m: Number(url.searchParams.get("radius") || 20),
-        pins: space.anchors.map((anchor) => ({
-          ...anchor,
-          beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
-        }))
+        p0_anchor_count: anchorPins.length,
+        semantic_preview_count: semanticPins.length,
+        pins: [...anchorPins, ...semanticPins]
       });
       return;
     }

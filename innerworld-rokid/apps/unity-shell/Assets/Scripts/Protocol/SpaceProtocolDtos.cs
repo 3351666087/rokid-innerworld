@@ -1223,18 +1223,64 @@ namespace InnerWorld.Rokid.Protocol
     {
         public string space_id;
         public float radius_m;
+        public int p0_anchor_count;
+        public int semantic_preview_count;
         public NearbyPin[] pins;
     }
 
     [Serializable]
     public sealed class NearbyPin
     {
+        public string pin_id;
+        public string pin_type;
         public string anchor_id;
         public string label;
         public string kind;
+        public string demo_role;
+        public bool controlled_demo;
+        public bool open_ugc_allowed;
+        public bool hardware_acceptance_evidence;
+        public bool p0_required;
         public SpacePose pose;
         public GridPosition grid_pos;
         public string default_state;
+        public SemanticPinSpatial spatial;
+        public SemanticPinGeo geo;
+        public SemanticPinMedia media;
+        public SemanticPinSafety safety;
         public SpaceBeacon[] beacons;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinSpatial
+    {
+        public string placement;
+        public float scale;
+        public string depth_layer;
+        public string render_hint;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinGeo
+    {
+        public string scope;
+        public string url;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinMedia
+    {
+        public string title;
+        public string subtitle;
+        public string body;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinSafety
+    {
+        public string moderation_state;
+        public bool user_generated;
+        public bool merchant_or_marketplace;
+        public bool broad_route;
     }
 }
