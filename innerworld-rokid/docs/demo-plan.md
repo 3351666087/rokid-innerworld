@@ -36,7 +36,7 @@ Role of AR: it turns the physical wall into a memory surface.
 
 ### Scene 3: A3 TimeMark Write-Back
 
-The judge writes a TimeMark at A3. The TimeMark can contain text and, in later UI, an optional image. It is attached to this location and mission context.
+The judge writes a TimeMark at A3. The TimeMark can contain text and, in later UI, an optional image. It is attached to this location and mission context. In the P0 demo, the author identity can be shown as a controlled display choice: named, friend-visible, or anonymous.
 
 Role of Pin / TimeMark: it is the content unit left in space. It is not a generic social feed in P0.
 
@@ -52,11 +52,33 @@ After the wall loop, the judge sees a high-heat Sky Pin, such as the Whale Cloud
 
 Role of open world: it previews how TimeMarks can expand from trusted wall anchors into campus-scale 3D pins.
 
+## Light Social Layer
+
+InnerWorld should read as a lightweight spatial social layer, not a full social network. The core social behavior is place-triggered: users leave traces in real space, and later visitors encounter them only when they reach the relevant place.
+
+P0 should demonstrate the smallest social loop:
+
+- User A leaves a TimeMark at A3.
+- The TimeMark can display either a nickname, a friend-visible identity, or an anonymous author label.
+- User B reads the TimeMark back in the same place.
+- Pins and TimeMarks can expose lightweight heat signals such as likes, checkins, short replies, and `heat_score`.
+- Higher heat can make a pin visually more noticeable: brighter, larger, higher, or more animated.
+- The Whale Cloud Sky Pin is the high-heat example, not proof that open UGC is enabled.
+
+P0 should not implement a full account or friend system. The demo may use controlled identity labels and seeded heat data. This is enough to communicate the product idea without turning the hardware demo into a social-platform build.
+
+Future social features should stay staged:
+
+- P1: simple account identity, anonymous/named posting choice, friend-visible display, basic like/checkin actions.
+- P2: open UGC, public feeds, personal profiles, recommendations, creator tools, merchant dashboards, and complex moderation.
+
 ## Concept Boundaries
 
 Spatial URL means: the entry route from a physical location into its hidden layer.
 
 Pin / TimeMark means: the spatial content unit users can read, write, revisit, and eventually attach media to.
+
+Light social means: the interaction layer around a place-bound TimeMark, including author visibility, lightweight reactions, and heat. It is not a public feed in P0.
 
 Open world means: the long-term expansion direction where pins can exist beyond one wall, using controlled geo/spatial placement first and reviewed UGC later.
 
@@ -74,6 +96,7 @@ P0 must keep:
 - Station Pro / Rokid hardware path
 - Space API, field acceptance, and hardware-ready guardrails
 - controlled semantic Sky Pin as an extension preview only
+- lightweight social display through controlled author labels and seeded heat signals
 
 P1 can add:
 
@@ -82,6 +105,7 @@ P1 can add:
 - richer gesture feedback
 - optional TimeMark media display
 - controlled campus hidden-layer locations
+- simple account identity, anonymous/named posting, friend-visible labels, and basic reactions
 
 P2 should remain reference only until P0 is accepted:
 
@@ -89,6 +113,7 @@ P2 should remain reference only until P0 is accepted:
 - broad campus or city routing
 - merchant dashboards
 - public social feeds
+- personal profiles
 - full content editor
 - commercial task systems
 
@@ -100,6 +125,7 @@ The existing teammate hardware lane remains the mainline proof. The controlled S
 - `semantic_pins` can demonstrate the future open-world data model.
 - `/api/pins/nearby` can return both anchored pins and semantic pins.
 - Unity can consume `geo`, `spatial`, `media`, and `social` metadata when the visual layer is ready.
+- Seeded `social` metadata can drive heat-based visuals in the demo, while real account/friend APIs remain out of P0.
 - The Sky Pin must stay labeled as controlled demo content until moderation, abuse prevention, and open UGC rules are implemented.
 
 ## Recommended Pitch
