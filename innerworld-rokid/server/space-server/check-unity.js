@@ -242,7 +242,7 @@ async function assertUnityAdapterBoundary() {
   assert(/BuildDeviceHeartbeatRequest\(\)[\s\S]*input_frame\s*=\s*BuildDeviceInputFramePayload\(\)/.test(controller), "Unity controller heartbeat must include sanitized input_frame");
   assert(controller.includes("BuildDeviceInputFramePayload") && controller.includes("DeviceInputFramePayload"), "Unity controller input frame payload builder missing");
   assert(controller.includes("pointable_ui_focus") && controller.includes("voice_text_present"), "Unity controller input frame focus/voice evidence missing");
-  assert(controller.includes("fallback_input_visible") && controller.includes("operator_assist_input") && controller.includes("input_acceptance_mode"), "Unity controller input frame field assist evidence missing");
+  assert(controller.includes("fallback_input_visible") && controller.includes("operator_assist_input") && controller.includes("input_blocker") && controller.includes("input_acceptance_mode"), "Unity controller input frame field assist evidence missing");
   assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller required capabilities missing");
   assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
   assert(poseProvider.includes("interface IRokidInputStateSink"), "Unity input state sink interface missing");

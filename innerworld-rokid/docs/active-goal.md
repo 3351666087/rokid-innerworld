@@ -1,6 +1,6 @@
 # Active Goal
 
-Updated: 2026-07-05 12:35 Asia/Shanghai
+Updated: 2026-07-05 12:48 Asia/Shanghai
 
 Latest execution slice: `field:operator-plan` is now the lightweight local/LAN operator-plan capture command for the productized field lane. It reads only `/api/field/operator-plan`, writes sanitized `output/field-operator-plan/field-operator-plan-latest.json` and `.md`, and keeps the same P0 boundary: one real wall, A1 entry, A2 read, A3 TimeMark write-back, User B readback, with no guide/PPT/phone-only/open-UGC/backend/route expansion and no hardware-ready claim without physical `/api/field/acceptance`.
 
@@ -11,7 +11,7 @@ Current product slice: Unity HUD now loads `/api/field/operator-plan` and displa
 
 Latest real-device input checkpoint: the real-device page is now visible, but the virtual remote/hand input is absent, so this is a P0 physical acceptance blocker (`visible_but_no_remote_or_hand`). Unity now exposes a clearly marked `Field Input Assist Rail` for A1/A2/A3, Confirm, Service, Write, User B, and Reload so现场 rehearsal can continue without waiting on hand/remote UI. The assist path is deliberately labeled `operator_assist_rehearsal_not_hardware_ready`, sends `fallback_input_visible`, `operator_assist_input`, `input_blocker`, and `input_acceptance_mode` in heartbeat payloads, and cannot satisfy hardware-ready release gates. Real acceptance still requires trusted RKInput/PointableUI/hand or equivalent live SDK input evidence.
 
-Spatial system checkpoint: the Unity shell is no longer treated as a flat panel stack only. A1/A2/A3 now use depth-layer offsets and a curved `Spatial Memory Depth Ribbon` so the memory-read node can float forward from the wall while entry/write-back sit on separate spatial layers. Continue growing the spatial memory field opportunistically: prefer anchored depth, breathing surfaces, route ribbons, focus state, and memory evidence layering over flat UI cards.
+Spatial system checkpoint: the Unity shell is no longer treated as a flat panel stack only. A1/A2/A3 now use depth-layer offsets and a curved `Spatial Memory Depth Ribbon` so the memory-read node can float forward from the wall while entry/write-back sit on separate spatial layers. Continue growing the spatial memory field opportunistically, but keep every growth locked to the single P0 wall and the A1 entry / A2 memory read / A3 TimeMark write-back / User B readback loop: prefer anchored depth, breathing surfaces, route ribbons, focus state, and memory evidence layering over flat UI cards, and do not expand into general spatial navigation.
 ## Objective
 
 Long-term execution goal for Rokid "Mirror-See InnerWorld / Campus Memory Wall":

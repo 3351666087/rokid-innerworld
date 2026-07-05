@@ -89,7 +89,10 @@
     "unity:android:build": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-unity-android.ps1",
     "unity:android:build:lan": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-unity-android.ps1 -RunPostChecks -RequirePostCheckDevice",
     "uxr:doctor": "node tools/uxr-readiness.js",
-    "unity:android:install": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-unity-android.ps1"
+    "unity:android:install": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-unity-android.ps1",
+    "station:field-input-assist": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1",
+    "station:field-input-assist:apply": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Apply -RequireDevice",
+    "station:field-input-assist:p0": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Action P0Loop"
   },
   "engines": {
     "node": ">=20"

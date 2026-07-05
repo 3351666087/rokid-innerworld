@@ -1146,7 +1146,14 @@ async function assertFieldTargetPassSkeleton() {
   assert(packageJson.includes("\"field:target-pass:watch\""), "package field target pass watch script missing");
   assert(packageJson.includes("\"field:target-pass:apply\""), "package field target pass apply script missing");
   assert(packageJson.includes("\"field:target-pass:strict\""), "package strict field target pass script missing");
+  assert(packageJson.includes("\"station:field-input-assist\"") && packageJson.includes("\"station:field-input-assist:apply\"") && packageJson.includes("\"station:field-input-assist:p0\""), "package Station Pro field input assist scripts missing");
   assert(packageJson.includes("\"check:field-target-pass\""), "package field target pass check script missing");
+  const stationFieldAssist = await readText("tools/station-pro-field-input-assist.ps1");
+  assert(stationFieldAssist.includes("innerworld-station-pro-field-input-assist/v1"), "Station Pro field input assist schema missing");
+  assert(stationFieldAssist.includes("operator_assist_rehearsal_not_hardware_ready") && stationFieldAssist.includes("visible_but_no_remote_or_hand"), "Station Pro field input assist must stay rehearsal-only for visible-but-no-input blocker");
+  assert(stationFieldAssist.includes("hardware_acceptance_evidence = $false") && stationFieldAssist.includes("hardware_ready_claim_allowed = $false"), "Station Pro field input assist must not claim hardware acceptance");
+  assert(stationFieldAssist.includes("raw_device_ids_included = $false") && stationFieldAssist.includes("selected_device_id_hash_prefix"), "Station Pro field input assist privacy guard missing");
+  assert(stationFieldAssist.includes("keyevent = 8") && stationFieldAssist.includes("keyevent = 9") && stationFieldAssist.includes("keyevent = 10") && stationFieldAssist.includes("keyevent = 66"), "Station Pro field input assist P0 keyevent mapping missing");
   assert(tool.includes("innerworld-field-target-pass/v1"), "field target pass schema missing");
   assert(tool.includes("/api/field/acceptance") && tool.includes("/api/device/sessions") && tool.includes("/api/state"), "field target pass endpoint coverage missing");
   assert(tool.includes("--apply-mission-actions") && tool.includes("--confirm-user-b-readback") && tool.includes("--require-target-diagnostics"), "field target pass explicit mutation/diagnostic flags missing");

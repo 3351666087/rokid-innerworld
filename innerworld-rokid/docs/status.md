@@ -192,6 +192,13 @@ Latest hardware probe checkpoint: `device:probe` now sees the same Station Pro t
 - Heartbeat payloads now mark this path as fallback/operator assist with `fallback_input_visible`, `operator_assist_input`, `input_blocker=visible_but_no_remote_or_hand`, and `input_acceptance_mode=operator_assist_rehearsal_not_hardware_ready`; these fields must not be used to claim hardware-ready.
 - Spatial shell upgrade started: A1/A2/A3 use depth offsets and a curved Spatial Memory Depth Ribbon, reducing the flat-panel feel and making the P0 loop read as a spatial memory field.
 - Latest short field acceptance smoke: `output/field-acceptance-session/field-acceptance-session-20260705-123001.json`; expected `ok=false` / `hardware_ready_claim_allowed=false` until trusted live input, A1/A2/A3, A3 write-back, and User B readback are complete.
+
+## 2026-07-05 - Station Pro ADB Field Input Assist
+
+- Added `tools/station-pro-field-input-assist.ps1` and npm scripts `station:field-input-assist`, `station:field-input-assist:p0`, and `station:field-input-assist:apply` so Windows can drive the visible Unity field assist through Station Pro ADB keyevents when the virtual remote/hand UI is absent.
+- Default mode is dry-run evidence only; real keyevents require explicit `-Apply -RequireDevice`. Reports write sanitized transport/hash evidence and never include raw device IDs, private IPs, pairing codes, logcat, or dumpsys.
+- P0 key mapping is constrained to A1, Confirm, A2, Confirm, Service, A3, Write, User B. It is tagged `operator_assist_rehearsal_not_hardware_ready` with blocker `visible_but_no_remote_or_hand`, so it cannot satisfy hardware-ready gates.
+- Latest dry-run evidence: `output/station-pro-field-input-assist/station-pro-field-input-assist-latest.json` showed ADB found, one USB device-state transport selected by hash prefix, `apply_requested=false`, and no sent keyevents.
 ## Next
 
 - 重新生成最终交付包并验包，确认服务器部署计划、环境医生、release index、现场 LAN 预检脚本、Windows/Android fallback、Space Server 状态机修复和文档全部进入 zip。
