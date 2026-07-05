@@ -38,6 +38,7 @@ namespace InnerWorld.Rokid
         private Text keyHintText;
         private Text systemText;
         private Text radarText;
+        private Text fieldInputAssistText;
         private int localStepIndex;
         private bool usingFallback;
         private Font uiFont;
@@ -83,6 +84,8 @@ namespace InnerWorld.Rokid
         private string currentGazeAnchorLabel = string.Empty;
         private bool currentGazeSelecting;
         private string selectedAnchorId = string.Empty;
+        private string lastFieldAssistActionLine = "field input assist idle";
+        private float lastFieldAssistActionAtSeconds = -10f;
         private bool a1SpatialEntryLocked;
         private bool a1SpatialEntryConfirmed;
         private string a1EntryLockState = RokidA1SpatialEntryStates.WaitingForA1;
@@ -102,6 +105,9 @@ namespace InnerWorld.Rokid
         private const float A1EntryConfirmMaxDistanceMeters = 0.5f;
         private const float A1EntryConfirmationFallbackDistanceMeters = 0.45f;
         private const float TrustedHardwareObservationMinIntervalSeconds = 4f;
+        private const float FieldAssistInputDebounceSeconds = 0.16f;
+        private const string FieldAssistInputMode = "operator_assist_rehearsal_not_hardware_ready";
+        private const string FieldAssistBlockerId = "visible_but_no_remote_or_hand";
         private const string UnityClientVersion = "unity-runtime-0.2.0";
         private const string OperatorPairingCodeEnv = "INNERWORLD_OPERATOR_PAIRING_CODE";
         private const string OperatorPairingCodeArg = "--innerworld-pairing-code";
@@ -144,12 +150,33 @@ namespace InnerWorld.Rokid
             TickDeviceHeartbeat();
             TickPremiumSpatialSurfaces();
 
-            if (Input.GetKeyDown(KeyCode.R)) StartCoroutine(BootstrapAndLoadSpace());
-            if (!IsRokidInputActive() && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) ConfirmEntryOrCompleteNextStep();
-            if (Input.GetKeyDown(KeyCode.S)) StartCoroutine(PostServiceAction());
-            if (Input.GetKeyDown(KeyCode.W)) StartCoroutine(PostWriteBack());
-            if (Input.GetKeyDown(KeyCode.B)) StartCoroutine(SwitchUserB());
-            if (Input.GetKeyDown(KeyCode.C)) StartCoroutine(SubmitWallCalibrationObservation("manual"));
+            HandleFieldAssistKeyboard();
+        }
+
+        private void HandleFieldAssistKeyboard()
+        {
+            if (Input.GetKeyDown(KeyCode.R)) RunFieldAssistAction("reload", () => StartCoroutine(BootstrapAndLoadSpace()));
+            if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) RunFieldAssistAction("select A1", () => SelectAnchor("A1"));
+            if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) RunFieldAssistAction("select A2", () => SelectAnchor("A2"));
+            if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) RunFieldAssistAction("select A3", () => SelectAnchor("A3"));
+            if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return)) RunFieldAssistAction("confirm", () => ConfirmEntryOrCompleteNextStep("operator_assist_confirm"));
+            if (Input.GetKeyDown(KeyCode.S)) RunFieldAssistAction("service", () => StartCoroutine(PostServiceAction()));
+            if (Input.GetKeyDown(KeyCode.W)) RunFieldAssistAction("write", () => StartCoroutine(PostWriteBack()));
+            if (Input.GetKeyDown(KeyCode.B)) RunFieldAssistAction("user B", () => StartCoroutine(SwitchUserB()));
+            if (Input.GetKeyDown(KeyCode.C)) RunFieldAssistAction("calibrate", () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
+        }
+
+        private void RunFieldAssistAction(string label, Action action)
+        {
+            if (Time.time - lastFieldAssistActionAtSeconds < FieldAssistInputDebounceSeconds)
+            {
+                return;
+            }
+
+            lastFieldAssistActionAtSeconds = Time.time;
+            lastFieldAssistActionLine = FieldAssistInputMode + " | " + label + " | " + FieldAssistBlockerId;
+            if (action != null) action.Invoke();
+            RefreshFieldInputAssistHud();
         }
 
         private IEnumerator BootstrapAndLoadSpace()
@@ -343,11 +370,11 @@ namespace InnerWorld.Rokid
             RefreshTargetHud();
         }
 
-        private void ConfirmEntryOrCompleteNextStep()
+        private void ConfirmEntryOrCompleteNextStep(string source = "keyboard_confirm")
         {
             if (ShouldConfirmA1SpatialEntry())
             {
-                ConfirmA1SpatialEntryExperience("keyboard_confirm");
+                ConfirmA1SpatialEntryExperience(source);
                 return;
             }
 
@@ -1277,7 +1304,8 @@ namespace InnerWorld.Rokid
             RefreshInputStatusLine();
             RefreshTargetHud();
             RefreshRadarHud();
-            if (keyHintText != null) keyHintText.text = "R reload | Space/Enter confirm | C calibrate | S service | W write | B user";
+            RefreshFieldInputAssistHud();
+            if (keyHintText != null) keyHintText.text = "1/2/3 anchors | Space/Enter confirm | S service | W write | B user | R reload";
         }
 
         private string GetMissionLine()
@@ -1308,6 +1336,7 @@ namespace InnerWorld.Rokid
                 + "\nWall " + WallCalibrationHudBadge() + " | " + BuildFieldMarkerReadinessLine()
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
                 + "\nOperator " + BuildFieldOperatorPlanHudLine()
+                + "\nInput " + BuildFieldInputAssistStatusLine()
                 + "\nShell " + ArShellStatusCompactLabel()
                 + "\nTarget " + ActiveAnchorSummaryLabel();
         }
@@ -1481,7 +1510,39 @@ namespace InnerWorld.Rokid
             x += 78f;
             CreateButton("Calib", radarPanel.transform, x, -52f, 58f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
 
+            GameObject assistPanel = CreateHudPanel(
+                "Field Input Assist Rail",
+                canvasObject.transform,
+                new Vector2(0.5f, 0f),
+                new Vector2(0.5f, 0f),
+                new Vector2(0f, 132f),
+                new Vector2(900f, 92f),
+                new Color(0.035f, 0.034f, 0.026f, 0.86f));
+            CreateAccentBar("Field Input Assist Accent", assistPanel.transform, new Color(1f, 0.7f, 0.24f, 0.92f), 2f, false);
+
+            fieldInputAssistText = CreateText("Field Input Assist", assistPanel.transform, 12, FontStyle.Bold);
+            fieldInputAssistText.color = new Color(1f, 0.86f, 0.48f);
+            SetRect(fieldInputAssistText.rectTransform, 18f, -12f, 860f, 24f);
+
+            float assistX = 18f;
+            CreateButton("A1", assistPanel.transform, assistX, -46f, 54f, () => RunFieldAssistAction("select A1", () => SelectAnchor("A1")));
+            assistX += 60f;
+            CreateButton("A2", assistPanel.transform, assistX, -46f, 54f, () => RunFieldAssistAction("select A2", () => SelectAnchor("A2")));
+            assistX += 60f;
+            CreateButton("A3", assistPanel.transform, assistX, -46f, 54f, () => RunFieldAssistAction("select A3", () => SelectAnchor("A3")));
+            assistX += 70f;
+            CreateButton("Confirm", assistPanel.transform, assistX, -46f, 82f, () => RunFieldAssistAction("confirm", () => ConfirmEntryOrCompleteNextStep("operator_assist_confirm")));
+            assistX += 88f;
+            CreateButton("Service", assistPanel.transform, assistX, -46f, 78f, () => RunFieldAssistAction("service", () => StartCoroutine(PostServiceAction())));
+            assistX += 84f;
+            CreateButton("Write", assistPanel.transform, assistX, -46f, 66f, () => RunFieldAssistAction("write", () => StartCoroutine(PostWriteBack())));
+            assistX += 72f;
+            CreateButton("User B", assistPanel.transform, assistX, -46f, 76f, () => RunFieldAssistAction("user B", () => StartCoroutine(SwitchUserB())));
+            assistX += 82f;
+            CreateButton("Reload", assistPanel.transform, assistX, -46f, 76f, () => RunFieldAssistAction("reload", () => StartCoroutine(BootstrapAndLoadSpace())));
+
             RefreshTargetHud();
+            RefreshFieldInputAssistHud();
         }
 
         private void RenderAnchors()
@@ -1547,6 +1608,7 @@ namespace InnerWorld.Rokid
         {
             float x = source.x;
             float y = source.y;
+            float depth = DepthLayerOffset(anchor);
             if (anchor != null)
             {
                 if (anchor.anchor_id == "A1")
@@ -1566,7 +1628,16 @@ namespace InnerWorld.Rokid
                 }
             }
 
-            return new Vector3(x, y, wallCenter.z - 0.24f);
+            return new Vector3(x, y, wallCenter.z + depth);
+        }
+
+        private float DepthLayerOffset(AnchorData anchor)
+        {
+            if (anchor == null) return -0.24f;
+            if (anchor.anchor_id == "A1") return -0.34f;
+            if (anchor.anchor_id == "A2") return -0.58f;
+            if (anchor.anchor_id == "A3") return -0.30f;
+            return -0.24f;
         }
 
         private Vector3 AnchorBaseScale(AnchorData anchor)
@@ -1623,22 +1694,27 @@ namespace InnerWorld.Rokid
                 return;
             }
 
-            GameObject route = new GameObject("A1 A2 A3 Spatial Route");
+            GameObject route = new GameObject("A1 A2 A3 Spatial Memory Depth Ribbon");
             LineRenderer line = route.AddComponent<LineRenderer>();
             line.useWorldSpace = true;
-            line.positionCount = 3;
+            line.positionCount = 5;
             line.numCapVertices = 6;
             line.numCornerVertices = 8;
-            line.startWidth = 0.012f;
-            line.endWidth = 0.012f;
+            line.startWidth = 0.014f;
+            line.endWidth = 0.01f;
             Color color = new Color(0.42f, 1f, 0.84f, 0.72f);
             line.startColor = color;
             line.endColor = color;
             Material material = CreateLineMaterial(color, 0.5f);
             if (material != null) line.material = material;
-            line.SetPosition(0, anchorVisuals["A1"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
-            line.SetPosition(1, anchorVisuals["A2"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
-            line.SetPosition(2, anchorVisuals["A3"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
+            Vector3 a1 = anchorVisuals["A1"].MarkerTransform.position + new Vector3(0f, 0f, -0.055f);
+            Vector3 a2 = anchorVisuals["A2"].MarkerTransform.position + new Vector3(0f, 0f, -0.12f);
+            Vector3 a3 = anchorVisuals["A3"].MarkerTransform.position + new Vector3(0f, 0f, -0.055f);
+            line.SetPosition(0, a1);
+            line.SetPosition(1, Vector3.Lerp(a1, a2, 0.5f) + new Vector3(0f, 0.12f, -0.09f));
+            line.SetPosition(2, a2);
+            line.SetPosition(3, Vector3.Lerp(a2, a3, 0.5f) + new Vector3(0f, 0.12f, -0.09f));
+            line.SetPosition(4, a3);
             spawnedObjects.Add(route);
         }
 
@@ -2340,11 +2416,25 @@ namespace InnerWorld.Rokid
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status
                 + "\nSERVER " + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + CurrentDeviceProfile() + " | " + acceptanceStatus
                 + "\nENTRY " + BuildA1SpatialEntryHudLine()
+                + "\nASSIST " + BuildFieldInputAssistStatusLine()
                 + "\nADAPTER " + adapterReadiness;
             if (systemText != null)
             {
                 systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + A1SpatialEntryReadinessStatus() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation + " | " + adapterReadiness;
             }
+        }
+
+        private void RefreshFieldInputAssistHud()
+        {
+            if (fieldInputAssistText == null) return;
+            fieldInputAssistText.text = BuildFieldInputAssistStatusLine()
+                + " | fallback_hardware_ready false | blocker " + FieldAssistBlockerId
+                + " | " + lastFieldAssistActionLine;
+        }
+
+        private string BuildFieldInputAssistStatusLine()
+        {
+            return "field input assist visible | P0 A1/A2/A3/User B | " + FieldAssistInputMode;
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -3186,6 +3276,10 @@ namespace InnerWorld.Rokid
                 ray_origin = VectorPayload(ray.origin),
                 ray_direction = VectorPayload(ray.direction),
                 pointable_ui_focus = anchorHit,
+                fallback_input_visible = true,
+                operator_assist_input = true,
+                input_blocker = FieldAssistBlockerId,
+                input_acceptance_mode = FieldAssistInputMode,
                 voice_text_present = frame.HasVoiceText
             };
         }

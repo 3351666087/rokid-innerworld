@@ -96,6 +96,8 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("BuildA1SpatialEntryHudLine") && controller.includes("BuildA1SpatialEntryHeartbeatLine"), "Unity controller A1 entry HUD/heartbeat lines missing");
   assert(controller.includes("entry_confirmation_status") && controller.includes("spatial_layer_transition_state") && controller.includes("开启空间层"), "Unity controller A1 confirmation / spatial layer transition fields missing");
   assert(controller.includes("fallback_not_hardware_ready") && controller.includes("fallback_hardware_ready false"), "Unity controller fallback must not claim hardware ready for A1 entry");
+  assert(controller.includes("Field Input Assist Rail") && controller.includes("operator_assist_rehearsal_not_hardware_ready") && controller.includes("visible_but_no_remote_or_hand"), "Unity controller visible-but-no-input field assist rail missing");
+  assert(controller.includes("CreateButton(\"A1\"") && controller.includes("CreateButton(\"A2\"") && controller.includes("CreateButton(\"A3\"") && controller.includes("ConfirmEntryOrCompleteNextStep(\"operator_assist_confirm\")"), "Unity controller P0 field assist controls missing");
   assert(controller.includes("bootstrap.endpoints.wall_calibration"), "Unity controller bootstrap wall calibration endpoint missing");
   assert(controller.includes("apiClient.WallCalibrationUrl"), "Unity controller wall calibration fallback URL missing");
   assert(controller.includes("JsonUtility.FromJson<WallCalibrationManifest>"), "Unity controller wall calibration manifest parsing missing");
@@ -121,6 +123,7 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("FieldMarkerImageTargetAssetsLabel"), "Unity controller image target asset status summary missing");
   assert(controller.includes("CreateHudPanel") && controller.includes("Target Card") && controller.includes("Radar Strip"), "Unity controller premium HUD panels missing");
   assert(controller.includes("CreateAnchorHalo") && controller.includes("BuildSpatialRouteLine") && controller.includes("TickPremiumSpatialSurfaces"), "Unity controller premium spatial anchor surfaces missing");
+  assert(controller.includes("DepthLayerOffset") && controller.includes("Spatial Memory Depth Ribbon"), "Unity controller spatial memory depth layering missing");
   assert(controller.includes("BuildPremiumTargetCardLine") && controller.includes("ImageTargetAssetCardLine") && controller.includes("ArShellStatusCompactLabel"), "Unity controller premium target card / AR shell status missing");
   assert(controller.includes("ApplyPresentationStrategyToMissionState"), "Unity controller must apply presentation strategy to mission state");
   assert(controller.includes("marker.image_target_asset"), "Unity controller must consume marker image_target_asset");
@@ -239,6 +242,7 @@ async function assertUnityAdapterBoundary() {
   assert(/BuildDeviceHeartbeatRequest\(\)[\s\S]*input_frame\s*=\s*BuildDeviceInputFramePayload\(\)/.test(controller), "Unity controller heartbeat must include sanitized input_frame");
   assert(controller.includes("BuildDeviceInputFramePayload") && controller.includes("DeviceInputFramePayload"), "Unity controller input frame payload builder missing");
   assert(controller.includes("pointable_ui_focus") && controller.includes("voice_text_present"), "Unity controller input frame focus/voice evidence missing");
+  assert(controller.includes("fallback_input_visible") && controller.includes("operator_assist_input") && controller.includes("input_acceptance_mode"), "Unity controller input frame field assist evidence missing");
   assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller required capabilities missing");
   assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
   assert(poseProvider.includes("interface IRokidInputStateSink"), "Unity input state sink interface missing");
@@ -364,6 +368,7 @@ async function assertUnityAdapterBoundary() {
   assert(payloads.includes("public sealed class DeviceInputFramePayload"), "Unity device input frame payload DTO missing");
   assert(payloads.includes("public DeviceVector3 ray_origin;") && payloads.includes("public DeviceVector3 ray_direction;"), "Unity device input frame ray DTO missing");
   assert(payloads.includes("public bool pointable_ui_focus;"), "Unity device input frame PointableUI focus DTO missing");
+  assert(payloads.includes("public bool fallback_input_visible;") && payloads.includes("public bool operator_assist_input;") && payloads.includes("public string input_acceptance_mode;"), "Unity device input frame field assist DTO missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
   assert(payloads.includes("public sealed class DeviceNetworkStatus"), "Unity device network payload missing");

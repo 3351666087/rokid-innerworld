@@ -2,6 +2,7 @@ param(
   [string]$BaseUrl = "http://127.0.0.1:5177",
   [string]$OutputRoot = "",
   [switch]$SkipDeviceProbe,
+  [switch]$SkipGlassesDiagnostics,
   [switch]$SkipApkInspect,
   [switch]$PairSmoke,
   [switch]$Watch,
@@ -369,10 +370,15 @@ function Write-SessionMarkdown {
     "- $blocker"
   }
   if (!$targetPhysicalBlockerLines) { $targetPhysicalBlockerLines = @("- none") }
+  $glassesBlockerLines = foreach ($blocker in @($Report.station_glasses.blocker_ids)) {
+    "- $blocker"
+  }
+  if (!$glassesBlockerLines) { $glassesBlockerLines = @("- none") }
   $commandsBlock = $commandLines -join "`n"
   $actionsBlock = $actionLines -join "`n"
   $targetBlockersBlock = $targetBlockerLines -join "`n"
   $targetPhysicalBlockersBlock = $targetPhysicalBlockerLines -join "`n"
+  $glassesBlockersBlock = $glassesBlockerLines -join "`n"
   $operatorActionLines = foreach ($action in @($Report.operator_plan.next_actions)) {
     "- $action"
   }
@@ -402,6 +408,8 @@ function Write-SessionMarkdown {
 - Watch requested: $($Report.watch.requested)
 - Operator plan current phase: $($Report.operator_plan.current_phase) ($($Report.operator_plan.phase_index)/$($Report.operator_plan.total_phases))
 - Operator plan command OK: $($Report.operator_plan.command_ok)
+- Station glasses display ready: $($Report.station_glasses.glasses_display_ready)
+- Station glasses command OK: $($Report.station_glasses.command_ok)
 - Live session ready: $($Report.live_pass.live_session_ready)
 - Trusted A1/A2/A3 ready: $($Report.live_pass.trusted_a1_a2_a3_ready)
 - Mission loop ready: $($Report.live_pass.mission_loop_ready)
@@ -417,6 +425,25 @@ function Write-SessionMarkdown {
 ## Commands
 
 $commandsBlock
+
+## Station Pro Glasses Diagnostics
+
+- Selected transport: $($Report.station_glasses.selected_transport)
+- Selected device hash prefix: $($Report.station_glasses.selected_device_id_hash_prefix)
+- ADB device-state count: $($Report.station_glasses.device_state_count)
+- Glasses display ready: $($Report.station_glasses.glasses_display_ready)
+- External display detected: $($Report.station_glasses.external_display_detected)
+- Rokid display service ready: $($Report.station_glasses.rokid_display_service_ready)
+- DSP connected: $($Report.station_glasses.dsp_connected)
+- Station USB role ready for glasses: $($Report.station_glasses.station_usb_role_ready_for_glasses)
+- Station USB mode: $($Report.station_glasses.station_usb_current_mode)
+- Station USB data role: $($Report.station_glasses.station_usb_current_data_role)
+- Head-pose failure count: $($Report.station_glasses.head_pose_failure_count)
+- Hardware-ready claim allowed: $($Report.station_glasses.hardware_ready_claim_allowed)
+
+### Station Pro Glasses Blockers
+
+$glassesBlockersBlock
 
 ## Operator Plan
 
@@ -454,7 +481,7 @@ $actionsBlock
 
 ## Boundary
 
-This session runner does not create simulator/manual observations. The operator-plan step only reads /api/field/operator-plan and writes a local command report. Pair-smoke and watch modes only install/launch/pair the APK and observe live/target gates. Mission/service/write-back/User B mutations only happen when the explicit target-pass action switches are used, and those actions remain gated by trusted A2/A3 evidence. Hardware-ready remains false until trusted A1/A2/A3, A3 write-back, User B readback, and /api/field/acceptance are all ready.
+This session runner does not create simulator/manual observations. The Station Pro glasses diagnostics step is read-only display/USB/head-pose evidence and is not A1/A2/A3 field acceptance. The operator-plan step only reads /api/field/operator-plan and writes a local command report. Pair-smoke and watch modes only install/launch/pair the APK and observe live/target gates. Mission/service/write-back/User B mutations only happen when the explicit target-pass action switches are used, and those actions remain gated by trusted A2/A3 evidence. Hardware-ready remains false until trusted A1/A2/A3, A3 write-back, User B readback, and /api/field/acceptance are all ready.
 "@
   $md | Set-Content -Encoding UTF8 -Path $Path
 }
@@ -478,6 +505,19 @@ if (!$SkipDeviceProbe) {
 } else {
   $commands += New-SkippedCommand -Name "device-probe-strict" -Reason "SkipDeviceProbe"
 }
+
+if (!$SkipGlassesDiagnostics) {
+  $stationGlassesCommand = Invoke-ProcessCapture `
+    -Name "station-glasses-diagnostics" `
+    -FileName "powershell" `
+    -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/station-pro-glasses-diagnostics.ps1") `
+    -TimeoutSec $CommandTimeoutSec
+  $commands += $stationGlassesCommand
+} else {
+  $stationGlassesCommand = New-SkippedCommand -Name "station-glasses-diagnostics" -Reason "SkipGlassesDiagnostics"
+  $commands += $stationGlassesCommand
+}
+$stationGlassesJson = Convert-JsonOutput -Command $stationGlassesCommand
 
 if (!$SkipApkInspect) {
   $commands += Invoke-ProcessCapture `
@@ -623,6 +663,15 @@ if ($livePassReportJson -and $livePassReportJson.latest_snapshot.next_required_a
 } elseif ($livePassJson -and $livePassJson.next_required_actions) {
   $livePassNextActions = Convert-ToStringArray -Value $livePassJson.next_required_actions
 }
+$stationGlassesNextActions = @()
+if ($stationGlassesJson -and $stationGlassesJson.readiness -and $stationGlassesJson.readiness.glasses_display_ready -ne $true) {
+  $glassesBlockers = Convert-ToStringArray -Value $stationGlassesJson.readiness.blocker_ids
+  if ($glassesBlockers.Count -gt 0) {
+    $stationGlassesNextActions = @("Resolve Station Pro glasses/display blockers before claiming hardware-ready: $($glassesBlockers -join ', ').")
+  } else {
+    $stationGlassesNextActions = @("Run Station Pro glasses/display diagnostics until glasses display and head-pose readiness are green.")
+  }
+}
 $nextActionItems = New-Object 'System.Collections.Generic.List[string]'
 foreach ($action in $operatorPlanNextActions) {
   if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
@@ -630,6 +679,11 @@ foreach ($action in $operatorPlanNextActions) {
   }
 }
 foreach ($action in $livePassNextActions) {
+  if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
+    [void]$nextActionItems.Add($action)
+  }
+}
+foreach ($action in $stationGlassesNextActions) {
   if (![string]::IsNullOrWhiteSpace($action) -and !$nextActionItems.Contains($action)) {
     [void]$nextActionItems.Add($action)
   }
@@ -683,6 +737,35 @@ $report = [pscustomobject]@{
     blockers = if ($operatorPlanJson) { Convert-ToStringArray -Value $operatorPlanJson.blockers } else { Convert-ToStringArray -Value "field_operator_plan_summary_missing" }
     phase_table = if ($operatorPlanJson -and $operatorPlanJson.phase_table) { @($operatorPlanJson.phase_table) } else { @() }
   }
+  station_glasses = [pscustomobject]@{
+    command_ok = [bool]$stationGlassesCommand.ok
+    schema = if ($stationGlassesJson) { $stationGlassesJson.schema } else { $null }
+    selected_transport = if ($stationGlassesJson) { $stationGlassesJson.adb.selected_transport } else { $null }
+    selected_device_id_hash_prefix = if ($stationGlassesJson) { $stationGlassesJson.adb.selected_device_id_hash_prefix } else { $null }
+    device_state_count = if ($stationGlassesJson) { [int]$stationGlassesJson.adb.device_state_count } else { 0 }
+    glasses_display_ready = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.glasses_display_ready -eq $true)
+    external_display_detected = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.external_display_detected -eq $true)
+    rokid_display_service_ready = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.rokid_display_service_ready -eq $true)
+    station_usb_role_ready_for_glasses = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.station_usb_role_ready_for_glasses -eq $true)
+    runtime_ready = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.runtime_ready -eq $true)
+    openxr_runtime_package_ready = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.openxr_runtime_package_ready -eq $true)
+    hardware_ready_claim_allowed = [bool]($stationGlassesJson -and $stationGlassesJson.readiness.hardware_ready_claim_allowed -eq $true)
+    blocker_ids = if ($stationGlassesJson) { Convert-ToStringArray -Value $stationGlassesJson.readiness.blocker_ids } else { Convert-ToStringArray -Value "station_glasses_diagnostics_missing" }
+    display_count = if ($stationGlassesJson) { [int]$stationGlassesJson.display.display_count } else { 0 }
+    dsp_connected = [bool]($stationGlassesJson -and $stationGlassesJson.rokid_display.dsp_connected -eq $true)
+    usb_display_connected = [bool]($stationGlassesJson -and $stationGlassesJson.rokid_display.usb_display_connected -eq $true)
+    usb_device_connected = [bool]($stationGlassesJson -and $stationGlassesJson.rokid_display.usb_device_connected -eq $true)
+    station_usb_device_mode = [bool]($stationGlassesJson -and $stationGlassesJson.usb.station_usb_device_mode -eq $true)
+    station_usb_host_mode = [bool]($stationGlassesJson -and $stationGlassesJson.usb.station_usb_host_mode -eq $true)
+    station_usb_role_blocks_glasses = [bool]($stationGlassesJson -and $stationGlassesJson.usb.station_usb_role_blocks_glasses -eq $true)
+    station_usb_current_mode = if ($stationGlassesJson) { $stationGlassesJson.usb.current_mode } else { $null }
+    station_usb_current_data_role = if ($stationGlassesJson) { $stationGlassesJson.usb.current_data_role } else { $null }
+    head_pose_failure_count = if ($stationGlassesJson) { [int]$stationGlassesJson.runtime_log.head_pose_failure_count } else { 0 }
+    raw_dumpsys_included = $false
+    raw_logcat_included = $false
+    raw_getprop_included = $false
+    hardware_acceptance_evidence = $false
+  }
   watch = [pscustomobject]@{
     requested = [bool]$Watch
     duration_sec = $WatchDurationSec
@@ -729,6 +812,8 @@ $report = [pscustomobject]@{
     raw_session_ids_included = $false
     private_ips_included = $false
     raw_logcat_included = $false
+    raw_dumpsys_included = $false
+    raw_getprop_included = $false
     note = "Command tails are redacted. The runner never writes raw logcat, pairing codes, serials, USB instance ids, MACs, or private IPs."
   }
 }

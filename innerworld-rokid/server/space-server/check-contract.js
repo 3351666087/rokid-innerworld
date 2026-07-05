@@ -1114,6 +1114,11 @@ async function assertFieldAcceptanceSessionSkeleton() {
   assert(tool.includes("operator_plan = [pscustomobject]"), "field acceptance session operator plan JSON summary missing");
   assert(tool.includes("Operator Plan") && tool.includes("Operator Plan Phase Table"), "field acceptance session operator plan markdown missing");
   assert(tool.includes("$operatorPlanNextActions") && tool.includes("$nextActionItems"), "field acceptance session must merge operator plan next actions");
+  assert(tool.includes("tools/station-pro-glasses-diagnostics.ps1"), "field acceptance session Station Pro glasses diagnostics invocation missing");
+  assert(tool.includes("station_glasses = [pscustomobject]"), "field acceptance session Station Pro glasses JSON summary missing");
+  assert(tool.includes("Station Pro Glasses Diagnostics") && tool.includes("Station Pro Glasses Blockers"), "field acceptance session Station Pro glasses markdown missing");
+  assert(tool.includes("$stationGlassesNextActions"), "field acceptance session must merge Station Pro glasses next actions");
+  assert(tool.includes("hardware_acceptance_evidence = $false"), "field acceptance session glasses diagnostics must not become hardware acceptance evidence");
   assert(tool.includes("tools/field-live-pass.js"), "field acceptance session live-pass invocation missing");
   assert(tool.includes("tools/field-target-pass.js"), "field acceptance session target-pass invocation missing");
   assert(tool.includes("[switch]$TargetPass"), "field acceptance session target pass switch missing");

@@ -230,6 +230,10 @@ namespace InnerWorld.Rokid.Protocol
         public DeviceVector3 ray_origin;
         public DeviceVector3 ray_direction;
         public bool pointable_ui_focus;
+        public bool fallback_input_visible;
+        public bool operator_assist_input;
+        public string input_blocker;
+        public string input_acceptance_mode;
         public bool voice_text_present;
     }
 

@@ -184,6 +184,14 @@ Latest hardware probe checkpoint: `device:probe` now sees the same Station Pro t
 - 新增并试运行 `npm run cache:temp:report` / `npm run cache:temp:clean`：只处理用户 Temp 下 6 小时以前、可识别为 VS/Android/.NET 安装器残留且无进程引用的目录，并显式跳过 junction/symlink 等 reparse point；本轮删除 `glgyitip`、`15tbxetl`、`b54aud4l.eiq`，释放约 7.416GB。
 - C 盘仍接近 25GB 警戒线，清理后约 23.741GB 可用；继续高频执行 `npm run cache:temp:report`、`npm run cache:report` / `npm run cache:clean`。不随意删除 Unity `Library`。
 
+
+## 2026-07-05 - Visible Page, Missing Real Input
+
+- User field report: the real-device page can display, but the virtual remote and hand are absent, leaving no usable interaction path. This is a P0 physical acceptance blocker, not a display success.
+- Unity now includes a bottom `Field Input Assist Rail` with A1/A2/A3, Confirm, Service, Write, User B, and Reload plus keyboard mappings 1/2/3, Space/Enter, S/W/B/R/C. This keeps现场 rehearsal and debugging moving while the true RKInput/PointableUI/hand path is repaired.
+- Heartbeat payloads now mark this path as fallback/operator assist with `fallback_input_visible`, `operator_assist_input`, `input_blocker=visible_but_no_remote_or_hand`, and `input_acceptance_mode=operator_assist_rehearsal_not_hardware_ready`; these fields must not be used to claim hardware-ready.
+- Spatial shell upgrade started: A1/A2/A3 use depth offsets and a curved Spatial Memory Depth Ribbon, reducing the flat-panel feel and making the P0 loop read as a spatial memory field.
+- Latest short field acceptance smoke: `output/field-acceptance-session/field-acceptance-session-20260705-123001.json`; expected `ok=false` / `hardware_ready_claim_allowed=false` until trusted live input, A1/A2/A3, A3 write-back, and User B readback are complete.
 ## Next
 
 - 重新生成最终交付包并验包，确认服务器部署计划、环境医生、release index、现场 LAN 预检脚本、Windows/Android fallback、Space Server 状态机修复和文档全部进入 zip。
