@@ -573,7 +573,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fbe63c1b438048289ff32a865128601d, type: 3}
   m_Name: RokidHandTrackingAim Android
   m_EditorClassIdentifier: Rokid.Openxr::UnityEngine.XR.OpenXR.Features.RokidHandTrackingAim
-  m_enabled: 0
+  m_enabled: 1
   nameUi: Rokid Hand Tracking Aim
   version: 0.0.1
   featureIdInternal: com.unity.openxr.feature.input.RokidHandTrackingAim
@@ -636,7 +636,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: da26ee479548478da14fde8d06179285, type: 3}
   m_Name: RokidARFoundationFeature Android
   m_EditorClassIdentifier: Rokid.Openxr::UnityEngine.XR.OpenXR.Features.RokidARFoundationFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: Rokid ARFoundation Support
   version: 0.0.1
   featureIdInternal: com.unity.openxr.feature.RokidARFoundation
@@ -778,7 +778,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 569f217d3466d4d33b9db5794c01417e, type: 3}
   m_Name: RokidFeature Android
   m_EditorClassIdentifier: Rokid.Openxr::UnityEngine.XR.OpenXR.Features.RokidFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: Rokid Openxr Support
   version: 0.0.1
   featureIdInternal: com.rokid.openxr.feature
@@ -798,7 +798,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4e314dfef9af0904e80129bcc0a79361, type: 3}
   m_Name: HandTracking Android
   m_EditorClassIdentifier: Unity.XR.Hands::UnityEngine.XR.Hands.OpenXR.HandTracking
-  m_enabled: 0
+  m_enabled: 1
   nameUi: Hand Tracking Subsystem
   version: 0.0.1
   featureIdInternal: com.unity.openxr.feature.input.handtracking
@@ -1016,7 +1016,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ae7490705d540daa37db988065d0ea3, type: 3}
   m_Name: RokidHandTrackingProfile Android
   m_EditorClassIdentifier: Rokid.Openxr::UnityEngine.XR.OpenXR.Features.Interactions.RokidHandTrackingProfile
-  m_enabled: 0
+  m_enabled: 1
   nameUi: Rokid HandTracking Profile
   version: 0.0.1
   featureIdInternal: com.unity.openxr.feature.input.rokidhandtrackingprofile

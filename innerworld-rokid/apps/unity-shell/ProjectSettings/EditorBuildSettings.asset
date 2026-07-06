@@ -9,6 +9,6 @@ EditorBuildSettings:
     path: Assets/Scenes/InnerWorldDemo.unity
     guid: 939591cd00c6a914d8b727a3e4e3f706
   m_configObjects:
+    com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: ddb8906b20be741f2acd8ba0c9837aba, type: 2}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: b15f20756f65ce74dab7245472c213f7, type: 2}
     com.unity.xr.openxr.settings4: {fileID: 11400000, guid: af2153fd7f2793f41b73ba42e1be7285, type: 2}
-  m_UseUCBPForAssetBundles: 0
