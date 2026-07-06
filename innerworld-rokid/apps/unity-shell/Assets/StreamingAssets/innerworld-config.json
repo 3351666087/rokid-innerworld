@@ -1,4 +1,4 @@
-﻿{
-    "base_url":  "http://localhost:5177",
-    "space_id":  "innerworld_campus_wall"
+{
+  "base_url": "http://10.13.98.197:5177",
+  "space_id": "innerworld_campus_wall"
 }
