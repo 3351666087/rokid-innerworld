@@ -47,6 +47,13 @@ namespace InnerWorld.Rokid
         private double currentLongitude = 120.73812;
         private int currentSimGpsIndex = 0; // 0=A1, 1=A2, 2=A3, 3=Out of Range
 
+        // Captured GPS coordinates developer tool
+        private GameObject captureButtonObj;
+        private Image captureButtonBg;
+        private Text captureButtonText;
+        private bool isGazingCaptureButton = false;
+        private string lastCapturedGpsString = "未捕获";
+
         // Spatial Beacons Lifecycles
         private sealed class ActiveBeacon
         {
@@ -145,7 +152,8 @@ namespace InnerWorld.Rokid
                       " - [Space]: Simulate scanning A1 QR Code (Memory Wall)\n" +
                       " - [2]: Simulate scanning A2 Logo (Whale Cloud)\n" +
                       " - [3]: Simulate scanning A3 Logo (Task Board)\n" +
-                      " - [G]: Cycle simulated GPS locations (A1, A2, A3, Out of Range)");
+                      " - [G]: Cycle simulated GPS locations\n" +
+                      " - [C]: Capture and copy current GPS location");
 #endif
             // Pre-create the LineRenderer for scan wave animations
             CreateScanWaveEffectObject();
@@ -195,6 +203,10 @@ namespace InnerWorld.Rokid
             if (Input.GetKeyDown(KeyCode.G))
             {
                 CycleSimulatedGps();
+            }
+            if (Input.GetKeyDown(KeyCode.C))
+            {
+                CaptureCurrentGps();
             }
 
             // Update raycast gaze check and beacon distance lifecycles
@@ -315,6 +327,25 @@ namespace InnerWorld.Rokid
             Debug.Log("[ScanAnchorController] Simulated GPS changed to Preset " + currentSimGpsIndex + ": (" + currentLatitude + ", " + currentLongitude + ")");
         }
 
+        private void CaptureCurrentGps()
+        {
+            string jsonSnippet = string.Format("{{\"gps_latitude\": {0:F7}, \"gps_longitude\": {1:F7}}}", currentLatitude, currentLongitude);
+            GUIUtility.systemCopyBuffer = jsonSnippet;
+            lastCapturedGpsString = string.Format("{0:F6}, {1:F6} (已复制并自动对齐)", currentLatitude, currentLongitude);
+
+            // Re-align all dynamic target configurations to the user's captured location
+            for (int i = 0; i < configs.Count; i++)
+            {
+                var cfg = configs[i];
+                cfg.gps_latitude = currentLatitude;
+                cfg.gps_longitude = currentLongitude;
+                configs[i] = cfg;
+            }
+
+            Debug.Log("[ScanAnchorController] Captured Spot GPS. Re-aligned all targets to: (" + currentLatitude + ", " + currentLongitude + "). JSON Copied to clipboard:\n" + jsonSnippet);
+            ShowScanSuccessNotification("🎯 坐标已捕获并重新对齐所有空间图层！\n已复制剪贴板: " + jsonSnippet);
+        }
+
         private float CalculateDistance(double lat1, double lon1, double lat2, double lon2)
         {
             const float R = 6371000f; // Earth's radius in meters
@@ -322,7 +353,7 @@ namespace InnerWorld.Rokid
             double dLon = (lon2 - lon1) * Mathf.Deg2Rad;
             double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
                        Math.Cos(lat1 * Mathf.Deg2Rad) * Math.Cos(lat2 * Mathf.Deg2Rad) *
-                       Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+                       System.Math.Sin(dLon / 2) * System.Math.Sin(dLon / 2);
             double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
             return (float)(R * c);
         }
@@ -351,7 +382,7 @@ namespace InnerWorld.Rokid
             float dist = CalculateDistance(currentLatitude, currentLongitude, matchConfig.gps_latitude, matchConfig.gps_longitude);
             if (dist > matchConfig.active_radius_meters)
             {
-                ShowScanFailureNotification(matchConfig.display_name + "\n❌ 过滤失败：超出 GPS 允许范围！");
+                ShowScanFailureNotification(matchConfig.display_name + "\n❌ 过滤失败：超出 GPS 范围！");
                 Debug.LogWarning("[ScanAnchorController] GPS Check Gated scan for " + matchConfig.display_name + ". Distance: " + dist + "m > " + matchConfig.active_radius_meters + "m");
                 return;
             }
@@ -458,19 +489,57 @@ namespace InnerWorld.Rokid
             Ray ray = new Ray(cam.transform.position, cam.transform.forward);
             RaycastHit hit;
             ActiveBeacon hitBeacon = null;
+            bool hitButton = false;
 
             if (Physics.Raycast(ray, out hit, 20f))
             {
-                foreach (var b in activeBeacons)
+                // Check if hit the capture button
+                if (hit.collider.gameObject == captureButtonObj)
                 {
-                    if (hit.collider.gameObject == b.beaconObject || hit.collider.transform.IsChildOf(b.beaconObject.transform))
+                    hitButton = true;
+                }
+                else
+                {
+                    // Check if hit any beacon
+                    foreach (var b in activeBeacons)
                     {
-                        hitBeacon = b;
-                        break;
+                        if (hit.collider.gameObject == b.beaconObject || hit.collider.transform.IsChildOf(b.beaconObject.transform))
+                        {
+                            hitBeacon = b;
+                            break;
+                        }
                     }
                 }
             }
 
+            // Gaze Button Logic
+            if (hitButton)
+            {
+                if (!isGazingCaptureButton)
+                {
+                    isGazingCaptureButton = true;
+                    if (captureButtonBg != null) captureButtonBg.color = new Color(0.24f, 0.48f, 0.72f, 1f);
+                }
+
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetMouseButtonDown(0)
+#if ROKID_UXR
+                    || IsUxrConfirmDown()
+#endif
+                )
+                {
+                    CaptureCurrentGps();
+                }
+            }
+            else
+            {
+                if (isGazingCaptureButton)
+                {
+                    isGazingCaptureButton = false;
+                    if (captureButtonBg != null) captureButtonBg.color = new Color(0.12f, 0.24f, 0.36f, 0.9f);
+                }
+            }
+
+            // Gaze Beacon Logic
             if (hitBeacon != null)
             {
                 if (focusedBeacon != hitBeacon)
@@ -712,8 +781,8 @@ namespace InnerWorld.Rokid
                 case 3: simLabel = "❌ 越界区域 (Out-of-Range)"; break;
             }
 
-            string coordStr = string.Format("当前经纬度: {0:F5}, {1:F5}\n({2})\n{3}\n", 
-                currentLatitude, currentLongitude, simLabel, gpsStatus);
+            string coordStr = string.Format("当前经纬度: {0:F5}, {1:F5}\n({2})\n{3}\n📌 上次捕获: {4}\n", 
+                currentLatitude, currentLongitude, simLabel, gpsStatus, lastCapturedGpsString);
 
             string distancesStr = "📍 各区域距离及状态:\n";
             foreach (var cfg in configs)
@@ -989,14 +1058,14 @@ namespace InnerWorld.Rokid
             GameObject panelObj = new GameObject("Panel");
             panelObj.transform.SetParent(canvasObj.transform, false);
             RectTransform panelRect = panelObj.AddComponent<RectTransform>();
-            panelRect.sizeDelta = new Vector2(750f, 320f);
+            panelRect.sizeDelta = new Vector2(750f, 380f);
             Image bg = panelObj.AddComponent<Image>();
             bg.color = new Color(0.02f, 0.03f, 0.04f, 0.90f);
 
             GameObject border = new GameObject("Border");
             border.transform.SetParent(panelObj.transform, false);
             RectTransform borderRect = border.AddComponent<RectTransform>();
-            borderRect.sizeDelta = new Vector2(746f, 316f);
+            borderRect.sizeDelta = new Vector2(746f, 376f);
             Outline outline = border.AddComponent<Outline>();
             outline.effectColor = new Color(0.36f, 0.92f, 1f, 0.8f);
             outline.effectDistance = new Vector2(2f, 2f);
@@ -1004,13 +1073,41 @@ namespace InnerWorld.Rokid
             GameObject textObj = new GameObject("StatusText");
             textObj.transform.SetParent(panelObj.transform, false);
             RectTransform textRect = textObj.AddComponent<RectTransform>();
-            textRect.sizeDelta = new Vector2(700f, 280f);
+            textRect.anchoredPosition = new Vector2(0f, 30f);
+            textRect.sizeDelta = new Vector2(700f, 290f);
             statusText = textObj.AddComponent<Text>();
             statusText.font = GetBuiltinFont();
-            statusText.fontSize = 20;
-            statusText.alignment = TextAnchor.MiddleCenter;
+            statusText.fontSize = 18;
+            statusText.alignment = TextAnchor.UpperCenter;
             statusText.color = Color.white;
             statusText.text = "【大空间里世界场景管理系统】\n\n🔍 正在等待定位及扫描卡片...";
+
+            // Capture GPS button
+            captureButtonObj = new GameObject("CaptureGpsButton");
+            captureButtonObj.transform.SetParent(panelObj.transform, false);
+            RectTransform btnRect = captureButtonObj.AddComponent<RectTransform>();
+            btnRect.anchoredPosition = new Vector2(0f, -145f);
+            btnRect.sizeDelta = new Vector2(300f, 50f);
+            
+            captureButtonBg = captureButtonObj.AddComponent<Image>();
+            captureButtonBg.color = new Color(0.12f, 0.24f, 0.36f, 0.9f);
+            Outline btnOutline = captureButtonObj.AddComponent<Outline>();
+            btnOutline.effectColor = new Color(0.36f, 0.92f, 1f, 0.8f);
+            btnOutline.effectDistance = new Vector2(1f, 1f);
+
+            GameObject btnTextObj = new GameObject("ButtonText");
+            btnTextObj.transform.SetParent(captureButtonObj.transform, false);
+            RectTransform btnTextRect = btnTextObj.AddComponent<RectTransform>();
+            btnTextRect.sizeDelta = new Vector2(280f, 40f);
+            captureButtonText = btnTextObj.AddComponent<Text>();
+            captureButtonText.font = GetBuiltinFont();
+            captureButtonText.fontSize = 16;
+            captureButtonText.alignment = TextAnchor.MiddleCenter;
+            captureButtonText.color = Color.white;
+            captureButtonText.text = "🎯 捕获当前位置并对齐空间";
+
+            BoxCollider collider = captureButtonObj.AddComponent<BoxCollider>();
+            collider.size = new Vector3(300f, 50f, 2f);
         }
 
         private void EnsureCameraAndLight()
