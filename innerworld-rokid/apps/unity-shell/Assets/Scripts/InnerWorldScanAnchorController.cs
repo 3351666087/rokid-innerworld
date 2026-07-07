@@ -1,7 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 #if ROKID_UXR
 using Rokid.UXR.Module;
@@ -11,19 +14,59 @@ namespace InnerWorld.Rokid
 {
     public sealed class InnerWorldScanAnchorController : MonoBehaviour
     {
+        [Serializable]
+        public struct GpsSceneConfig
+        {
+            public string scene_id;
+            public double gps_latitude;
+            public double gps_longitude;
+            public float active_radius_meters;
+            public int marker_image_index;
+            public string scene_unity_name;
+            public string display_name;
+        }
+
+        [Serializable]
+        public struct GpsScenesConfigList
+        {
+            public GpsSceneConfig[] scenes;
+        }
+
         [Header("Scene Configuration")]
         public Vector3 initialCameraPos = new Vector3(0f, 1.45f, 0f);
         public Vector3 initialSceneOffset = new Vector3(0f, 1.15f, 2.5f);
 
-        // Three independent scene roots for different spaces
-        private GameObject sceneRootA1;
-        private GameObject sceneRootA2;
-        private GameObject sceneRootA3;
-
+        private List<GpsSceneConfig> configs = new List<GpsSceneConfig>();
         private Text statusText;
         private float scanAnimationTimer = 0f;
         private GameObject activeWaveRoot;
         private LineRenderer scanEffectWave;
+
+        // GPS State and Simulation Presets
+        private double currentLatitude = 31.27584;
+        private double currentLongitude = 120.73812;
+        private int currentSimGpsIndex = 0; // 0=A1, 1=A2, 2=A3, 3=Out of Range
+
+        // Spatial Beacons Lifecycles
+        private sealed class ActiveBeacon
+        {
+            public string sceneId;
+            public int markerIndex;
+            public string sceneUnityName;
+            public string displayName;
+            public GameObject beaconObject;
+            public TextMesh labelMesh;
+            public LineRenderer progressRing;
+            public Pose spawnPose;
+            public float loadingProgress = 0f;
+            public bool isLoading = false;
+            public bool isLoaded = false;
+            public string statusMessage = "";
+            public GameObject loadedSceneRoot = null;
+        }
+
+        private List<ActiveBeacon> activeBeacons = new List<ActiveBeacon>();
+        private ActiveBeacon focusedBeacon = null;
 
         // Nested animator class for "Scan Successful" floating UI notification
         public sealed class ToastAnimator : MonoBehaviour
@@ -81,7 +124,13 @@ namespace InnerWorld.Rokid
         {
             EnsureCameraAndLight();
             BuildUI();
-            BuildVirtualScenes();
+            LoadGpsConfigurations();
+
+            // Setup default simulated coordinates to the A1 preset
+            currentLatitude = 31.27584;
+            currentLongitude = 120.73812;
+
+            StartCoroutine(StartLocationService());
         }
 
         private void Start()
@@ -95,8 +144,11 @@ namespace InnerWorld.Rokid
             Debug.Log("[ScanAnchorController] Running in fallback editor mode. Keyboard Shortcuts:\n" +
                       " - [Space]: Simulate scanning A1 QR Code (Memory Wall)\n" +
                       " - [2]: Simulate scanning A2 Logo (Whale Cloud)\n" +
-                      " - [3]: Simulate scanning A3 Logo (Task Board)");
+                      " - [3]: Simulate scanning A3 Logo (Task Board)\n" +
+                      " - [G]: Cycle simulated GPS locations (A1, A2, A3, Out of Range)");
 #endif
+            // Pre-create the LineRenderer for scan wave animations
+            CreateScanWaveEffectObject();
         }
 
         private void OnDestroy()
@@ -120,6 +172,13 @@ namespace InnerWorld.Rokid
                 }
             }
 
+            // Fetch live Android GPS coordinates if available
+            if (Input.location.status == LocationServiceStatus.Running)
+            {
+                currentLatitude = Input.location.lastData.latitude;
+                currentLongitude = Input.location.lastData.longitude;
+            }
+
             // Keyboard Space / number keys simulators
             if (Input.GetKeyDown(KeyCode.Space))
             {
@@ -133,9 +192,20 @@ namespace InnerWorld.Rokid
             {
                 SimulateScanEvent(3);
             }
+            if (Input.GetKeyDown(KeyCode.G))
+            {
+                CycleSimulatedGps();
+            }
+
+            // Update raycast gaze check and beacon distance lifecycles
+            UpdateGazeRaycast();
+            UpdateBeaconLifecycles();
 
             // Update scanning visualizer wave animation
             UpdateScanWaveAnimation();
+
+            // Update the HUD display details
+            UpdateHudText();
         }
 
 #if ROKID_UXR
@@ -148,47 +218,563 @@ namespace InnerWorld.Rokid
         {
             HandleDetectedTarget(trackedImage.index, trackedImage.pose);
         }
+
+        private bool IsUxrConfirmDown()
+        {
+            return Input.GetKeyDown(KeyCode.JoystickButton0) 
+                || (RKNativeInput.Instance != null && (RKNativeInput.Instance.GetKeyDown(RKKeyEvent.KEY_OK)
+                    || RKNativeInput.Instance.GetStation2EventTrigger(RKStation2KeyEvent.KEY_LIGHT_DOUBLE_TAP)));
+        }
 #endif
+
+        private void LoadGpsConfigurations()
+        {
+            string path = Path.Combine(Application.streamingAssetsPath, "gps_scenes_config.json");
+            if (File.Exists(path))
+            {
+                try
+                {
+                    string json = File.ReadAllText(path);
+                    GpsScenesConfigList list = JsonUtility.FromJson<GpsScenesConfigList>(json);
+                    if (list.scenes != null)
+                    {
+                        configs.AddRange(list.scenes);
+                        Debug.Log("[ScanAnchorController] Successfully loaded " + configs.Count + " GPS scene configurations.");
+                        return;
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError("[ScanAnchorController] Error parsing GPS config JSON: " + e.Message);
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[ScanAnchorController] GPS config JSON not found at: " + path + ". Loading fallback configurations.");
+            }
+
+            // Fallback default coordinates
+            configs.Add(new GpsSceneConfig { scene_id = "campus_memory_wall", gps_latitude = 31.27584, gps_longitude = 120.73812, active_radius_meters = 50f, marker_image_index = 1, scene_unity_name = "InnerWorldSceneA1", display_name = "A1 入口 (Campus Wall)" });
+            configs.Add(new GpsSceneConfig { scene_id = "whale_cloud", gps_latitude = 31.27589, gps_longitude = 120.73820, active_radius_meters = 50f, marker_image_index = 2, scene_unity_name = "InnerWorldSceneA2", display_name = "A2 UGC 情感层 (Whale Cloud)" });
+            configs.Add(new GpsSceneConfig { scene_id = "task_board", gps_latitude = 31.27575, gps_longitude = 120.73805, active_radius_meters = 50f, marker_image_index = 3, scene_unity_name = "InnerWorldSceneA3", display_name = "A3 官方任务层 (Task Board)" });
+        }
+
+        private IEnumerator StartLocationService()
+        {
+            if (!Input.location.isEnabledByUser)
+            {
+                Debug.Log("[ScanAnchorController] Location service not enabled by user. Using simulation mode.");
+                yield break;
+            }
+
+            Input.location.Start(1f, 1f);
+            int maxWait = 20;
+            while (Input.location.status == LocationServiceStatus.Initializing && maxWait > 0)
+            {
+                yield return new WaitForSeconds(1);
+                maxWait--;
+            }
+
+            if (maxWait < 1)
+            {
+                Debug.Log("[ScanAnchorController] Location service initialization timed out.");
+                yield break;
+            }
+
+            if (Input.location.status == LocationServiceStatus.Failed)
+            {
+                Debug.Log("[ScanAnchorController] Location service initialization failed.");
+                yield break;
+            }
+
+            Debug.Log("[ScanAnchorController] Location service active: " + Input.location.lastData.latitude + ", " + Input.location.lastData.longitude);
+        }
+
+        private void CycleSimulatedGps()
+        {
+            currentSimGpsIndex = (currentSimGpsIndex + 1) % 4;
+            switch (currentSimGpsIndex)
+            {
+                case 0:
+                    currentLatitude = 31.27584;
+                    currentLongitude = 120.73812;
+                    break;
+                case 1:
+                    currentLatitude = 31.27589;
+                    currentLongitude = 120.73820;
+                    break;
+                case 2:
+                    currentLatitude = 31.27575;
+                    currentLongitude = 120.73805;
+                    break;
+                case 3:
+                    currentLatitude = 31.00000;
+                    currentLongitude = 121.00000;
+                    break;
+            }
+            Debug.Log("[ScanAnchorController] Simulated GPS changed to Preset " + currentSimGpsIndex + ": (" + currentLatitude + ", " + currentLongitude + ")");
+        }
+
+        private float CalculateDistance(double lat1, double lon1, double lat2, double lon2)
+        {
+            const float R = 6371000f; // Earth's radius in meters
+            double dLat = (lat2 - lat1) * Mathf.Deg2Rad;
+            double dLon = (lon2 - lon1) * Mathf.Deg2Rad;
+            double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                       Math.Cos(lat1 * Mathf.Deg2Rad) * Math.Cos(lat2 * Mathf.Deg2Rad) *
+                       Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+            double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            return (float)(R * c);
+        }
 
         private void HandleDetectedTarget(int imageIndex, Pose pose)
         {
-            if (imageIndex == 1)
+            GpsSceneConfig matchConfig = default;
+            bool found = false;
+            foreach (var cfg in configs)
             {
-                ActivateAndAlignScene(sceneRootA1, "A1 入口 (Campus Wall)", pose);
+                if (cfg.marker_image_index == imageIndex)
+                {
+                    matchConfig = cfg;
+                    found = true;
+                    break;
+                }
             }
-            else if (imageIndex == 2)
+
+            if (!found)
             {
-                ActivateAndAlignScene(sceneRootA2, "A2 UGC 情感层 (Whale Cloud)", pose);
+                Debug.LogWarning("[ScanAnchorController] Unknown marker image index detected: " + imageIndex);
+                return;
             }
-            else if (imageIndex == 3)
+
+            // GPS gating validation
+            float dist = CalculateDistance(currentLatitude, currentLongitude, matchConfig.gps_latitude, matchConfig.gps_longitude);
+            if (dist > matchConfig.active_radius_meters)
             {
-                ActivateAndAlignScene(sceneRootA3, "A3 官方任务层 (Task Board)", pose);
+                ShowScanFailureNotification(matchConfig.display_name + "\n❌ 过滤失败：超出 GPS 允许范围！");
+                Debug.LogWarning("[ScanAnchorController] GPS Check Gated scan for " + matchConfig.display_name + ". Distance: " + dist + "m > " + matchConfig.active_radius_meters + "m");
+                return;
+            }
+
+            // Check if beacon is already active for this marker
+            foreach (var beacon in activeBeacons)
+            {
+                if (beacon.markerIndex == imageIndex)
+                {
+                    beacon.spawnPose = pose;
+                    if (beacon.beaconObject != null)
+                    {
+                        beacon.beaconObject.transform.position = pose.position;
+                        beacon.beaconObject.transform.rotation = pose.rotation;
+                    }
+                    if (beacon.loadedSceneRoot != null)
+                    {
+                        beacon.loadedSceneRoot.transform.position = pose.position;
+                        beacon.loadedSceneRoot.transform.rotation = pose.rotation;
+                    }
+                    return;
+                }
+            }
+
+            // Spawn the Spatial Beacon
+            SpawnSpatialBeacon(matchConfig, pose);
+        }
+
+        private void SpawnSpatialBeacon(GpsSceneConfig config, Pose pose)
+        {
+            GameObject beaconRoot = new GameObject("Spatial Beacon - " + config.display_name);
+            beaconRoot.transform.position = pose.position;
+            beaconRoot.transform.rotation = pose.rotation;
+
+            // Visual diamond orb
+            GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            visual.name = "Beacon Diamond";
+            visual.transform.SetParent(beaconRoot.transform, false);
+            visual.transform.localPosition = new Vector3(0f, 0.4f, 0f);
+            visual.transform.localScale = new Vector3(0.18f, 0.18f, 0.18f);
+            visual.transform.localRotation = Quaternion.Euler(45f, 45f, 45f);
+
+            Color baseColor = GetColorForIndex(config.marker_image_index);
+            ApplyMaterial(visual.GetComponent<Renderer>(), baseColor);
+
+            BoxCollider box = visual.GetComponent<BoxCollider>();
+            if (box != null) Destroy(box);
+
+            // Gaze selection volume
+            SphereCollider sphere = visual.AddComponent<SphereCollider>();
+            sphere.radius = 1.3f;
+            sphere.isTrigger = true;
+
+            // Halo & Stem
+            CreateAnchorHalo(beaconRoot, new Vector3(0f, 0.4f, 0f), baseColor * 0.8f);
+            CreateAnchorStem(beaconRoot, new Vector3(0f, 0.4f, 0f), baseColor * 0.5f);
+
+            // Circular progress indicator (drawn using LineRenderer)
+            GameObject ringObj = new GameObject("ProgressRing");
+            ringObj.transform.SetParent(beaconRoot.transform, false);
+            LineRenderer ring = ringObj.AddComponent<LineRenderer>();
+            ring.useWorldSpace = true;
+            ring.startWidth = 0.012f;
+            ring.endWidth = 0.012f;
+            ApplyLineMaterial(ring, new Color(0.42f, 1f, 0.74f));
+            ringObj.SetActive(false);
+
+            // Label above the beacon
+            GameObject labelObj = new GameObject("BeaconLabel");
+            labelObj.transform.SetParent(beaconRoot.transform, false);
+            labelObj.transform.localPosition = new Vector3(0f, 0.68f, 0f);
+            TextMesh mesh = labelObj.AddComponent<TextMesh>();
+            mesh.text = config.display_name + "\n(注视并按回车或点击加载)";
+            mesh.font = GetBuiltinFont();
+            mesh.fontSize = 20;
+            mesh.alignment = TextAlignment.Center;
+            mesh.anchor = TextAnchor.LowerCenter;
+            mesh.color = Color.white;
+            labelObj.transform.localScale = new Vector3(0.02f, 0.02f, 0.02f);
+
+            ActiveBeacon beacon = new ActiveBeacon
+            {
+                sceneId = config.scene_id,
+                markerIndex = config.marker_image_index,
+                sceneUnityName = config.scene_unity_name,
+                displayName = config.display_name,
+                beaconObject = visual,
+                labelMesh = mesh,
+                progressRing = ring,
+                spawnPose = pose
+            };
+
+            activeBeacons.Add(beacon);
+            TriggerScanWaveEffect(beaconRoot, pose.position);
+            ShowScanSuccessNotification(config.display_name + " (信标已部署)");
+            Debug.Log("[ScanAnchorController] Spawned Spatial Beacon: " + config.display_name);
+        }
+
+        private void UpdateGazeRaycast()
+        {
+            Camera cam = Camera.main;
+            if (cam == null) return;
+
+            Ray ray = new Ray(cam.transform.position, cam.transform.forward);
+            RaycastHit hit;
+            ActiveBeacon hitBeacon = null;
+
+            if (Physics.Raycast(ray, out hit, 20f))
+            {
+                foreach (var b in activeBeacons)
+                {
+                    if (hit.collider.gameObject == b.beaconObject || hit.collider.transform.IsChildOf(b.beaconObject.transform))
+                    {
+                        hitBeacon = b;
+                        break;
+                    }
+                }
+            }
+
+            if (hitBeacon != null)
+            {
+                if (focusedBeacon != hitBeacon)
+                {
+                    if (focusedBeacon != null) SetBeaconFocusedVisual(focusedBeacon, false);
+                    focusedBeacon = hitBeacon;
+                    SetBeaconFocusedVisual(focusedBeacon, true);
+                }
+
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetMouseButtonDown(0)
+#if ROKID_UXR
+                    || IsUxrConfirmDown()
+#endif
+                )
+                {
+                    if (!focusedBeacon.isLoading && !focusedBeacon.isLoaded)
+                    {
+                        StartCoroutine(LoadSubSceneCoroutine(focusedBeacon));
+                    }
+                }
+            }
+            else
+            {
+                if (focusedBeacon != null)
+                {
+                    SetBeaconFocusedVisual(focusedBeacon, false);
+                    focusedBeacon = null;
+                }
             }
         }
 
-        private void ActivateAndAlignScene(GameObject sceneRoot, string sceneName, Pose pose)
+        private void SetBeaconFocusedVisual(ActiveBeacon beacon, bool focused)
         {
-            if (sceneRoot == null) return;
-
-            // Anchor the scene root onto the physical target's 6DoF Pose
-            sceneRoot.transform.position = pose.position;
-            sceneRoot.transform.rotation = pose.rotation;
-
-            bool isFirstActivation = !sceneRoot.activeSelf;
-            if (isFirstActivation)
+            if (beacon == null || beacon.beaconObject == null) return;
+            Renderer r = beacon.beaconObject.GetComponent<Renderer>();
+            if (r != null)
             {
-                sceneRoot.SetActive(true);
-                TriggerScanWaveEffect(sceneRoot, pose.position);
-                ShowScanSuccessNotification(sceneName);
+                Color baseColor = GetColorForIndex(beacon.markerIndex);
+                r.material.color = focused ? Color.white : baseColor;
+            }
+            if (beacon.labelMesh != null)
+            {
+                beacon.labelMesh.color = focused ? new Color(0.42f, 1f, 0.74f) : Color.white;
+            }
+        }
+
+        private IEnumerator LoadSubSceneCoroutine(ActiveBeacon beacon)
+        {
+            beacon.isLoading = true;
+            beacon.statusMessage = "Loading...";
+
+            // Verify the scene is in Build Settings
+            bool sceneInBuild = false;
+            for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
+            {
+                string path = SceneUtility.GetScenePathByBuildIndex(i);
+                string name = Path.GetFileNameWithoutExtension(path);
+                if (name == beacon.sceneUnityName)
+                {
+                    sceneInBuild = true;
+                    break;
+                }
             }
 
-            if (statusText != null)
+            if (!sceneInBuild)
             {
-                statusText.text = "【里世界 AR 空间激活图层】\n\n" +
-                                  "🟢 识别对齐成功：" + sceneName + "\n" +
-                                  "当前状态：已锁定物理空间 6DoF 姿态\n" +
-                                  "(对着其他标识卡片扫码可加载不同空间图层)";
+                beacon.isLoading = false;
+                beacon.statusMessage = "Error: Scene not in Build Settings!";
+                Debug.LogError("[ScanAnchorController] Scene " + beacon.sceneUnityName + " is not in Build Settings!");
+                yield break;
             }
+
+            AsyncOperation op = SceneManager.LoadSceneAsync(beacon.sceneUnityName, LoadSceneMode.Additive);
+            while (!op.isDone)
+            {
+                beacon.loadingProgress = op.progress;
+                yield return null;
+            }
+
+            beacon.loadingProgress = 1f;
+            beacon.isLoaded = true;
+            beacon.isLoading = false;
+            beacon.statusMessage = "Loaded";
+
+            // Find loaded scene root and position/transition it
+            Scene loadedScene = SceneManager.GetSceneByName(beacon.sceneUnityName);
+            if (loadedScene.IsValid())
+            {
+                GameObject[] roots = loadedScene.GetRootGameObjects();
+                if (roots.Length > 0)
+                {
+                    beacon.loadedSceneRoot = roots[0];
+                    beacon.loadedSceneRoot.transform.position = beacon.spawnPose.position;
+                    beacon.loadedSceneRoot.transform.rotation = beacon.spawnPose.rotation;
+
+                    // Transition visuals
+                    float duration = 1.0f;
+                    float elapsed = 0f;
+                    Vector3 originalSceneScale = beacon.loadedSceneRoot.transform.localScale;
+                    Vector3 originalBeaconScale = beacon.beaconObject.transform.localScale;
+
+                    beacon.loadedSceneRoot.transform.localScale = Vector3.zero;
+
+                    while (elapsed < duration)
+                    {
+                        elapsed += Time.deltaTime;
+                        float t = elapsed / duration;
+
+                        beacon.beaconObject.transform.Rotate(Vector3.up, 1200f * Time.deltaTime, Space.Self);
+                        beacon.beaconObject.transform.localScale = Vector3.Lerp(originalBeaconScale, Vector3.zero, t);
+
+                        float springT = Mathf.Sin(t * Mathf.PI * 0.5f);
+                        beacon.loadedSceneRoot.transform.localScale = Vector3.Lerp(Vector3.zero, originalSceneScale, springT);
+
+                        yield return null;
+                    }
+
+                    beacon.beaconObject.SetActive(false);
+                    if (beacon.progressRing != null) beacon.progressRing.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        private IEnumerator UnloadSubSceneCoroutine(ActiveBeacon beacon)
+        {
+            if (beacon.isLoaded && beacon.loadedSceneRoot != null)
+            {
+                float duration = 0.5f;
+                float elapsed = 0f;
+                Vector3 originalScale = beacon.loadedSceneRoot.transform.localScale;
+
+                while (elapsed < duration)
+                {
+                    elapsed += Time.deltaTime;
+                    float t = elapsed / duration;
+                    beacon.loadedSceneRoot.transform.localScale = Vector3.Lerp(originalScale, Vector3.zero, t);
+                    yield return null;
+                }
+
+                yield return SceneManager.UnloadSceneAsync(beacon.sceneUnityName);
+            }
+
+            if (beacon.beaconObject != null)
+            {
+                Destroy(beacon.beaconObject.transform.parent.gameObject);
+            }
+        }
+
+        private void UpdateProgressRing(ActiveBeacon beacon)
+        {
+            if (beacon.progressRing == null) return;
+            if (!beacon.isLoading)
+            {
+                beacon.progressRing.gameObject.SetActive(false);
+                return;
+            }
+
+            beacon.progressRing.gameObject.SetActive(true);
+            int segments = 32;
+            float radius = 0.3f;
+            float angleStep = 360f / segments;
+
+            int activePoints = Mathf.RoundToInt(beacon.loadingProgress * segments);
+            beacon.progressRing.positionCount = activePoints + 1;
+
+            for (int i = 0; i <= activePoints; i++)
+            {
+                float angle = i * angleStep * Mathf.Deg2Rad;
+                Vector3 localOffset = new Vector3(Mathf.Sin(angle) * radius, Mathf.Cos(angle) * radius, 0f);
+                // Rotate progress ring to face the user camera
+                Camera cam = Camera.main;
+                Quaternion lookRot = cam != null ? Quaternion.LookRotation(beacon.beaconObject.transform.position - cam.transform.position) : Quaternion.identity;
+                beacon.progressRing.SetPosition(i, beacon.beaconObject.transform.position + lookRot * localOffset);
+            }
+        }
+
+        private void UpdateBeaconLifecycles()
+        {
+            Camera cam = Camera.main;
+            if (cam == null) return;
+
+            Vector3 camPos = cam.transform.position;
+            List<ActiveBeacon> toUnload = new List<ActiveBeacon>();
+
+            for (int i = 0; i < activeBeacons.Count; i++)
+            {
+                var b = activeBeacons[i];
+                if (b.beaconObject == null) continue;
+
+                // Spin the beacon
+                float spinSpeed = b.isLoading ? 400f : 45f;
+                b.beaconObject.transform.Rotate(Vector3.up, spinSpeed * Time.deltaTime, Space.Self);
+
+                float distance = Vector3.Distance(camPos, b.beaconObject.transform.position);
+
+                UpdateProgressRing(b);
+
+                // Auto unload when user walks far away
+                if (distance >= 20f && !b.isLoading)
+                {
+                    toUnload.Add(b);
+                }
+            }
+
+            foreach (var b in toUnload)
+            {
+                activeBeacons.Remove(b);
+                if (focusedBeacon == b) focusedBeacon = null;
+                StartCoroutine(UnloadSubSceneCoroutine(b));
+                ShowScanFailureNotification(b.displayName + "\n⚠️ 距离过远 (>=20m) 空间自动卸载");
+                Debug.Log("[ScanAnchorController] Distance gated auto-unload for beacon: " + b.displayName);
+            }
+        }
+
+        private void UpdateHudText()
+        {
+            if (statusText == null) return;
+
+            string gpsStatus = "";
+            if (Input.location.status == LocationServiceStatus.Running)
+            {
+                gpsStatus = "🟢 GPS 定位中 (物理真机)";
+            }
+            else if (Input.location.status == LocationServiceStatus.Initializing)
+            {
+                gpsStatus = "🟡 GPS 正在初始化...";
+            }
+            else
+            {
+                gpsStatus = "💻 GPS 模拟模式 (键盘 [G] 键切换位置)";
+            }
+
+            string simLabel = "";
+            switch (currentSimGpsIndex)
+            {
+                case 0: simLabel = "A1 区域 (Campus Memory Wall)"; break;
+                case 1: simLabel = "A2 区域 (Whale Cloud)"; break;
+                case 2: simLabel = "A3 区域 (Task Board)"; break;
+                case 3: simLabel = "❌ 越界区域 (Out-of-Range)"; break;
+            }
+
+            string coordStr = string.Format("当前经纬度: {0:F5}, {1:F5}\n({2})\n{3}\n", 
+                currentLatitude, currentLongitude, simLabel, gpsStatus);
+
+            string distancesStr = "📍 各区域距离及状态:\n";
+            foreach (var cfg in configs)
+            {
+                float dist = CalculateDistance(currentLatitude, currentLongitude, cfg.gps_latitude, cfg.gps_longitude);
+                bool inRange = dist <= cfg.active_radius_meters;
+                distancesStr += string.Format(" - {0}: 距离 {1:F1} 米 | {2}\n", 
+                    cfg.display_name, dist, inRange ? "🟢 允许扫描" : "🔴 扫描过滤");
+            }
+
+            string activeBeaconsStr = "\n📡 已生成的空间信标 (Spatial Beacons):\n";
+            if (activeBeacons.Count == 0)
+            {
+                activeBeaconsStr += "   暂无信标 (请扫码或按 Space, 2, 3 生成)\n";
+            }
+            else
+            {
+                Camera cam = Camera.main;
+                for (int i = 0; i < activeBeacons.Count; i++)
+                {
+                    var b = activeBeacons[i];
+                    float distToCam = cam != null ? Vector3.Distance(cam.transform.position, b.beaconObject.transform.position) : 0f;
+                    string focusLabel = (b == focusedBeacon) ? " 👁️ [聚焦中]" : "";
+                    
+                    string stateLabel = "";
+                    if (b.isLoading) stateLabel = string.Format("正在加载 {0:P0}", b.loadingProgress);
+                    else if (b.isLoaded) stateLabel = "已加载空间";
+                    else stateLabel = "等待加载 (点击或按 Enter)";
+
+                    if (!string.IsNullOrEmpty(b.statusMessage) && b.statusMessage.Contains("Error"))
+                    {
+                        stateLabel = "❌ 错误: 场景未在 Build Settings 中！";
+                    }
+
+                    activeBeaconsStr += string.Format(" - {0}: 距离眼镜 {1:F1}m | {2}{3}\n", 
+                        b.displayName, distToCam, stateLabel, focusLabel);
+                }
+            }
+
+            string gazePrompt = "";
+            if (focusedBeacon != null)
+            {
+                if (focusedBeacon.isLoaded)
+                {
+                    gazePrompt = "\n✨ [聚焦于 " + focusedBeacon.displayName + " - 空间已展开] ✨\n";
+                }
+                else if (focusedBeacon.isLoading)
+                {
+                    gazePrompt = "\n⏳ [空间正在加载中...] ⏳\n";
+                }
+                else
+                {
+                    gazePrompt = "\n🔥 [聚焦信标] 点击屏幕或按回车 [Enter] 展开该空间！\n";
+                }
+            }
+
+            statusText.text = "【大空间里世界场景管理系统】\n\n" + 
+                              coordStr + "\n" + 
+                              distancesStr + 
+                              activeBeaconsStr + 
+                              gazePrompt;
         }
 
         private void SimulateScanEvent(int index)
@@ -196,7 +782,6 @@ namespace InnerWorld.Rokid
             Debug.Log("[ScanAnchorController] Simulating scan event for index: " + index);
             Camera cam = Camera.main;
             
-            // Adjust offsets slightly depending on target so they don't overlap in simulation
             Vector3 offset = initialSceneOffset;
             if (index == 2) offset = initialSceneOffset + new Vector3(-1.2f, 0.2f, 0.5f);
             if (index == 3) offset = initialSceneOffset + new Vector3(1.2f, -0.1f, -0.3f);
@@ -263,14 +848,12 @@ namespace InnerWorld.Rokid
             Vector3 camPos = cam != null ? cam.transform.position : Vector3.zero;
             Vector3 camForward = cam != null ? cam.transform.forward : Vector3.forward;
 
-            // Spawn directly in front of camera at a very comfortable reading position (1.1m height, 1m distance)
             toastCanvasObj.transform.position = camPos + camForward * 1.0f + new Vector3(0f, -0.1f, 0f);
             toastCanvasObj.transform.rotation = Quaternion.LookRotation(toastCanvasObj.transform.position - camPos);
             toastCanvasObj.transform.localScale = new Vector3(0.0018f, 0.0018f, 1f);
 
             toastCanvasObj.AddComponent<CanvasScaler>();
 
-            // Panel Background (deep green glow representing successful lock)
             GameObject panelObj = new GameObject("ToastPanel");
             panelObj.transform.SetParent(toastCanvasObj.transform, false);
             RectTransform panelRect = panelObj.AddComponent<RectTransform>();
@@ -278,133 +861,69 @@ namespace InnerWorld.Rokid
             Image bg = panelObj.AddComponent<Image>();
             bg.color = new Color(0.04f, 0.16f, 0.12f, 0.92f);
 
-            // Border outline
             Outline outline = panelObj.AddComponent<Outline>();
             outline.effectColor = new Color(0.42f, 1f, 0.74f, 0.95f);
             outline.effectDistance = new Vector2(2f, 2f);
 
-            // Text
             GameObject textObj = new GameObject("ToastText");
             textObj.transform.SetParent(panelObj.transform, false);
             RectTransform textRect = textObj.AddComponent<RectTransform>();
             textRect.sizeDelta = new Vector2(440f, 90f);
             Text txt = textObj.AddComponent<Text>();
-            txt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            txt.font = GetBuiltinFont();
             txt.fontSize = 20;
             txt.alignment = TextAnchor.MiddleCenter;
             txt.color = new Color(0.85f, 1f, 0.9f);
-            txt.text = "✨ 识别成功 / Scan Success! ✨\n" + sceneName + " 已加载对齐";
+            txt.text = "✨ 识别成功 / Scan Success! ✨\n" + sceneName;
 
-            // Attach animator for spring and fadeout
             ToastAnimator animator = toastCanvasObj.AddComponent<ToastAnimator>();
             animator.duration = 2.2f;
         }
 
-        private void BuildVirtualScenes()
+        private void ShowScanFailureNotification(string message)
         {
-            // ================= SCENE ROOT A1 (Memory Wall) =================
-            sceneRootA1 = new GameObject("Scene Root A1 - Memory Wall");
-            sceneRootA1.transform.position = Vector3.zero;
-            sceneRootA1.transform.rotation = Quaternion.identity;
+            GameObject toastCanvasObj = new GameObject("Toast Canvas Warning");
+            Canvas canvas = toastCanvasObj.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
 
-            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            wall.name = "Campus Memory Wall";
-            wall.transform.SetParent(sceneRootA1.transform, false);
-            wall.transform.localPosition = Vector3.zero;
-            wall.transform.localScale = new Vector3(4.1f, 2.25f, 0.08f);
-            ApplyMaterial(wall.GetComponent<Renderer>(), new Color(0.08f, 0.105f, 0.13f));
+            Camera cam = Camera.main;
+            Vector3 camPos = cam != null ? cam.transform.position : Vector3.zero;
+            Vector3 camForward = cam != null ? cam.transform.forward : Vector3.forward;
 
-            GameObject glow = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            glow.name = "Wall Inner Glow";
-            glow.transform.SetParent(sceneRootA1.transform, false);
-            glow.transform.localPosition = new Vector3(0f, 0f, -0.055f);
-            glow.transform.localScale = new Vector3(3.65f, 1.82f, 0.025f);
-            ApplyMaterial(glow.GetComponent<Renderer>(), new Color(0.12f, 0.22f, 0.24f));
+            toastCanvasObj.transform.position = camPos + camForward * 1.0f + new Vector3(0f, -0.1f, 0f);
+            toastCanvasObj.transform.rotation = Quaternion.LookRotation(toastCanvasObj.transform.position - camPos);
+            toastCanvasObj.transform.localScale = new Vector3(0.0018f, 0.0018f, 1f);
 
-            CreateAnchor(sceneRootA1, "A1", "入口 (Scan Point)", new Vector3(-0.7f, 0.92f, -0.34f), new Color(0.36f, 0.92f, 1f));
-            CreateAnchor(sceneRootA1, "A2", "里世界记忆展示墙", new Vector3(0f, 1.45f, -0.58f), new Color(1f, 0.82f, 0.26f));
-            CreateAnchor(sceneRootA1, "A3", "空间出口", new Vector3(0.7f, 0.92f, -0.30f), new Color(0.42f, 1f, 0.74f));
-            CreateRouteLine(sceneRootA1);
-            sceneRootA1.SetActive(false);
+            toastCanvasObj.AddComponent<CanvasScaler>();
 
-            // ================= SCENE ROOT A2 (Whale Cloud) =================
-            sceneRootA2 = new GameObject("Scene Root A2 - Whale Cloud");
-            sceneRootA2.transform.position = Vector3.zero;
-            sceneRootA2.transform.rotation = Quaternion.identity;
+            GameObject panelObj = new GameObject("ToastPanel");
+            panelObj.transform.SetParent(toastCanvasObj.transform, false);
+            RectTransform panelRect = panelObj.AddComponent<RectTransform>();
+            panelRect.sizeDelta = new Vector2(460f, 110f);
+            Image bg = panelObj.AddComponent<Image>();
+            bg.color = new Color(0.18f, 0.04f, 0.04f, 0.92f);
 
-            // Anchor point representation
-            CreateAnchor(sceneRootA2, "A2", "UGC 情感层锚定点", Vector3.zero, new Color(1f, 0.82f, 0.26f));
-            
-            // Build the floating low-poly Whale Cloud (Multiple spheres)
-            GameObject cloudRoot = new GameObject("Floating Whale Cloud");
-            cloudRoot.transform.SetParent(sceneRootA2.transform, false);
-            cloudRoot.transform.localPosition = new Vector3(0f, 0.55f, -0.1f);
-            
-            Color cloudColor = new Color(0.52f, 0.86f, 1f, 0.85f);
-            CreateCloudLobe(cloudRoot.transform, "Whale Core", Vector3.zero, new Vector3(0.35f, 0.16f, 0.14f), cloudColor);
-            CreateCloudLobe(cloudRoot.transform, "Whale Lobe Left", new Vector3(-0.24f, -0.03f, 0.02f), new Vector3(0.24f, 0.12f, 0.11f), cloudColor * 0.9f);
-            CreateCloudLobe(cloudRoot.transform, "Whale Lobe Right", new Vector3(0.24f, -0.03f, 0.02f), new Vector3(0.27f, 0.13f, 0.11f), cloudColor * 0.95f);
-            
-            // Connecting line stem to the cloud
-            GameObject stemObj = new GameObject("Cloud Connection Stem");
-            stemObj.transform.SetParent(sceneRootA2.transform, false);
-            LineRenderer cloudStem = stemObj.AddComponent<LineRenderer>();
-            cloudStem.useWorldSpace = false;
-            cloudStem.positionCount = 2;
-            cloudStem.startWidth = 0.006f;
-            cloudStem.endWidth = 0.003f;
-            cloudStem.startColor = new Color(cloudColor.r, cloudColor.g, cloudColor.b, 0.2f);
-            cloudStem.endColor = cloudColor;
-            ApplyLineMaterial(cloudStem, cloudColor);
-            cloudStem.SetPosition(0, Vector3.zero);
-            cloudStem.SetPosition(1, new Vector3(0f, 0.47f, -0.1f));
-            sceneRootA2.SetActive(false);
+            Outline outline = panelObj.AddComponent<Outline>();
+            outline.effectColor = new Color(1f, 0.36f, 0.36f, 0.95f);
+            outline.effectDistance = new Vector2(2f, 2f);
 
-            // ================= SCENE ROOT A3 (Task Board) =================
-            sceneRootA3 = new GameObject("Scene Root A3 - Task Board");
-            sceneRootA3.transform.position = Vector3.zero;
-            sceneRootA3.transform.rotation = Quaternion.identity;
+            GameObject textObj = new GameObject("ToastText");
+            textObj.transform.SetParent(panelObj.transform, false);
+            RectTransform textRect = textObj.AddComponent<RectTransform>();
+            textRect.sizeDelta = new Vector2(440f, 90f);
+            Text txt = textObj.AddComponent<Text>();
+            txt.font = GetBuiltinFont();
+            txt.fontSize = 20;
+            txt.alignment = TextAnchor.MiddleCenter;
+            txt.color = new Color(1f, 0.9f, 0.9f);
+            txt.text = "⚠️ " + message;
 
-            // Anchor point representation
-            CreateAnchor(sceneRootA3, "A3", "官方任务层锚定点", Vector3.zero, new Color(0.42f, 1f, 0.74f));
+            ToastAnimator animator = toastCanvasObj.AddComponent<ToastAnimator>();
+            animator.duration = 2.2f;
+        }
 
-            // Floating WorldSpace Task Board
-            GameObject taskCanvasObj = new GameObject("Floating Task Board");
-            taskCanvasObj.transform.SetParent(sceneRootA3.transform, false);
-            taskCanvasObj.transform.localPosition = new Vector3(0f, 0.45f, -0.1f);
-            taskCanvasObj.transform.localScale = new Vector3(0.0018f, 0.0018f, 1f);
-
-            Canvas taskCanvas = taskCanvasObj.AddComponent<Canvas>();
-            taskCanvas.renderMode = RenderMode.WorldSpace;
-            taskCanvasObj.AddComponent<CanvasScaler>();
-
-            GameObject taskPanel = new GameObject("TaskPanel");
-            taskPanel.transform.SetParent(taskCanvasObj.transform, false);
-            RectTransform taskPanelRect = taskPanel.AddComponent<RectTransform>();
-            taskPanelRect.sizeDelta = new Vector2(350f, 180f);
-            Image taskBg = taskPanel.AddComponent<Image>();
-            taskBg.color = new Color(0.03f, 0.04f, 0.05f, 0.90f);
-            Outline taskOutline = taskPanel.AddComponent<Outline>();
-            taskOutline.effectColor = new Color(0.42f, 1f, 0.74f, 0.8f);
-            taskOutline.effectDistance = new Vector2(2f, 2f);
-
-            GameObject taskTextObj = new GameObject("TaskText");
-            taskTextObj.transform.SetParent(taskPanel.transform, false);
-            RectTransform taskTextRect = taskTextObj.AddComponent<RectTransform>();
-            taskTextRect.sizeDelta = new Vector2(320f, 150f);
-            Text taskTxt = taskTextObj.AddComponent<Text>();
-            taskTxt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            taskTxt.fontSize = 16;
-            taskTxt.lineSpacing = 1.2f;
-            taskTxt.alignment = TextAnchor.MiddleLeft;
-            taskTxt.color = Color.white;
-            taskTxt.text = "【里世界官方任务面板】\n" +
-                          "⭐ 校园标志打卡: [已完成]\n" +
-                          "⭐ UGC 写入校验: [未完成]\n" +
-                          "⭐ 证据链上链核对: [进行中]";
-            sceneRootA3.SetActive(false);
-
-            // ================= WAVE EFFECT =================
+        private void CreateScanWaveEffectObject()
+        {
             GameObject waveObj = new GameObject("Scan Wave Effect");
             scanEffectWave = waveObj.AddComponent<LineRenderer>();
             scanEffectWave.useWorldSpace = true;
@@ -413,49 +932,6 @@ namespace InnerWorld.Rokid
             scanEffectWave.endWidth = 0.015f;
             ApplyLineMaterial(scanEffectWave, new Color(0.36f, 0.92f, 1f));
             waveObj.SetActive(false);
-        }
-
-        private void CreateCloudLobe(Transform parent, string name, Vector3 localPos, Vector3 scale, Color color)
-        {
-            GameObject lobe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            lobe.name = name;
-            lobe.transform.SetParent(parent, false);
-            lobe.transform.localPosition = localPos;
-            lobe.transform.localScale = scale;
-            Collider collider = lobe.GetComponent<Collider>();
-            if (collider != null) Destroy(collider);
-            ApplyMaterial(lobe.GetComponent<Renderer>(), color);
-        }
-
-        private void CreateAnchor(GameObject parent, string id, string label, Vector3 localPos, Color color)
-        {
-            GameObject anchorGroup = new GameObject("Anchor Group " + id);
-            anchorGroup.transform.SetParent(parent.transform, false);
-            anchorGroup.transform.localPosition = Vector3.zero;
-
-            GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            marker.name = "Anchor " + id + " - " + label;
-            marker.transform.SetParent(anchorGroup.transform, false);
-            marker.transform.localPosition = localPos;
-            marker.transform.localScale = new Vector3(0.24f, 0.24f, 1f);
-            ApplyMaterial(marker.GetComponent<Renderer>(), color);
-
-            // Text Label
-            GameObject labelObj = new GameObject("Label " + id);
-            labelObj.transform.SetParent(anchorGroup.transform, false);
-            labelObj.transform.localPosition = localPos + new Vector3(0f, 0.22f, -0.01f);
-            TextMesh mesh = labelObj.AddComponent<TextMesh>();
-            mesh.text = id + " " + label;
-            mesh.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            mesh.fontSize = 24;
-            mesh.alignment = TextAlignment.Center;
-            mesh.anchor = TextAnchor.LowerCenter;
-            mesh.color = Color.white;
-            labelObj.transform.localScale = new Vector3(0.04f, 0.04f, 0.04f);
-
-            // Halos & Stems
-            CreateAnchorHalo(anchorGroup, localPos, color);
-            CreateAnchorStem(anchorGroup, localPos, color);
         }
 
         private void CreateAnchorHalo(GameObject parent, Vector3 localPos, Color color)
@@ -499,33 +975,12 @@ namespace InnerWorld.Rokid
             line.SetPosition(1, localPos);
         }
 
-        private void CreateRouteLine(GameObject parent)
-        {
-            GameObject route = new GameObject("Connection Route Ribbon");
-            route.transform.SetParent(parent.transform, false);
-            route.transform.localPosition = Vector3.zero;
-            LineRenderer line = route.AddComponent<LineRenderer>();
-            line.useWorldSpace = false;
-            line.positionCount = 3;
-            line.startWidth = 0.008f;
-            line.endWidth = 0.008f;
-            Color color = new Color(0.36f, 0.92f, 1f, 0.5f);
-            line.startColor = color;
-            line.endColor = color;
-            ApplyLineMaterial(line, color);
-
-            line.SetPosition(0, new Vector3(-0.7f, 0.92f, -0.34f));
-            line.SetPosition(1, new Vector3(0f, 1.45f, -0.58f));
-            line.SetPosition(2, new Vector3(0.7f, 0.92f, -0.30f));
-        }
-
         private void BuildUI()
         {
             GameObject canvasObj = new GameObject("Demo Canvas");
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             
-            // Adjusted position slightly lower (1.15m height instead of 1.35m) for comfortable eye gaze as per guidelines
             canvasObj.transform.position = new Vector3(0f, 1.15f, 1.5f);
             canvasObj.transform.localScale = new Vector3(0.002f, 0.002f, 1f);
 
@@ -534,14 +989,14 @@ namespace InnerWorld.Rokid
             GameObject panelObj = new GameObject("Panel");
             panelObj.transform.SetParent(canvasObj.transform, false);
             RectTransform panelRect = panelObj.AddComponent<RectTransform>();
-            panelRect.sizeDelta = new Vector2(750f, 260f);
+            panelRect.sizeDelta = new Vector2(750f, 320f);
             Image bg = panelObj.AddComponent<Image>();
             bg.color = new Color(0.02f, 0.03f, 0.04f, 0.90f);
 
             GameObject border = new GameObject("Border");
             border.transform.SetParent(panelObj.transform, false);
             RectTransform borderRect = border.AddComponent<RectTransform>();
-            borderRect.sizeDelta = new Vector2(746f, 256f);
+            borderRect.sizeDelta = new Vector2(746f, 316f);
             Outline outline = border.AddComponent<Outline>();
             outline.effectColor = new Color(0.36f, 0.92f, 1f, 0.8f);
             outline.effectDistance = new Vector2(2f, 2f);
@@ -549,13 +1004,13 @@ namespace InnerWorld.Rokid
             GameObject textObj = new GameObject("StatusText");
             textObj.transform.SetParent(panelObj.transform, false);
             RectTransform textRect = textObj.AddComponent<RectTransform>();
-            textRect.sizeDelta = new Vector2(700f, 220f);
+            textRect.sizeDelta = new Vector2(700f, 280f);
             statusText = textObj.AddComponent<Text>();
-            statusText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            statusText.fontSize = 22;
+            statusText.font = GetBuiltinFont();
+            statusText.fontSize = 20;
             statusText.alignment = TextAnchor.MiddleCenter;
             statusText.color = Color.white;
-            statusText.text = "【里世界 AR 空间激活图层】\n\n🔍 正在等待扫描 A1/A2/A3 物理图卡解锁对应空间...\n\n(在 PC 模拟器下可按 [Space], [2], [3] 模拟扫码对应场景)";
+            statusText.text = "【大空间里世界场景管理系统】\n\n🔍 正在等待定位及扫描卡片...";
         }
 
         private void EnsureCameraAndLight()
@@ -622,6 +1077,14 @@ namespace InnerWorld.Rokid
             }
         }
 
+        private Color GetColorForIndex(int index)
+        {
+            if (index == 1) return new Color(0.36f, 0.92f, 1f); // Cyan
+            if (index == 2) return new Color(1f, 0.82f, 0.26f); // Gold
+            if (index == 3) return new Color(0.42f, 1f, 0.74f); // Green
+            return Color.white;
+        }
+
         private void ApplyMaterial(Renderer r, Color color)
         {
             if (r == null) return;
@@ -641,6 +1104,25 @@ namespace InnerWorld.Rokid
                 line.material = new Material(shader);
                 line.material.color = color;
             }
+        }
+
+        private static Font GetBuiltinFont()
+        {
+            Font font = null;
+            try
+            {
+                font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            }
+            catch {}
+            if (font == null)
+            {
+                try
+                {
+                    font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                }
+                catch {}
+            }
+            return font ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         }
     }
 }
