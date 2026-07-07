@@ -1117,19 +1117,36 @@ function renderSceneActions() {
     stem.style.setProperty("--stem-x", `${(cardPosition.left - anchorPos.left).toFixed(2)}%`);
     stem.style.setProperty("--stem-y", `${(cardPosition.top - anchorPos.top).toFixed(2)}%`);
 
+    const choreography = action.spatial_choreography || {};
+    const growthBeats = Array.isArray(choreography.growth_beats) ? choreography.growth_beats : [];
     const card = document.createElement("article");
     card.className = `scene-action-card scene-action-${String(action.anchor_id || "wall").toLowerCase()}${action.writes_evidence ? " evidence-write" : ""}`;
     card.style.setProperty("--action-left", `${cardPosition.left.toFixed(2)}%`);
     card.style.setProperty("--action-top", `${cardPosition.top.toFixed(2)}%`);
+    card.style.setProperty("--action-depth", `${Math.max(0.16, Number(choreography.depth_meters) || 0.24).toFixed(2)}`);
     card.tabIndex = 0;
     card.dataset.actionId = action.action_id || "scene_action";
+    card.dataset.timeLayer = choreography.time_layer || "wall_time";
     card.innerHTML = `
-      <span class="scene-action-kicker">shiyao scan → ${action.anchor_id || "wall"} · ${action.p0_role || "scene"}</span>
+      <span class="scene-action-kicker">shiyao scan -> ${action.anchor_id || "wall"} / ${action.p0_role || "scene"}</span>
       <strong>${action.title || action.action_id || "Wall task"}</strong>
       <p>${action.user_task || "Do the concrete wall task at this anchor."}</p>
       <small>Physical cue: ${action.physical_cue || "real wall marker"}</small>
-      <small>3D: ${(action.spatial_binding && action.spatial_binding.projection) || "wall seeded projection"} · ${(action.spatial_binding && action.spatial_binding.depth_layer) || "depth layer"}</small>
+      <small>3D: ${(action.spatial_binding && action.spatial_binding.projection) || "wall seeded projection"} / ${(action.spatial_binding && action.spatial_binding.depth_layer) || "depth layer"}</small>
+      <small>Time/depth: ${choreography.time_layer || "wall_time"} @ ${Number(choreography.depth_meters || 0).toFixed(2)}m</small>
+      <small>Gesture: ${choreography.gesture_affordance || action.interaction || "ray confirm"}</small>
     `;
+    if (growthBeats.length) {
+      const beatRail = document.createElement("div");
+      beatRail.className = "scene-action-beats";
+      growthBeats.forEach((beat, beatIndex) => {
+        const dot = document.createElement("span");
+        dot.title = beat.label || beat.beat_id || `beat ${beatIndex + 1}`;
+        dot.textContent = String(beatIndex + 1);
+        beatRail.append(dot);
+      });
+      card.append(beatRail);
+    }
     els.sceneActionLayer.append(stem, card);
   });
 }

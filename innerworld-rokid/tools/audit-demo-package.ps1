@@ -196,6 +196,7 @@ try {
     "server\space-server\check-device.js",
     "server\space-server\check-ops.js",
     "apps\web-demo\index.html",
+    "apps\unity-shell\Assets\Scripts\Concrete\ShiyaoConcreteSceneHandoffBridge.cs",
     "shared\innerworld-contract.js",
     "data\hardware_manifest.json",
     "data\merge_map.json",
@@ -266,15 +267,26 @@ try {
     "innerworld-shiyao-merge-map/v1",
     "innerworld-shiyao-handoff/v1",
     "EnterConcreteScene",
+    "ShiyaoConcreteSceneHandoffBridge",
     "do_not_merge_hardware_claims_without_field_acceptance"
   )
   $handoffDocText = Read-ZipEntryText -Zip $zip -Path "docs\shiyao-handoff-contract.md" -TempRoot $TempRoot
   Assert-TextContainsAll -Failures $failures -Label "docs/shiyao-handoff-contract.md" -Text $handoffDocText -Tokens @(
     'ISceneHandoffReceiver.EnterConcreteScene',
     'innerworld-shiyao-handoff/v1',
+    'ShiyaoConcreteSceneHandoffBridge',
     'hardware is with teammate',
     'shiyao',
     'must not claim live hardware-ready'
+  )
+  $bridgeText = Read-ZipEntryText -Zip $zip -Path "apps\unity-shell\Assets\Scripts\Concrete\ShiyaoConcreteSceneHandoffBridge.cs" -TempRoot $TempRoot
+  Assert-TextContainsAll -Failures $failures -Label "ShiyaoConcreteSceneHandoffBridge.cs" -Text $bridgeText -Tokens @(
+    'ShiyaoConcreteSceneHandoffBridge',
+    'innerworld-shiyao-handoff/v1',
+    'campus_memory_wall',
+    'whale_cloud',
+    'task_board',
+    'no local hardware claim'
   )
 
   if ($entries -contains "data\runtime_state.json") {
@@ -389,6 +401,12 @@ try {
           "contributes_to_p0_acceptance: false",
           "hardware_acceptance_evidence: false",
           "open_ugc_allowed: false"
+        )
+        Assert-TextContainsAll -Failures $failures -Label "nested data/space_demo.json choreography" -Text $nestedSpaceDemoText -Tokens @(
+          "spatial_choreography",
+          "growth_beats",
+          "wall_seed_rule",
+          "gesture_affordance"
         )
         $nestedReadonlyText = Read-ZipEntryText -Zip $nestedZip -Path "server\space-server\check-readonly.js" -TempRoot $TempRoot
         Assert-TextContainsAll -Failures $failures -Label "nested check-readonly.js" -Text $nestedReadonlyText -Tokens @(

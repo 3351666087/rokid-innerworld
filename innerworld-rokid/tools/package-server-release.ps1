@@ -87,6 +87,7 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 Copy-Directory -Source (Join-Path $root "server\space-server") -Destination (Join-Path $staging "server\space-server")
 Copy-Directory -Source (Join-Path $root "apps\web-demo") -Destination (Join-Path $staging "apps\web-demo")
+Copy-Directory -Source (Join-Path $root "apps\unity-shell\Assets\Scripts\Concrete") -Destination (Join-Path $staging "apps\unity-shell\Assets\Scripts\Concrete")
 Copy-Directory -Source (Join-Path $root "shared") -Destination (Join-Path $staging "shared")
 Copy-Directory -Source (Join-Path $root "data") -Destination (Join-Path $staging "data")
 Copy-Directory -Source (Join-Path $root "ai") -Destination (Join-Path $staging "ai")

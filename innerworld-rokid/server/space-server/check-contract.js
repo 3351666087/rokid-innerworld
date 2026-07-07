@@ -150,6 +150,23 @@ function assertSpaceContract(space) {
   assert(space.service_actions?.some((action) => action.action_id === "JOIN_EVENT_1430"), "service action JOIN_EVENT_1430 missing");
 }
 
+function assertSceneActionChoreography(action, actionId) {
+  const choreography = action?.spatial_choreography;
+  assert(choreography && typeof choreography === "object", `scene action ${actionId} spatial choreography missing`);
+  assert(typeof choreography.time_layer === "string" && choreography.time_layer.length > 4, `scene action ${actionId} time layer missing`);
+  assert(Number.isFinite(choreography.depth_meters) && choreography.depth_meters >= 0.16 && choreography.depth_meters <= 0.75, `scene action ${actionId} depth meters out of range`);
+  assert(typeof choreography.wall_seed_rule === "string" && choreography.wall_seed_rule.toLowerCase().includes("wall"), `scene action ${actionId} wall seed rule missing`);
+  assert(typeof choreography.gesture_affordance === "string" && choreography.gesture_affordance.length > 12, `scene action ${actionId} gesture affordance missing`);
+  assert(typeof choreography.spatial_sound === "string" && choreography.spatial_sound.length > 8, `scene action ${actionId} spatial sound missing`);
+  assert(Array.isArray(choreography.growth_beats) && choreography.growth_beats.length >= 3, `scene action ${actionId} growth beats too weak`);
+  choreography.growth_beats.forEach((beat, index) => {
+    assert(typeof beat?.beat_id === "string" && beat.beat_id.length > 2, `scene action ${actionId} growth beat ${index} id missing`);
+    assert(typeof beat?.label === "string" && beat.label.length > 2, `scene action ${actionId} growth beat ${index} label missing`);
+    assert(beat?.offset && Number.isFinite(beat.offset.x) && Number.isFinite(beat.offset.y) && Number.isFinite(beat.offset.z), `scene action ${actionId} growth beat ${index} offset missing`);
+    assert(Number.isFinite(beat.scale) && beat.scale > 0 && beat.scale <= 0.15, `scene action ${actionId} growth beat ${index} scale invalid`);
+  });
+}
+
 function assertSceneActionsContract(sceneActions) {
   assert(Array.isArray(sceneActions), "scene_actions missing");
   const expected = [
@@ -171,6 +188,7 @@ function assertSceneActionsContract(sceneActions) {
     assert(typeof action.spatial_binding?.projection === "string" && action.spatial_binding.projection.length > 8, `scene action ${actionId} projection missing`);
     assert(typeof action.spatial_binding?.depth_layer === "string" && action.spatial_binding.depth_layer.length > 4, `scene action ${actionId} depth layer missing`);
     assert(typeof action.interaction === "string" && action.interaction.length > 8, `scene action ${actionId} interaction missing`);
+    assertSceneActionChoreography(action, actionId);
   }
   assert(sceneActions.find((item) => item.action_id === "A1_CHECK_IN_STAMP")?.handoff_to_shiyao_scan_scene === true, "A1 scene action must document shiyao scan handoff");
   assert(sceneActions.filter((item) => item.writes_evidence === true).map((item) => item.action_id).join(",") === "A3_TIMEMARK_WRITE_BACK,USER_B_READBACK_PASS", "only A3 write-back and User B readback scene actions may write P0 evidence");
@@ -199,20 +217,26 @@ function assertShiyaoHandoffContract(mergeMap, handoffDoc) {
   assert(String(mergeMap.handoff_receiver || "").includes("EnterConcreteScene"), "shiyao handoff receiver missing");
   assert(mergeMap.conflict_rules?.do_not_edit_shiyao_scenes === true, "shiyao scene conflict guard missing");
   assert(mergeMap.conflict_rules?.do_not_merge_hardware_claims_without_field_acceptance === true, "shiyao hardware claim guard missing");
+  assert(String(mergeMap.unity_bridge?.file || "").includes("ShiyaoConcreteSceneHandoffBridge.cs"), "shiyao bridge file missing from merge map");
+  assert(String(mergeMap.unity_bridge?.claim_guard || "").includes("no local hardware claim"), "shiyao bridge claim guard missing");
   assert(handoffDoc.includes("ISceneHandoffReceiver.EnterConcreteScene") && handoffDoc.includes("innerworld-shiyao-handoff/v1"), "shiyao handoff doc seam missing");
+  assert(handoffDoc.includes("ShiyaoConcreteSceneHandoffBridge"), "shiyao handoff bridge doc missing");
   assert(handoffDoc.includes("real Rokid hardware is with teammate `shiyao`") && handoffDoc.includes("must not claim live hardware-ready"), "shiyao hardware possession boundary missing");
 }
 
 async function assertWebSceneActionFallback() {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, bridge] = await Promise.all([
     readText("apps/web-demo/index.html"),
     readText("apps/web-demo/app.js"),
-    readText("apps/web-demo/styles.css")
+    readText("apps/web-demo/styles.css"),
+    readText("apps/unity-shell/Assets/Scripts/Concrete/ShiyaoConcreteSceneHandoffBridge.cs")
   ]);
   assert(html.includes("sceneActionLayer") && html.includes('data-fallback="web"') && html.includes('data-hardware-ready="false"'), "web scene action fallback/no-hardware layer missing");
   assert(app.includes("sceneActions()") && app.includes("renderSceneActions") && app.includes("shiyao scan"), "web scene action renderer missing");
+  assert(app.includes("spatial_choreography") && app.includes("growth_beats") && app.includes("gesture_affordance"), "web scene action choreography renderer missing");
   assert(app.includes("Depth") || app.includes("depth_layer"), "web scene action depth layer token missing");
-  assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow"), "web scene action spatial CSS missing");
+  assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow") && css.includes(".scene-action-beats"), "web scene action spatial CSS missing");
+  assert(bridge.includes("ShiyaoConcreteSceneHandoffBridge") && bridge.includes("innerworld-shiyao-handoff/v1") && bridge.includes("no local hardware claim"), "shiyao concrete scene bridge missing");
   return "verified";
 }
 

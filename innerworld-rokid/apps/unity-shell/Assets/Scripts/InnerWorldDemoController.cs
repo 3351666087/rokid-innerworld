@@ -1831,6 +1831,7 @@ namespace InnerWorld.Rokid
                 spawnedObjects.Add(node);
 
                 CreateSceneActionLine(action, basePosition, color);
+                CreateSceneActionGrowthBeats(action, basePosition, color);
                 CreateSceneActionLabel(action, basePosition, color);
             }
         }
@@ -1901,6 +1902,48 @@ namespace InnerWorld.Rokid
             MeshRenderer meshRenderer = label.GetComponent<MeshRenderer>();
             if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
             spawnedObjects.Add(label);
+        }
+
+        private void CreateSceneActionGrowthBeats(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null || action.spatial_choreography == null || action.spatial_choreography.growth_beats == null)
+            {
+                return;
+            }
+
+            SceneActionGrowthBeatData[] beats = action.spatial_choreography.growth_beats;
+            Vector3 previous = taskPosition;
+            for (int i = 0; i < beats.Length; i++)
+            {
+                SceneActionGrowthBeatData beat = beats[i];
+                if (beat == null) continue;
+                Vector3 offset = beat.offset != null ? new Vector3(beat.offset.x, beat.offset.y, beat.offset.z) : new Vector3(0.08f * i, 0.03f * i, -0.08f * i);
+                Vector3 beatPosition = taskPosition + offset;
+                float scale = Mathf.Clamp(beat.scale > 0f ? beat.scale : 0.045f, 0.025f, 0.12f);
+
+                GameObject bead = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bead.name = "Scene Action Growth Beat " + SafeLabel(beat.beat_id, action.action_id);
+                bead.transform.position = beatPosition;
+                bead.transform.localScale = new Vector3(scale, scale, scale);
+                ApplyMaterial(bead.GetComponent<Renderer>(), new Color(color.r, color.g, color.b, 0.66f));
+                spawnedObjects.Add(bead);
+
+                GameObject trailObject = new GameObject("Scene Action Depth Time Trail " + SafeLabel(beat.beat_id, action.action_id));
+                LineRenderer trail = trailObject.AddComponent<LineRenderer>();
+                trail.useWorldSpace = true;
+                trail.positionCount = 2;
+                trail.numCapVertices = 3;
+                trail.startWidth = 0.0035f;
+                trail.endWidth = 0.002f;
+                trail.startColor = new Color(color.r, color.g, color.b, 0.28f);
+                trail.endColor = new Color(color.r, color.g, color.b, 0.1f);
+                Material trailMaterial = CreateLineMaterial(color, 0.22f);
+                if (trailMaterial != null) trail.material = trailMaterial;
+                trail.SetPosition(0, previous);
+                trail.SetPosition(1, beatPosition);
+                spawnedObjects.Add(trailObject);
+                previous = beatPosition;
+            }
         }
 
         private bool IsControlledSemanticPreview(NearbyPin pin)
@@ -5211,6 +5254,27 @@ namespace InnerWorld.Rokid
         public string p0_role;
         public string mission_step_id;
         public bool handoff_to_shiyao_scan_scene;
+        public SceneActionChoreographyData spatial_choreography;
+    }
+
+    [Serializable]
+    public sealed class SceneActionChoreographyData
+    {
+        public string time_layer;
+        public float depth_meters;
+        public string wall_seed_rule;
+        public string gesture_affordance;
+        public string spatial_sound;
+        public SceneActionGrowthBeatData[] growth_beats;
+    }
+
+    [Serializable]
+    public sealed class SceneActionGrowthBeatData
+    {
+        public string beat_id;
+        public string label;
+        public SpacePose offset;
+        public float scale;
     }
 
     [Serializable]

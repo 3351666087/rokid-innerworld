@@ -1,4 +1,4 @@
-﻿# Shiyao Scan Scene Handoff Contract
+# Shiyao Scan Scene Handoff Contract
 
 Status: local contract for merging `shiyao` scan/logo/QR discovery with the concrete Campus Hidden Layer scene.
 
@@ -42,3 +42,14 @@ After handoff, this branch renders `data/space_demo.json` `scene_actions`:
 - Keep concrete scene behavior data-driven through `space_demo.json` and `merge_map.json`.
 - Keep hardware-ready false unless trusted A1/A2/A3, A3 write-back, User B readback, and `/api/field/acceptance` pass on the real device.
 - Sky Pin remains controlled preview only and cannot be P0 evidence.
+## Runtime bridge
+
+This branch also provides `apps/unity-shell/Assets/Scripts/Concrete/ShiyaoConcreteSceneHandoffBridge.cs` as a non-invasive adapter for shiyao's scan/logo scene. It can be attached to the scan scene or called after a QR/logo/image target passes shiyao's GPS/marker gate.
+
+Bridge mapping:
+
+- `campus_memory_wall` or marker `1` -> `A1`
+- `whale_cloud` or marker `2` -> `A2`
+- `task_board` or marker `3` -> `A3`
+
+The bridge constructs `SceneHandoffData` with `handoff_version=innerworld-shiyao-handoff/v1`, marker pose, wall normal, GPS, confidence, event id, and `origin_mode=trusted_shiyao_scan_bridge` when not fallback. If no receiver exists, it returns false and does not claim hardware readiness. This keeps shiyao's scenes mergeable without editing `InnerWorldScanAnchorController.cs` or additive scene assets.

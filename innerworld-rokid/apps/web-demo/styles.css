@@ -2299,3 +2299,48 @@ pre {
     left: calc(100% - 164px) !important;
   }
 }
+
+.scene-action-card[data-time-layer] {
+  transform: translate3d(calc(var(--action-depth, 0.24) * -18px), calc(var(--action-depth, 0.24) * -10px), 0) rotateX(2deg);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38), 0 0 calc(var(--action-depth, 0.24) * 90px) color-mix(in srgb, var(--action-tone) 42%, transparent);
+}
+
+.scene-action-card[data-time-layer]::after {
+  content: attr(data-time-layer);
+  position: absolute;
+  right: 10px;
+  top: -13px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--action-tone) 55%, transparent);
+  background: rgba(4, 11, 18, 0.82);
+  color: var(--action-tone);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scene-action-beats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.scene-action-beats span {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--action-tone) 68%, transparent);
+  background: radial-gradient(circle, color-mix(in srgb, var(--action-tone) 42%, transparent), rgba(255, 255, 255, 0.04));
+  color: white;
+  font-size: 0.62rem;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--action-tone) 44%, transparent);
+}
+
+.scene-action-beats span + span::before {
+  content: "";
+  position: absolute;
+}
