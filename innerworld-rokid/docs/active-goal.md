@@ -1,6 +1,10 @@
 # Active Goal
 
-Updated: 2026-07-05 22:03 Asia/Shanghai
+Updated: 2026-07-07 19:24 Asia/Shanghai
+
+Current shiyao-first constraint: the real Rokid hardware is now with teammate `shiyao`, whose branch owns the scan/logo/QR scene discovery and hardware-side interaction polishing. This branch must therefore stop treating local live hardware as the immediate blocker and instead make the concrete A1/A2/A3 scene merge-friendly, spatially richer, and useful after shiyao's entry scene hands off into it. Local work may build localhost/LAN packages, scene data, Unity visuals, web fallback, contracts, and audits, but must not claim live hardware-ready while the device is not locally held.
+
+Current concrete-scene direction: after shiyao's scan/logo entry selects the wall scene, our scene must give users things to do in the real wall context: A1 check-in stamp / hidden-layer opening, A2 memory fragment read and clue collection, A3 TimeMark write-back, and User B readback at the same physical wall position. `data/space_demo.json` `scene_actions` and Unity `RenderSceneActionTasks` are the merge contract for this handoff.
 
 Latest execution slice: `field:operator-plan` is now the lightweight local/LAN operator-plan capture command for the productized field lane. It reads only `/api/field/operator-plan`, writes sanitized `output/field-operator-plan/field-operator-plan-latest.json` and `.md`, and keeps the same P0 boundary: one real wall, A1 entry, A2 read, A3 TimeMark write-back, User B readback, with no guide/PPT/phone-only/open-UGC/backend/route expansion and no hardware-ready claim without physical `/api/field/acceptance`.
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using InnerWorld.Rokid.Concrete;
 using InnerWorld.Rokid.Protocol;
 using InnerWorld.Rokid.Runtime;
 using UnityEngine;
@@ -11,7 +12,7 @@ using UnityEngine.UI;
 
 namespace InnerWorld.Rokid
 {
-    public sealed class InnerWorldDemoController : MonoBehaviour
+    public sealed class InnerWorldDemoController : MonoBehaviour, ISceneHandoffReceiver
     {
         [Header("Localhost API")]
         public string baseUrl = "http://localhost:5177";
@@ -65,6 +66,7 @@ namespace InnerWorld.Rokid
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
         private string deviceManifestLine = "device manifest pending";
+        private string sceneHandoffLine = "shiyao handoff pending";
         private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
@@ -346,6 +348,42 @@ namespace InnerWorld.Rokid
             }
         }
 
+        public void EnterConcreteScene(SceneHandoffData data)
+        {
+            bool fallback = data.fallback || string.IsNullOrWhiteSpace(data.handoff_version) || data.handoff_version != "innerworld-shiyao-handoff/v1";
+            string sceneAnchor = SafeLabel(data.scene_id, "A1");
+            if (sceneAnchor != "A1" && sceneAnchor != "A2" && sceneAnchor != "A3")
+            {
+                sceneAnchor = "A1";
+                fallback = true;
+            }
+
+            if (float.IsNaN(data.anchor_position.x) || float.IsNaN(data.anchor_position.y) || float.IsNaN(data.anchor_position.z) || float.IsInfinity(data.anchor_position.x) || float.IsInfinity(data.anchor_position.y) || float.IsInfinity(data.anchor_position.z))
+            {
+                fallback = true;
+                data = SceneHandoffData.Fallback(sceneAnchor);
+            }
+
+            if (!fallback && data.anchor_position.sqrMagnitude <= 0.001f)
+            {
+                fallback = true;
+                data = SceneHandoffData.Fallback(sceneAnchor);
+            }
+
+            if (!fallback)
+            {
+                wallCenter = data.anchor_position + new Vector3(0f, 0f, 0.8f);
+            }
+
+            sceneHandoffLine = "shiyao handoff " + SafeLabel(data.handoff_version, "missing")
+                + " | scene " + sceneAnchor
+                + " | origin " + SafeLabel(data.origin_mode, fallback ? "fallback" : "anchor_relative")
+                + " | fallback " + BoolLabel(fallback)
+                + " | no local hardware claim";
+            SelectAnchor(sceneAnchor);
+            RenderAnchors();
+        }
+
         public void SelectAnchor(string anchorId)
         {
             if (space == null) return;
@@ -409,7 +447,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.LockCandidate;
             entryConfirmationStatus = "entry_confirmation_ready";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
-            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 开启空间层.";
+            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 寮€鍚┖闂村眰.";
             ApplyLocalA1SpatialEntryToMissionState();
         }
 
@@ -422,7 +460,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.DeliberateConfirmed;
             entryConfirmationStatus = "entry_confirmation_confirmed";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerOpening;
-            spatialLayerTransitionLabel = "开启空间层 transition armed from A1 deliberate confirmation.";
+            spatialLayerTransitionLabel = "寮€鍚┖闂村眰 transition armed from A1 deliberate confirmation.";
             a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
 
             if (missionState != null)
@@ -430,7 +468,7 @@ namespace InnerWorld.Rokid
                 missionState.SelectAnchor(A1EntryAnchorId, anchor != null ? anchor.label : "Entry Poster", anchor != null ? anchor.kind : "entry");
             }
             ApplyLocalA1SpatialEntryToMissionState();
-            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation · 开启空间层 · fallback is not hardware ready");
+            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation 路 寮€鍚┖闂村眰 路 fallback is not hardware ready");
             RefreshAnchorVisualStates();
             RefreshHud();
         }
@@ -1611,6 +1649,7 @@ namespace InnerWorld.Rokid
             }
 
             BuildSpatialRouteLine();
+            RenderSceneActionTasks();
             RenderControlledSemanticPins();
 
             if (!string.IsNullOrEmpty(selectedAnchorId) && !anchorVisuals.ContainsKey(selectedAnchorId))
@@ -1765,6 +1804,103 @@ namespace InnerWorld.Rokid
                 CreateSemanticPinStem(pin, position, color);
                 CreateSemanticPinLabel(pin, position);
             }
+        }
+
+        private void RenderSceneActionTasks()
+        {
+            if (space == null || space.scene_actions == null || space.scene_actions.Length == 0)
+            {
+                return;
+            }
+
+            foreach (SceneActionData action in space.scene_actions)
+            {
+                if (action == null || string.IsNullOrWhiteSpace(action.anchor_id))
+                {
+                    continue;
+                }
+
+                Vector3 basePosition = SceneActionDisplayPosition(action);
+                Color color = ColorForSceneAction(action);
+                GameObject node = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                node.name = "Scene Action Task " + SafeLabel(action.action_id, action.anchor_id);
+                node.transform.position = basePosition;
+                node.transform.rotation = Quaternion.LookRotation((cameraPosition - basePosition).normalized, Vector3.up);
+                node.transform.localScale = new Vector3(0.18f, 0.08f, 0.015f);
+                ApplyMaterial(node.GetComponent<Renderer>(), color);
+                spawnedObjects.Add(node);
+
+                CreateSceneActionLine(action, basePosition, color);
+                CreateSceneActionLabel(action, basePosition, color);
+            }
+        }
+
+        private Vector3 SceneActionDisplayPosition(SceneActionData action)
+        {
+            if (action != null && action.spatial_binding != null && action.spatial_binding.pose != null)
+            {
+                SpacePose pose = action.spatial_binding.pose;
+                return new Vector3(Mathf.Clamp(pose.x, -1.55f, 1.55f), Mathf.Clamp(pose.y, 0.8f, 2.25f), Mathf.Lerp(wallCenter.z, pose.z, 0.5f));
+            }
+
+            if (action != null && anchorVisuals.ContainsKey(action.anchor_id))
+            {
+                return anchorVisuals[action.anchor_id].MarkerTransform.position + new Vector3(0f, -0.28f, -0.08f);
+            }
+
+            return wallCenter + new Vector3(0f, -0.35f, -0.18f);
+        }
+
+        private Color ColorForSceneAction(SceneActionData action)
+        {
+            if (action == null) return new Color(0.48f, 0.86f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A1", StringComparison.Ordinal)) return new Color(0.38f, 0.92f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A2", StringComparison.Ordinal)) return new Color(0.76f, 0.58f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A3", StringComparison.Ordinal)) return new Color(1f, 0.72f, 0.38f, 0.72f);
+            return new Color(0.48f, 0.86f, 1f, 0.72f);
+        }
+
+        private void CreateSceneActionLine(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null || !anchorVisuals.ContainsKey(action.anchor_id)) return;
+            Vector3 anchorPosition = anchorVisuals[action.anchor_id].MarkerTransform.position;
+            GameObject lineObject = new GameObject("Scene Action Spatial Binding " + SafeLabel(action.action_id, action.anchor_id));
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 3;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.003f;
+            line.startColor = new Color(color.r, color.g, color.b, 0.42f);
+            line.endColor = new Color(color.r, color.g, color.b, 0.16f);
+            Material material = CreateLineMaterial(color, 0.34f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, anchorPosition + new Vector3(0f, -0.08f, -0.02f));
+            line.SetPosition(1, Vector3.Lerp(anchorPosition, taskPosition, 0.55f) + new Vector3(0f, 0.06f, -0.08f));
+            line.SetPosition(2, taskPosition);
+            spawnedObjects.Add(lineObject);
+        }
+
+        private void CreateSceneActionLabel(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null) return;
+            GameObject label = new GameObject("Scene Action Label " + SafeLabel(action.action_id, action.anchor_id));
+            label.transform.position = taskPosition + new Vector3(-0.24f, 0.11f, -0.02f);
+            label.transform.rotation = Quaternion.LookRotation((label.transform.position - cameraPosition).normalized, Vector3.up);
+            TextMesh mesh = label.AddComponent<TextMesh>();
+            string title = SafeLabel(action.title, SafeLabel(action.action_id, "scene task"));
+            string task = SafeLabel(action.user_task, "Do the wall task at this anchor.");
+            string cue = SafeLabel(action.physical_cue, "real wall marker");
+            string placement = action.spatial_binding != null ? SafeLabel(action.spatial_binding.placement, "wall bound") : "wall bound";
+            mesh.text = action.anchor_id + " TASK  " + title + "\n" + task + "\nPhysical cue: " + cue + "\n3D placement: " + placement;
+            mesh.font = uiFont;
+            mesh.fontSize = 28;
+            mesh.characterSize = 0.012f;
+            mesh.anchor = TextAnchor.MiddleLeft;
+            mesh.color = new Color(color.r, color.g, color.b, 0.92f);
+            MeshRenderer meshRenderer = label.GetComponent<MeshRenderer>();
+            if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
+            spawnedObjects.Add(label);
         }
 
         private bool IsControlledSemanticPreview(NearbyPin pin)
@@ -2900,7 +3036,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -4987,6 +5123,7 @@ namespace InnerWorld.Rokid
         public AnchorData[] anchors;
         public BeaconData[] beacons;
         public NearbyPin[] semantic_pins;
+        public SceneActionData[] scene_actions;
         public MissionData mission;
         public RuntimeData runtime;
         public ServiceActionData[] service_actions;
@@ -5057,6 +5194,32 @@ namespace InnerWorld.Rokid
         public string action_id;
         public string label;
         public string status;
+    }
+
+    [Serializable]
+    public sealed class SceneActionData
+    {
+        public string action_id;
+        public string anchor_id;
+        public string scene_id;
+        public string title;
+        public string user_task;
+        public string physical_cue;
+        public SceneActionSpatialBinding spatial_binding;
+        public string interaction;
+        public bool writes_evidence;
+        public string p0_role;
+        public string mission_step_id;
+        public bool handoff_to_shiyao_scan_scene;
+    }
+
+    [Serializable]
+    public sealed class SceneActionSpatialBinding
+    {
+        public string placement;
+        public SpacePose pose;
+        public string projection;
+        public string depth_layer;
     }
 
 }

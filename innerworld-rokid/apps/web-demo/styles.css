@@ -413,6 +413,95 @@ textarea:focus {
   z-index: 4;
 }
 
+.scene-action-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  perspective: 900px;
+}
+
+.scene-action-stem {
+  position: absolute;
+  left: var(--stem-left);
+  top: var(--stem-top);
+  width: clamp(82px, 16vw, 190px);
+  height: 2px;
+  transform-origin: 0 50%;
+  transform: translate3d(0, 0, 0) rotate(18deg);
+  background: linear-gradient(90deg, rgba(84, 214, 255, 0.64), rgba(255, 255, 255, 0));
+  filter: drop-shadow(0 0 16px rgba(84, 214, 255, 0.38));
+  opacity: 0.68;
+}
+
+.scene-action-card {
+  --action-tone: var(--cyan);
+  position: absolute;
+  left: clamp(14px, var(--action-left), calc(100% - 255px));
+  top: clamp(34%, var(--action-top), calc(100% - 142px));
+  width: clamp(190px, 24%, 255px);
+  min-height: 124px;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--action-tone), transparent 45%);
+  border-radius: 12px;
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(8, 12, 17, 0.86), rgba(15, 22, 30, 0.7));
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.38), inset 0 0 0 1px rgba(255, 255, 255, 0.045), 0 0 28px color-mix(in srgb, var(--action-tone), transparent 78%);
+  backdrop-filter: blur(18px);
+  transform: translateZ(34px) rotateX(2deg);
+  pointer-events: auto;
+  animation: actionGrow 720ms var(--panel-ease) both;
+}
+
+.scene-action-card::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: -9px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--action-tone), transparent);
+  box-shadow: 0 0 18px var(--action-tone);
+}
+
+.scene-action-a2 { --action-tone: var(--violet); }
+.scene-action-a3 { --action-tone: var(--amber); }
+.scene-action-card.evidence-write { --action-tone: var(--green); }
+
+.scene-action-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scene-action-card strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.scene-action-card p,
+.scene-action-card small {
+  display: block;
+  margin: 7px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.scene-action-card small {
+  color: var(--muted);
+}
+
+@keyframes actionGrow {
+  from { opacity: 0; transform: translateY(12px) translateZ(0) scale(0.86) rotateX(8deg); }
+  to { opacity: 1; transform: translateY(0) translateZ(34px) scale(1) rotateX(2deg); }
+}
+
 .anchor {
   --tone: var(--cyan);
   --anchor-card-width: clamp(136px, 18%, 206px);

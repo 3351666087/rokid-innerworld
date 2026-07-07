@@ -13,29 +13,55 @@
     "width_units": 12,
     "height_units": 6
   },
-  "layers": ["official", "public", "circle", "time_capsule"],
+  "layers": [
+    "official",
+    "public",
+    "circle",
+    "time_capsule"
+  ],
   "anchors": [
     {
       "anchor_id": "A1",
       "label": "入口海报",
-      "grid_pos": { "x": 1, "y": 2 },
-      "pose": { "x": -1.6, "y": 1.25, "z": 3.1 },
+      "grid_pos": {
+        "x": 1,
+        "y": 2
+      },
+      "pose": {
+        "x": -1.6,
+        "y": 1.25,
+        "z": 3.1
+      },
       "kind": "entry",
       "default_state": "available"
     },
     {
       "anchor_id": "A2",
       "label": "记忆信标",
-      "grid_pos": { "x": 6, "y": 3 },
-      "pose": { "x": 0, "y": 1.5, "z": 3.0 },
+      "grid_pos": {
+        "x": 6,
+        "y": 3
+      },
+      "pose": {
+        "x": 0,
+        "y": 1.5,
+        "z": 3.0
+      },
       "kind": "memory",
       "default_state": "available"
     },
     {
       "anchor_id": "A3",
       "label": "写回点",
-      "grid_pos": { "x": 10, "y": 2 },
-      "pose": { "x": 1.55, "y": 1.18, "z": 3.2 },
+      "grid_pos": {
+        "x": 10,
+        "y": 2
+      },
+      "pose": {
+        "x": 1.55,
+        "y": 1.18,
+        "z": 3.2
+      },
       "kind": "write_back",
       "default_state": "locked"
     }
@@ -76,7 +102,11 @@
         "generic_tour_or_ugc": false,
         "open_ugc": false,
         "phone_or_ppt_primary": false,
-        "required_anchor_ids": ["A1", "A2", "A3"]
+        "required_anchor_ids": [
+          "A1",
+          "A2",
+          "A3"
+        ]
       },
       "nodes": [
         {
@@ -86,9 +116,16 @@
           "anchor_id": "A1",
           "role": "entry",
           "mission_state": "entered",
-          "guard_ids": ["a1_entry_confirmed"],
-          "endpoint_keys": ["device_bootstrap", "interactions"],
-          "action_ids": ["confirm_a1_entry"],
+          "guard_ids": [
+            "a1_entry_confirmed"
+          ],
+          "endpoint_keys": [
+            "device_bootstrap",
+            "interactions"
+          ],
+          "action_ids": [
+            "confirm_a1_entry"
+          ],
           "legacy_step_ids": []
         },
         {
@@ -98,10 +135,21 @@
           "anchor_id": "A2",
           "role": "memory",
           "mission_state": "reading",
-          "guard_ids": ["a2_memory_read"],
-          "endpoint_keys": ["ai_hud", "interactions"],
-          "action_ids": ["read_a2_memory", "resolve_a2_memory"],
-          "legacy_step_ids": ["read", "find_year"]
+          "guard_ids": [
+            "a2_memory_read"
+          ],
+          "endpoint_keys": [
+            "ai_hud",
+            "interactions"
+          ],
+          "action_ids": [
+            "read_a2_memory",
+            "resolve_a2_memory"
+          ],
+          "legacy_step_ids": [
+            "read",
+            "find_year"
+          ]
         },
         {
           "node_id": "a3_write_back",
@@ -110,10 +158,19 @@
           "anchor_id": "A3",
           "role": "write_back",
           "mission_state": "writing",
-          "guard_ids": ["a3_write_back_committed"],
-          "endpoint_keys": ["ai_hud", "write_back"],
-          "action_ids": ["submit_a3_write_back"],
-          "legacy_step_ids": ["write_back"]
+          "guard_ids": [
+            "a3_write_back_committed"
+          ],
+          "endpoint_keys": [
+            "ai_hud",
+            "write_back"
+          ],
+          "action_ids": [
+            "submit_a3_write_back"
+          ],
+          "legacy_step_ids": [
+            "write_back"
+          ]
         },
         {
           "node_id": "user_b_readback",
@@ -122,9 +179,16 @@
           "anchor_id": "A3",
           "role": "readback",
           "mission_state": "complete",
-          "guard_ids": ["user_b_can_read_back"],
-          "endpoint_keys": ["state", "evidence_chain"],
-          "action_ids": ["verify_user_b_readback"],
+          "guard_ids": [
+            "user_b_can_read_back"
+          ],
+          "endpoint_keys": [
+            "state",
+            "evidence_chain"
+          ],
+          "action_ids": [
+            "verify_user_b_readback"
+          ],
           "legacy_step_ids": []
         }
       ],
@@ -159,25 +223,41 @@
           "guard_id": "a1_entry_confirmed",
           "label": "A1 entry confirmed",
           "endpoint_key": "interactions",
-          "requires": ["anchor_id:A1", "actor:User A", "campus_wall_context"]
+          "requires": [
+            "anchor_id:A1",
+            "actor:User A",
+            "campus_wall_context"
+          ]
         },
         {
           "guard_id": "a2_memory_read",
           "label": "A2 memory read",
           "endpoint_key": "interactions",
-          "requires": ["anchor_id:A2", "completed_steps:read", "completed_steps:find_year"]
+          "requires": [
+            "anchor_id:A2",
+            "completed_steps:read",
+            "completed_steps:find_year"
+          ]
         },
         {
           "guard_id": "a3_write_back_committed",
           "label": "A3 write-back committed",
           "endpoint_key": "write_back",
-          "requires": ["anchor_id:A3", "layer:time_capsule", "review_visibility"]
+          "requires": [
+            "anchor_id:A3",
+            "layer:time_capsule",
+            "review_visibility"
+          ]
         },
         {
           "guard_id": "user_b_can_read_back",
           "label": "User B sees wall memory after write-back",
           "endpoint_key": "state",
-          "requires": ["actor:User B", "mission_state:complete", "beacon_count_increased"]
+          "requires": [
+            "actor:User B",
+            "mission_state:complete",
+            "beacon_count_increased"
+          ]
         }
       ],
       "actions": [
@@ -293,7 +373,11 @@
       "hardware_acceptance_evidence": false,
       "p0_required": false,
       "anchor_id": null,
-      "pose": { "x": 0.0, "y": 4.8, "z": 11.0 },
+      "pose": {
+        "x": 0.0,
+        "y": 4.8,
+        "z": 11.0
+      },
       "spatial": {
         "placement": "far_above_wall",
         "scale": 1.8,
@@ -322,6 +406,96 @@
       "action_id": "JOIN_EVENT_1430",
       "label": "加入 14:30 体验活动",
       "status": "mock"
+    }
+  ],
+  "scene_actions": [
+    {
+      "action_id": "A1_CHECK_IN_STAMP",
+      "anchor_id": "A1",
+      "scene_id": "innerworld_scene_a1_entry",
+      "title": "A1 wall check-in stamp",
+      "user_task": "Stand at the real poster/logo entry, aim the Rokid ray at the A1 portal, and confirm check-in to open the hidden campus layer.",
+      "physical_cue": "real exhibition wall entry poster or logo marker",
+      "spatial_binding": {
+        "placement": "left_of_entry_poster",
+        "pose": {
+          "x": -1.35,
+          "y": 1.42,
+          "z": 2.65
+        },
+        "projection": "floating stamp ring locked to the poster plane",
+        "depth_layer": "entry_foreground"
+      },
+      "interaction": "pointable_confirm_or_trusted_a1_scan",
+      "writes_evidence": false,
+      "p0_role": "spatial_entry",
+      "handoff_to_shiyao_scan_scene": true
+    },
+    {
+      "action_id": "A2_MEMORY_VIEW_AND_COLLECT",
+      "anchor_id": "A2",
+      "scene_id": "innerworld_scene_a2_memory",
+      "title": "A2 memory fragment visit",
+      "user_task": "Move to the center memory marker, read the projected campus fragment, and collect the year clue for the wall mission.",
+      "physical_cue": "center wall memory logo/image target",
+      "spatial_binding": {
+        "placement": "in_front_of_center_memory_marker",
+        "pose": {
+          "x": 0.0,
+          "y": 1.62,
+          "z": 2.35
+        },
+        "projection": "curved memory card and audio cue hovering 35 cm in front of wall",
+        "depth_layer": "memory_midground"
+      },
+      "interaction": "ray_focus_read_or_trusted_a2_scan",
+      "writes_evidence": false,
+      "p0_role": "memory_read",
+      "mission_step_id": "find_year"
+    },
+    {
+      "action_id": "A3_TIMEMARK_WRITE_BACK",
+      "anchor_id": "A3",
+      "scene_id": "innerworld_scene_a3_writeback",
+      "title": "A3 TimeMark write-back",
+      "user_task": "Face the write-back marker, leave one sentence about this physical wall, and pin it to A3 for the next visitor.",
+      "physical_cue": "right-side wall write-back marker",
+      "spatial_binding": {
+        "placement": "right_of_wall_writeback_marker",
+        "pose": {
+          "x": 1.35,
+          "y": 1.34,
+          "z": 2.55
+        },
+        "projection": "small 3D TimeMark capsule attached to the wall plane",
+        "depth_layer": "writeback_foreground"
+      },
+      "interaction": "trusted_a3_scan_then_confirm_write",
+      "writes_evidence": true,
+      "p0_role": "timemark_writeback",
+      "mission_step_id": "write_back"
+    },
+    {
+      "action_id": "USER_B_READBACK_PASS",
+      "anchor_id": "A3",
+      "scene_id": "innerworld_scene_user_b_readback",
+      "title": "User B readback proof",
+      "user_task": "Switch to User B and read the newly written TimeMark from the same A3 wall position.",
+      "physical_cue": "same A3 wall write-back marker revisited by another user",
+      "spatial_binding": {
+        "placement": "same_a3_wall_position_after_writeback",
+        "pose": {
+          "x": 1.48,
+          "y": 1.52,
+          "z": 2.45
+        },
+        "projection": "readback ribbon rising from the TimeMark capsule",
+        "depth_layer": "readback_overlay"
+      },
+      "interaction": "operator_confirmed_user_b_readback_after_trusted_a3",
+      "writes_evidence": true,
+      "p0_role": "user_b_readback",
+      "mission_step_id": "user_b_readback"
     }
   ]
 }

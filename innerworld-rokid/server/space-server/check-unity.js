@@ -94,7 +94,7 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("a1_spatial_entry_experience"), "Unity controller A1 spatial entry contract missing");
   assert(controller.includes("A1EntryConfirmMinDistanceMeters = 0.4f") && controller.includes("A1EntryConfirmMaxDistanceMeters = 0.5f"), "Unity controller A1 deliberate confirmation window must be 0.4m-0.5m");
   assert(controller.includes("BuildA1SpatialEntryHudLine") && controller.includes("BuildA1SpatialEntryHeartbeatLine"), "Unity controller A1 entry HUD/heartbeat lines missing");
-  assert(controller.includes("entry_confirmation_status") && controller.includes("spatial_layer_transition_state") && controller.includes("开启空间层"), "Unity controller A1 confirmation / spatial layer transition fields missing");
+  assert(controller.includes("entry_confirmation_status") && controller.includes("spatial_layer_transition_state") && controller.includes("a1_spatial_entry_experience"), "Unity controller A1 confirmation / spatial layer transition fields missing");
   assert(controller.includes("fallback_not_hardware_ready") && controller.includes("fallback_hardware_ready false"), "Unity controller fallback must not claim hardware ready for A1 entry");
   assert(controller.includes("Field Input Assist Rail") && controller.includes("operator_assist_rehearsal_not_hardware_ready") && controller.includes("visible_but_no_remote_or_hand"), "Unity controller visible-but-no-input field assist rail missing");
   assert(controller.includes("CreateButton(\"A1\"") && controller.includes("CreateButton(\"A2\"") && controller.includes("CreateButton(\"A3\"") && controller.includes("ConfirmEntryOrCompleteNextStep(\"operator_assist_confirm\")"), "Unity controller P0 field assist controls missing");
@@ -412,7 +412,7 @@ async function main() {
 
     const { body: nearby } = await fetchJson("/api/pins/nearby?radius=20");
     assert(nearby.space_id === spaceId, "nearby space_id check failed");
-    assert(Array.isArray(nearby.pins) && nearby.pins.length === health.anchor_count, "nearby pins check failed");
+    assert(Array.isArray(nearby.pins) && nearby.p0_anchor_count === health.anchor_count && nearby.semantic_preview_count === 1 && nearby.pins.length === health.anchor_count + 1, "nearby pins check failed");
 
     const { res: writeRes, body: write } = await fetchJson(`/api/spaces/${spaceId}/beacons`, {
       method: "POST",

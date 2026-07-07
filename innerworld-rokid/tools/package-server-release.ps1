@@ -49,6 +49,16 @@ function Copy-Directory {
   }
 }
 
+function Copy-FileIfExists {
+  param([string]$Source, [string]$Destination)
+  if (!(Test-Path -LiteralPath $Source)) {
+    Write-Warning "Skipping missing file: $Source"
+    return
+  }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+  Copy-Item -LiteralPath $Source -Destination $Destination -Force
+}
+
 function Remove-OldReleases {
   param([string]$Path, [int]$Keep)
   if ($Keep -lt 1) { return }
@@ -82,6 +92,19 @@ Copy-Directory -Source (Join-Path $root "data") -Destination (Join-Path $staging
 Copy-Directory -Source (Join-Path $root "ai") -Destination (Join-Path $staging "ai")
 Copy-Directory -Source (Join-Path $root "docs") -Destination (Join-Path $staging "docs")
 
+foreach ($toolPath in @(
+  "tools\build-unity-android.ps1",
+  "tools\field-acceptance-session.ps1",
+  "tools\field-input-readiness.js",
+  "tools\field-live-pass.js",
+  "tools\field-target-pass.js",
+  "tools\station-pro-apk-smoke.ps1",
+  "tools\station-pro-field-input-assist.ps1",
+  "tools\uxr-readiness.js"
+)) {
+  Copy-FileIfExists -Source (Join-Path $root $toolPath) -Destination (Join-Path $staging $toolPath)
+}
+
 $runtimeState = Join-Path $staging "data\runtime_state.json"
 if (Test-Path -LiteralPath $runtimeState) {
   Assert-UnderPath -Path $runtimeState -RootPath $staging
@@ -97,6 +120,12 @@ Get-ChildItem -LiteralPath (Join-Path $staging "data") -Filter "innerworld.sqlit
   Remove-Item -LiteralPath $_.FullName -Force
 }
 
+$serverRuntimeOutput = Join-Path $staging "server\space-server\output"
+if (Test-Path -LiteralPath $serverRuntimeOutput) {
+  Assert-UnderPath -Path $serverRuntimeOutput -RootPath $staging
+  Remove-Item -LiteralPath $serverRuntimeOutput -Recurse -Force
+}
+
 $packageJson = [ordered]@{
   name = "innerworld-space-server-release"
   version = "0.1.0"
@@ -106,6 +135,25 @@ $packageJson = [ordered]@{
     start = "node server/space-server/index.js"
     "check:contract" = "node server/space-server/check-contract.js"
     "check:device" = "node server/space-server/check-device.js"
+    "check:field-acceptance" = "node server/space-server/check-field-acceptance.js"
+    "field:live-pass" = "node tools/field-live-pass.js --single"
+    "check:field-live-pass" = "node tools/field-live-pass.js --single --require-ready"
+    "field:target-pass" = "node tools/field-target-pass.js"
+    "field:target-pass:watch" = "node tools/field-target-pass.js --watch --require-live-session --require-target-diagnostics"
+    "field:target-pass:apply" = "node tools/field-target-pass.js --apply-mission-actions --require-live-session --require-target-diagnostics"
+    "field:target-pass:strict" = "node tools/field-target-pass.js --apply-mission-actions --confirm-user-b-readback --require-live-session --require-target-diagnostics --require-trusted --require-mission-loop"
+    "check:field-target-pass" = "node tools/field-target-pass.js --require-ready"
+    "field:acceptance-session" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1"
+    "field:acceptance-session:live" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch"
+    "field:acceptance-session:strict" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch -RequireTrusted -RequireMissionLoop"
+    "field:acceptance-session:target" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch -TargetPass"
+    "field:acceptance-session:target-strict" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch -TargetPass -ApplyMissionActions -ConfirmUserBReadback -RequireTrusted -RequireMissionLoop"
+    "station:field-input-assist" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1"
+    "station:field-input-assist:apply" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Apply -RequireDevice"
+    "station:field-input-assist:p0" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Action P0Loop"
+    "field:input-readiness" = "node tools/field-input-readiness.js"
+    "check:field-input-readiness" = "node tools/field-input-readiness.js --require-ready"
+    "unity:android:build:lan" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-unity-android.ps1 -RunPostChecks -RequirePostCheckDevice"
     check = "node server/space-server/check-readonly.js"
     "check:ops" = "node server/space-server/check-ops.js"
     reset = "node server/space-server/reset.js"

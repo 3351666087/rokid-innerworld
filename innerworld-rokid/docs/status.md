@@ -1,5 +1,10 @@
 # Status
 
+## 2026-07-07
+
+- Shiyao-first checkpoint at 19:24 Asia/Shanghai: teammate `shiyao` now holds the real Rokid hardware and owns a branch with scan/logo/QR scene discovery. Current branch priority is no longer local hardware claim work; it is to make the concrete post-scan A1/A2/A3 scene useful, spatial, and merge-friendly. Added `scene_actions` to `data/space_demo.json` for A1 check-in stamp, A2 memory fragment visit, A3 TimeMark write-back, and User B readback, each with physical wall cue, spatial binding pose/projection/depth layer, and P0 role.
+- External Opus design checkpoint: `claude-opus-4-8` was used as a high-value spatial/frontend design reviewer and saved local-only notes under `.agents/carver/`. Key design principle adopted: the wall is a seed, not a flat screen; content should grow from the wall along depth, and `Depth = time`. This remains a design aid only; no external API key or secret is written to repo.
+
 ## 2026-07-05
 
 - Plan reset at 22:03 Asia/Shanghai: active development is explicitly aligned to PR #2 `docs/demo-plan.md` / `Campus Hidden Layer`. P0 remains the true Rokid one-wall A1 spatial entry, A2 memory read, A3 TimeMark write-back, and User B readback loop. `Whale Cloud Sky Pin` stays a controlled 3D Pin preview only and must not count as hardware/P0 acceptance evidence. Next execution lanes are real input recovery, spatial depth/product polish, demo package guards, field acceptance closure, and Carver long-line audit of teammate docs/PDFs and checkpoint diffs.

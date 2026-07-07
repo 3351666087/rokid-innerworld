@@ -163,6 +163,7 @@ const els = {
   progress: document.querySelector("#progress"),
   riskGrid: document.querySelector("#riskGrid"),
   routeGrid: document.querySelector("#routeGrid"),
+  sceneActionLayer: document.querySelector("#sceneActionLayer"),
   sdkBindingGrid: document.querySelector("#sdkBindingGrid"),
   sdkBindingPill: document.querySelector("#sdkBindingPill"),
   showcaseGrid: document.querySelector("#showcaseGrid"),
@@ -1042,9 +1043,14 @@ function beaconsForAnchor(anchorId) {
   return (model.space?.beacons || []).filter((beacon) => beacon.anchor_id === anchorId);
 }
 
+function sceneActions() {
+  return Array.isArray(model.space?.scene_actions) ? model.space.scene_actions : [];
+}
+
 function renderAnchors() {
   if (!els.anchorLayer || !model.space) return;
   els.anchorLayer.innerHTML = "";
+  if (els.sceneActionLayer) els.sceneActionLayer.innerHTML = "";
 
   anchors().forEach((anchor, index) => {
     const position = anchorPosition(anchor, index);
@@ -1076,6 +1082,55 @@ function renderAnchors() {
 
     button.append(dot, title, subline);
     els.anchorLayer.append(button);
+  });
+
+  renderSceneActions();
+}
+
+function sceneActionPosition(action, index) {
+  const anchor = anchorById(action?.anchor_id) || anchors()[index % Math.max(anchors().length, 1)];
+  const anchorIndex = Math.max(0, anchors().findIndex((item) => item.anchor_id === anchor?.anchor_id));
+  const base = anchorPosition(anchor || {}, anchorIndex);
+  const pose = action?.spatial_binding?.pose || {};
+  const z = Number(pose.z) || 2.5;
+  const depthPush = clamp((z - 2.2) * 7.5, -4, 12);
+  const lane = index % 2 === 0 ? -1 : 1;
+  return {
+    left: clamp(base.left + lane * (5 + depthPush * 0.25), 6, 86),
+    top: clamp(base.top + 13 + depthPush, 42, 84)
+  };
+}
+
+function renderSceneActions() {
+  if (!els.sceneActionLayer || !model.space) return;
+  els.sceneActionLayer.innerHTML = "";
+  sceneActions().forEach((action, index) => {
+    const cardPosition = sceneActionPosition(action, index);
+    const anchor = anchorById(action.anchor_id);
+    const anchorIndex = Math.max(0, anchors().findIndex((item) => item.anchor_id === action.anchor_id));
+    const anchorPos = anchorPosition(anchor || {}, anchorIndex);
+
+    const stem = document.createElement("span");
+    stem.className = `scene-action-stem scene-action-${String(action.anchor_id || "wall").toLowerCase()}`;
+    stem.style.setProperty("--stem-left", `${anchorPos.left.toFixed(2)}%`);
+    stem.style.setProperty("--stem-top", `${anchorPos.top.toFixed(2)}%`);
+    stem.style.setProperty("--stem-x", `${(cardPosition.left - anchorPos.left).toFixed(2)}%`);
+    stem.style.setProperty("--stem-y", `${(cardPosition.top - anchorPos.top).toFixed(2)}%`);
+
+    const card = document.createElement("article");
+    card.className = `scene-action-card scene-action-${String(action.anchor_id || "wall").toLowerCase()}${action.writes_evidence ? " evidence-write" : ""}`;
+    card.style.setProperty("--action-left", `${cardPosition.left.toFixed(2)}%`);
+    card.style.setProperty("--action-top", `${cardPosition.top.toFixed(2)}%`);
+    card.tabIndex = 0;
+    card.dataset.actionId = action.action_id || "scene_action";
+    card.innerHTML = `
+      <span class="scene-action-kicker">shiyao scan → ${action.anchor_id || "wall"} · ${action.p0_role || "scene"}</span>
+      <strong>${action.title || action.action_id || "Wall task"}</strong>
+      <p>${action.user_task || "Do the concrete wall task at this anchor."}</p>
+      <small>Physical cue: ${action.physical_cue || "real wall marker"}</small>
+      <small>3D: ${(action.spatial_binding && action.spatial_binding.projection) || "wall seeded projection"} · ${(action.spatial_binding && action.spatial_binding.depth_layer) || "depth layer"}</small>
+    `;
+    els.sceneActionLayer.append(stem, card);
   });
 }
 

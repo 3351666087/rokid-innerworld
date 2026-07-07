@@ -41,6 +41,11 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function packageScriptMatches(packageJson, scriptName, commandPattern) {
+  const escapedName = scriptName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`"${escapedName}"\\s*:\\s*"${commandPattern}"`).test(packageJson);
+}
+
 async function readJson(relativePath) {
   const raw = await readFile(path.join(root, relativePath), "utf8");
   return JSON.parse(raw.replace(/^\uFEFF/, ""));
@@ -138,10 +143,37 @@ function assertSpaceContract(space) {
   assert(whaleCloud.controlled_demo === true && whaleCloud.open_ugc_allowed === false, "Whale Cloud open UGC guard mismatch");
   assert(whaleCloud.hardware_acceptance_evidence === false && whaleCloud.p0_required === false, "Whale Cloud must not become P0 hardware evidence");
   assert(whaleCloud.safety?.user_generated === false && whaleCloud.safety?.merchant_or_marketplace === false && whaleCloud.safety?.broad_route === false, "Whale Cloud safety guard mismatch");
+  assertSceneActionsContract(space.scene_actions || []);
   assert(Array.isArray(space.mission?.steps), "mission steps missing");
   assert(space.mission.steps.map((step) => step.step_id).join(",") === MISSION_STEP_IDS.join(","), "mission step ids mismatch");
   assertStoryGraphContract(space.mission?.story_graph, "space mission story graph");
   assert(space.service_actions?.some((action) => action.action_id === "JOIN_EVENT_1430"), "service action JOIN_EVENT_1430 missing");
+}
+
+function assertSceneActionsContract(sceneActions) {
+  assert(Array.isArray(sceneActions), "scene_actions missing");
+  const expected = [
+    ["A1_CHECK_IN_STAMP", "A1", "spatial_entry"],
+    ["A2_MEMORY_VIEW_AND_COLLECT", "A2", "memory_read"],
+    ["A3_TIMEMARK_WRITE_BACK", "A3", "timemark_writeback"],
+    ["USER_B_READBACK_PASS", "A3", "user_b_readback"]
+  ];
+  assert(sceneActions.length === expected.length, "scene_actions must contain exactly A1/A2/A3/User B tasks");
+  for (const [actionId, anchorId, p0Role] of expected) {
+    const action = sceneActions.find((item) => item?.action_id === actionId);
+    assert(action, `scene action missing: ${actionId}`);
+    assert(action.anchor_id === anchorId, `scene action ${actionId} anchor mismatch`);
+    assert(action.p0_role === p0Role, `scene action ${actionId} P0 role mismatch`);
+    assert(typeof action.title === "string" && action.title.length > 4, `scene action ${actionId} title missing`);
+    assert(typeof action.user_task === "string" && action.user_task.length > 20, `scene action ${actionId} user task too weak`);
+    assert(typeof action.physical_cue === "string" && action.physical_cue.toLowerCase().includes("wall"), `scene action ${actionId} must bind to physical wall cue`);
+    assert(action.spatial_binding?.pose && Number.isFinite(action.spatial_binding.pose.x) && Number.isFinite(action.spatial_binding.pose.y) && Number.isFinite(action.spatial_binding.pose.z), `scene action ${actionId} spatial pose missing`);
+    assert(typeof action.spatial_binding?.projection === "string" && action.spatial_binding.projection.length > 8, `scene action ${actionId} projection missing`);
+    assert(typeof action.spatial_binding?.depth_layer === "string" && action.spatial_binding.depth_layer.length > 4, `scene action ${actionId} depth layer missing`);
+    assert(typeof action.interaction === "string" && action.interaction.length > 8, `scene action ${actionId} interaction missing`);
+  }
+  assert(sceneActions.find((item) => item.action_id === "A1_CHECK_IN_STAMP")?.handoff_to_shiyao_scan_scene === true, "A1 scene action must document shiyao scan handoff");
+  assert(sceneActions.filter((item) => item.writes_evidence === true).map((item) => item.action_id).join(",") === "A3_TIMEMARK_WRITE_BACK,USER_B_READBACK_PASS", "only A3 write-back and User B readback scene actions may write P0 evidence");
 }
 
 function assertAiContract(aiSchema) {
@@ -159,6 +191,29 @@ function assertHardwareManifest(manifest) {
   const devices = Array.isArray(manifest.applied_hardware) ? manifest.applied_hardware : [];
   assert(devices.some((device) => device.product_name === "Rokid Max Pro" && device.model === "RA202" && device.quantity === 1), "Rokid Max Pro RA202 missing");
   assert(devices.some((device) => device.product_name === "Rokid Station Pro" && device.model === "RAS201" && device.quantity === 1), "Rokid Station Pro RAS201 missing");
+}
+
+function assertShiyaoHandoffContract(mergeMap, handoffDoc) {
+  assert(mergeMap?.schema === "innerworld-shiyao-merge-map/v1", "shiyao merge map schema mismatch");
+  assert(mergeMap.handoff_version === "innerworld-shiyao-handoff/v1", "shiyao handoff version mismatch");
+  assert(String(mergeMap.handoff_receiver || "").includes("EnterConcreteScene"), "shiyao handoff receiver missing");
+  assert(mergeMap.conflict_rules?.do_not_edit_shiyao_scenes === true, "shiyao scene conflict guard missing");
+  assert(mergeMap.conflict_rules?.do_not_merge_hardware_claims_without_field_acceptance === true, "shiyao hardware claim guard missing");
+  assert(handoffDoc.includes("ISceneHandoffReceiver.EnterConcreteScene") && handoffDoc.includes("innerworld-shiyao-handoff/v1"), "shiyao handoff doc seam missing");
+  assert(handoffDoc.includes("real Rokid hardware is with teammate `shiyao`") && handoffDoc.includes("must not claim live hardware-ready"), "shiyao hardware possession boundary missing");
+}
+
+async function assertWebSceneActionFallback() {
+  const [html, app, css] = await Promise.all([
+    readText("apps/web-demo/index.html"),
+    readText("apps/web-demo/app.js"),
+    readText("apps/web-demo/styles.css")
+  ]);
+  assert(html.includes("sceneActionLayer") && html.includes('data-fallback="web"') && html.includes('data-hardware-ready="false"'), "web scene action fallback/no-hardware layer missing");
+  assert(app.includes("sceneActions()") && app.includes("renderSceneActions") && app.includes("shiyao scan"), "web scene action renderer missing");
+  assert(app.includes("Depth") || app.includes("depth_layer"), "web scene action depth layer token missing");
+  assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow"), "web scene action spatial CSS missing");
+  return "verified";
 }
 
 function buildContractOpsStatus(hardwareManifest) {
@@ -242,7 +297,7 @@ function assertAiHudGenerator(space, aiSchema) {
     aiSchema,
     body: {
       anchor_id: "A3",
-      write_back_text: "愿后来的人在这里先看见彼此，再看见答案。"
+      write_back_text: "Later visitors should see each other here before seeing the answer."
     }
   });
   assertAiHudOutput(writeBackOutput, aiSchema);
@@ -813,6 +868,9 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.ServiceActionsUrl"), "Unity controller service URL not using client");
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
   assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
+  assert(controller.includes("RenderSceneActionTasks") && controller.includes("Scene Action Spatial Binding"), "Unity scene action spatial task renderer missing");
+  assert(controller.includes("public SceneActionData[] scene_actions;"), "Unity SpaceResponse scene_actions DTO missing");
+  assert(controller.includes("handoff_to_shiyao_scan_scene"), "Unity scene action shiyao handoff DTO missing");
   assert(controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin HUD guard missing");
   assert(controller.includes("public NearbyPin[] semantic_pins;"), "Unity SpaceResponse semantic_pins DTO missing");
   assert(controller.includes("apiClient.DeviceRegisterUrl"), "Unity controller device register URL not using client");
@@ -1204,7 +1262,7 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("function buildPhysicalBlockers"), "field target pass physical blocker builder missing");
   assert(tool.includes("field_acceptance_not_ready"), "field target pass physical field-acceptance blocker missing");
   assert(tool.includes("target_index_map_ready") && tool.includes("Target index map ready"), "field target pass target index map preflight evidence missing");
-  assert(packageJson.includes("\"field:target-pass:apply\": \"node tools/field-target-pass.js --apply-mission-actions --require-live-session --require-target-diagnostics\""), "field target pass apply must require live session and target diagnostics");
+  assert(packageScriptMatches(packageJson, "field:target-pass:apply", "node tools/field-target-pass\\.js --apply-mission-actions --require-live-session --require-target-diagnostics"), "field target pass apply must require live session and target diagnostics");
   assert(packageJson.includes("--require-target-diagnostics"), "strict field target pass must require current target diagnostics preflight");
   assert(packageJson.includes("\"field:target-pass:watch\"") && packageJson.includes("--watch --require-live-session --require-target-diagnostics"), "field target pass watch script must require live session and target diagnostics");
   assert(tool.includes("captureWatchSnapshots") && tool.includes("duration_sec") && tool.includes("snapshot_count"), "field target pass watch snapshots missing");
@@ -1269,16 +1327,19 @@ async function assertUnityAndroidBuildSkeleton() {
 }
 
 async function main() {
-  const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
+  const [space, aiSchema, hardwareManifest, markerConfig, shiyaoMergeMap, shiyaoHandoffDoc] = await Promise.all([
     readJson("data/space_demo.json"),
     readJson("ai/schema.json"),
     readJson("data/hardware_manifest.json"),
-    readJson("data/field_markers.json")
+    readJson("data/field_markers.json"),
+    readJson("data/merge_map.json"),
+    readText("docs/shiyao-handoff-contract.md")
   ]);
 
   assertSpaceContract(space);
   assertAiContract(aiSchema);
   assertHardwareManifest(hardwareManifest);
+  assertShiyaoHandoffContract(shiyaoMergeMap, shiyaoHandoffDoc);
   assertEndpointMap(buildEndpointMap("http://localhost:5177", INNERWORLD_SPACE_ID));
   assertBootstrapContract(space, aiSchema);
   assertDeviceRuntimeContract(space, aiSchema);
@@ -1297,6 +1358,7 @@ async function main() {
   const unityAndroidBuildCheck = await assertUnityAndroidBuildSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
+  const webSceneActionFallback = await assertWebSceneActionFallback();
 
   const client = createInnerWorldClient({ baseUrl: "http://localhost:5177" });
   assert(typeof client.getStoreStatus === "function", "client store status method missing");
@@ -1358,6 +1420,7 @@ async function main() {
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,
+    web_scene_action_fallback: webSceneActionFallback,
     shared_contract: "shared/innerworld-contract.js"
   }, null, 2));
 }
