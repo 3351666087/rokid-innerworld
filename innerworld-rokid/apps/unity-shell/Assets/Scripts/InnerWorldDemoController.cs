@@ -67,6 +67,7 @@ namespace InnerWorld.Rokid
         private string deviceRuntimeLine = "device session pending";
         private string deviceManifestLine = "device manifest pending";
         private string sceneHandoffLine = "shiyao handoff pending";
+        private string sceneActionExecutionLine = "scene action targets pending | no local hardware claim";
         private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
@@ -311,7 +312,10 @@ namespace InnerWorld.Rokid
             if (TryGetAnchorHit(gaze, out target, out hit))
             {
                 AnchorData anchor = FindAnchor(target.anchorId);
-                string label = anchor != null ? anchor.label : target.anchorId;
+                SceneActionData sceneAction = FindSceneAction(target.sceneActionId);
+                string label = sceneAction != null && sceneAction.task_target != null && !string.IsNullOrWhiteSpace(sceneAction.task_target.display_label)
+                    ? sceneAction.task_target.display_label
+                    : (anchor != null ? anchor.label : target.anchorId);
                 if (rokidInputStateSink != null)
                 {
                     rokidInputStateSink.SetGazeAnchorHit(target.anchorId, label, hit.point, hit.distance);
@@ -344,6 +348,11 @@ namespace InnerWorld.Rokid
                 if (target.IsValid)
                 {
                     SelectAnchor(target.AnchorId);
+                    AnchorClickTarget clickTarget = CurrentGazeClickTarget();
+                    if (clickTarget != null && clickTarget.executeSceneAction && !string.IsNullOrWhiteSpace(clickTarget.sceneActionId))
+                    {
+                        ExecuteSceneActionTarget(clickTarget.sceneActionId, "rokid_gaze_select");
+                    }
                 }
             }
         }
@@ -447,7 +456,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.LockCandidate;
             entryConfirmationStatus = "entry_confirmation_ready";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
-            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 寮€鍚┖闂村眰.";
+            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 瀵偓閸氼垳鈹栭梻鏉戠湴.";
             ApplyLocalA1SpatialEntryToMissionState();
         }
 
@@ -460,7 +469,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.DeliberateConfirmed;
             entryConfirmationStatus = "entry_confirmation_confirmed";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerOpening;
-            spatialLayerTransitionLabel = "寮€鍚┖闂村眰 transition armed from A1 deliberate confirmation.";
+            spatialLayerTransitionLabel = "瀵偓閸氼垳鈹栭梻鏉戠湴 transition armed from A1 deliberate confirmation.";
             a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
 
             if (missionState != null)
@@ -468,7 +477,7 @@ namespace InnerWorld.Rokid
                 missionState.SelectAnchor(A1EntryAnchorId, anchor != null ? anchor.label : "Entry Poster", anchor != null ? anchor.kind : "entry");
             }
             ApplyLocalA1SpatialEntryToMissionState();
-            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation 路 寮€鍚┖闂村眰 路 fallback is not hardware ready");
+            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation 璺?瀵偓閸氼垳鈹栭梻鏉戠湴 璺?fallback is not hardware ready");
             RefreshAnchorVisualStates();
             RefreshHud();
         }
@@ -550,6 +559,76 @@ namespace InnerWorld.Rokid
             }
         }
 
+        public void ExecuteSceneActionTarget(string actionId, string source = "scene_action_confirm")
+        {
+            if (string.IsNullOrWhiteSpace(actionId))
+            {
+                sceneActionExecutionLine = "scene action target missing | no local hardware claim";
+                return;
+            }
+
+            RunFieldAssistAction("scene target " + actionId, () => StartCoroutine(ExecuteSceneActionTargetCoroutine(actionId.Trim(), source)));
+        }
+
+        private IEnumerator ExecuteSceneActionTargetCoroutine(string actionId, string source)
+        {
+            SceneActionData action = FindSceneAction(actionId);
+            if (action == null)
+            {
+                sceneActionExecutionLine = "scene action target not found " + SafeLabel(actionId, "unknown") + " | no local hardware claim";
+                yield break;
+            }
+
+            SelectAnchor(action.anchor_id);
+            sceneActionExecutionLine = "scene action executing " + SafeLabel(action.task_target != null ? action.task_target.target_id : action.action_id, action.action_id) + " | " + SafeLabel(source, "confirm") + " | fallback allowed, no local hardware claim";
+
+            if (string.Equals(action.action_id, "A1_CHECK_IN_STAMP", StringComparison.Ordinal))
+            {
+                ConfirmA1SpatialEntryExperience("scene_action_target");
+                sceneActionExecutionLine = "A1 scene target confirmed | requires shiyao trusted scan for field evidence | no local hardware claim";
+                yield break;
+            }
+
+            if (string.Equals(action.action_id, "A2_MEMORY_VIEW_AND_COLLECT", StringComparison.Ordinal))
+            {
+                yield return PostInteraction("read", InnerWorldMissionStates.Reading, "A2");
+                yield return PostInteraction("find_year", InnerWorldMissionStates.Doing, "A2");
+                sceneActionExecutionLine = "A2 scene target posted read/find_year | no local hardware claim";
+                yield break;
+            }
+
+            if (string.Equals(action.action_id, "A3_TIMEMARK_WRITE_BACK", StringComparison.Ordinal))
+            {
+                if (!IsMissionStepComplete("service_action"))
+                {
+                    yield return PostServiceAction("A3");
+                }
+                yield return PostWriteBack("Rokid TimeMark from scene target " + DateTime.Now.ToString("HH:mm:ss"));
+                sceneActionExecutionLine = "A3 scene target posted service/write-back | no local hardware claim";
+                yield break;
+            }
+
+            if (string.Equals(action.action_id, "USER_B_READBACK_PASS", StringComparison.Ordinal))
+            {
+                yield return SwitchUserB("user_b_readback");
+                sceneActionExecutionLine = "User B readback scene target posted | no local hardware claim";
+                yield break;
+            }
+
+            sceneActionExecutionLine = "scene action target has no executor " + SafeLabel(action.action_id, "unknown") + " | no local hardware claim";
+        }
+
+        private SceneActionData FindSceneAction(string actionId)
+        {
+            if (space == null || space.scene_actions == null || string.IsNullOrWhiteSpace(actionId)) return null;
+            string clean = actionId.Trim();
+            foreach (SceneActionData action in space.scene_actions)
+            {
+                if (action != null && string.Equals(action.action_id, clean, StringComparison.Ordinal)) return action;
+            }
+            return null;
+        }
+
         private IEnumerator PostInteraction(string stepId)
         {
             yield return PostInteraction(stepId, "doing");
@@ -578,6 +657,11 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostServiceAction()
         {
+            yield return PostServiceAction(CurrentActiveAnchorId());
+        }
+
+        private IEnumerator PostServiceAction(string anchorId)
+        {
             ServiceActionRequest request = new ServiceActionRequest
             {
                 source = RequestSourceName(),
@@ -586,7 +670,7 @@ namespace InnerWorld.Rokid
                 user_id = CurrentUserId(),
                 action_id = "JOIN_EVENT_1430",
                 label = "Join 14:30 demo",
-                anchor_id = CurrentActiveAnchorId(),
+                anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
                 step_id = "service_action"
             };
             yield return PostJson(apiClient.ServiceActionsUrl, JsonUtility.ToJson(request), "Service action posted");
@@ -1193,6 +1277,11 @@ namespace InnerWorld.Rokid
 
         private IEnumerator SwitchUserB()
         {
+            yield return SwitchUserB(string.Empty);
+        }
+
+        private IEnumerator SwitchUserB(string stepId)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
@@ -1200,6 +1289,7 @@ namespace InnerWorld.Rokid
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 anchor_id = "A3",
                 user_id = "B",
+                step_id = string.IsNullOrWhiteSpace(stepId) ? null : stepId.Trim(),
                 mission_state = "complete"
             };
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Switched to User B");
@@ -1375,6 +1465,7 @@ namespace InnerWorld.Rokid
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
                 + "\nOperator " + BuildFieldOperatorPlanHudLine()
                 + "\nInput " + BuildFieldInputAssistStatusLine()
+                + "\nScene target " + sceneActionExecutionLine
                 + "\nShell " + ArShellStatusCompactLabel()
                 + "\nPreview " + ControlledSemanticPinHudLine()
                 + "\nTarget " + ActiveAnchorSummaryLabel();
@@ -1828,6 +1919,11 @@ namespace InnerWorld.Rokid
                 node.transform.rotation = Quaternion.LookRotation((cameraPosition - basePosition).normalized, Vector3.up);
                 node.transform.localScale = new Vector3(0.18f, 0.08f, 0.015f);
                 ApplyMaterial(node.GetComponent<Renderer>(), color);
+                AnchorClickTarget clickTarget = node.AddComponent<AnchorClickTarget>();
+                clickTarget.anchorId = action.anchor_id;
+                clickTarget.sceneActionId = action.action_id;
+                clickTarget.executeSceneAction = true;
+                clickTarget.controller = this;
                 spawnedObjects.Add(node);
 
                 CreateSceneActionLine(action, basePosition, color);
@@ -2164,6 +2260,16 @@ namespace InnerWorld.Rokid
 
             target = collider.GetComponent<AnchorClickTarget>();
             return target != null;
+        }
+
+        private AnchorClickTarget CurrentGazeClickTarget()
+        {
+            if (rokidInputSource == null || !rokidInputSource.IsPoseValid) return null;
+            RokidGazeState gaze;
+            if (!rokidInputSource.TryGetGaze(out gaze)) return null;
+            RaycastHit hit;
+            AnchorClickTarget target;
+            return TryGetAnchorHit(gaze, out target, out hit) ? target : null;
         }
 
         private void SetGazeVisualTarget(string anchorId, string label, Vector3 hitPoint, bool isSelecting)
@@ -3079,7 +3185,7 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + sceneActionExecutionLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -5150,11 +5256,19 @@ namespace InnerWorld.Rokid
     public sealed class AnchorClickTarget : MonoBehaviour
     {
         public string anchorId;
+        public string sceneActionId;
+        public bool executeSceneAction;
         public InnerWorldDemoController controller;
 
         private void OnMouseDown()
         {
-            if (controller != null) controller.SelectAnchor(anchorId);
+            if (controller == null) return;
+            if (executeSceneAction && !string.IsNullOrWhiteSpace(sceneActionId))
+            {
+                controller.ExecuteSceneActionTarget(sceneActionId, "mouse_click");
+                return;
+            }
+            controller.SelectAnchor(anchorId);
         }
     }
 
@@ -5255,6 +5369,31 @@ namespace InnerWorld.Rokid
         public string mission_step_id;
         public bool handoff_to_shiyao_scan_scene;
         public SceneActionChoreographyData spatial_choreography;
+        public SceneActionTaskTargetData task_target;
+    }
+
+    [Serializable]
+    public sealed class SceneActionTaskTargetData
+    {
+        public string target_id;
+        public string display_label;
+        public string confirm_mode;
+        public bool requires_trusted_shiyao_scan;
+        public bool fallback_no_hardware_claim;
+        public SceneActionEndpointData[] endpoint_sequence;
+    }
+
+    [Serializable]
+    public sealed class SceneActionEndpointData
+    {
+        public string endpoint_key;
+        public string method;
+        public string step_id;
+        public string action_id;
+        public string mission_state;
+        public string anchor_id;
+        public string user_id;
+        public string title;
     }
 
     [Serializable]

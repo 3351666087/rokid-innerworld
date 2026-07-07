@@ -101,6 +101,7 @@ const model = {
     interactions: 0
   },
   localLedgerEvents: [],
+  sceneActionStatus: "scene action targets pending | no local hardware claim",
   deviceManifest: null,
   deviceAdapterChecklist: null,
   deviceSessions: null,
@@ -1127,6 +1128,7 @@ function renderSceneActions() {
     card.tabIndex = 0;
     card.dataset.actionId = action.action_id || "scene_action";
     card.dataset.timeLayer = choreography.time_layer || "wall_time";
+    card.dataset.taskTarget = action.task_target?.target_id || "scene_task_target";
     card.innerHTML = `
       <span class="scene-action-kicker">shiyao scan -> ${action.anchor_id || "wall"} / ${action.p0_role || "scene"}</span>
       <strong>${action.title || action.action_id || "Wall task"}</strong>
@@ -1135,7 +1137,16 @@ function renderSceneActions() {
       <small>3D: ${(action.spatial_binding && action.spatial_binding.projection) || "wall seeded projection"} / ${(action.spatial_binding && action.spatial_binding.depth_layer) || "depth layer"}</small>
       <small>Time/depth: ${choreography.time_layer || "wall_time"} @ ${Number(choreography.depth_meters || 0).toFixed(2)}m</small>
       <small>Gesture: ${choreography.gesture_affordance || action.interaction || "ray confirm"}</small>
+      <small>Target: ${(action.task_target && action.task_target.display_label) || "Scene task target"} / ${(action.task_target && action.task_target.confirm_mode) || "confirm"}</small>
+      <small>Gate: requires shiyao trusted scan for field evidence; fallback is no hardware claim.</small>
     `;
+    card.addEventListener("click", () => executeSceneActionTarget(action));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        executeSceneActionTarget(action);
+      }
+    });
     if (growthBeats.length) {
       const beatRail = document.createElement("div");
       beatRail.className = "scene-action-beats";
@@ -1149,6 +1160,41 @@ function renderSceneActions() {
     }
     els.sceneActionLayer.append(stem, card);
   });
+}
+
+async function executeSceneActionTarget(action) {
+  if (!action || model.busy) return;
+  const target = action.task_target || {};
+  model.busy = true;
+  model.sceneActionStatus = `executing ${target.target_id || action.action_id} | no local hardware claim`;
+  setCurrentAnchor(action.anchor_id, { skipAi: true });
+  renderHud();
+  try {
+    if (action.action_id === "A1_CHECK_IN_STAMP") {
+      recordLocalLedgerEvent("scene_action", { action_id: action.action_id, target_id: target.target_id, note: "local A1 confirm only" });
+    } else if (action.action_id === "A2_MEMORY_VIEW_AND_COLLECT") {
+      await api.interact({ user_id: model.activeUser, anchor_id: "A2", step_id: "read", mission_state: "reading" });
+      recordLocalLedgerEvent("interaction", { user_id: model.activeUser, anchor_id: "A2", step_id: "read", title: "A2 read" });
+      await api.interact({ user_id: model.activeUser, anchor_id: "A2", step_id: "find_year", mission_state: "doing" });
+      recordLocalLedgerEvent("interaction", { user_id: model.activeUser, anchor_id: "A2", step_id: "find_year", title: "A2 year clue" });
+    } else if (action.action_id === "A3_TIMEMARK_WRITE_BACK") {
+      await api.serviceAction({ user_id: model.activeUser, anchor_id: "A3", action_id: "JOIN_EVENT_1430", label: "Join 14:30 demo", step_id: "service_action" });
+      recordLocalLedgerEvent("service_action", { user_id: model.activeUser, anchor_id: "A3", action_id: "JOIN_EVENT_1430" });
+      await api.writeBack({ user_id: model.activeUser, anchor_id: "A3", title: "Rokid TimeMark", text: els.writeText?.value || WRITE_BACK_DEFAULT });
+      recordLocalLedgerEvent("write_back", { user_id: model.activeUser, anchor_id: "A3", title: "Rokid TimeMark" });
+    } else if (action.action_id === "USER_B_READBACK_PASS") {
+      model.activeUser = "B";
+      await api.interact({ user_id: "B", anchor_id: "A3", step_id: "user_b_readback", mission_state: "complete" });
+      recordLocalLedgerEvent("interaction", { user_id: "B", anchor_id: "A3", step_id: "user_b_readback", title: "User B readback" });
+    }
+    model.sceneActionStatus = `complete ${target.target_id || action.action_id} | fallback no hardware claim`;
+    await refresh({ anchorId: action.anchor_id || model.currentAnchor });
+  } catch (error) {
+    model.sceneActionStatus = `failed ${target.target_id || action.action_id}: ${error.message || error} | no local hardware claim`;
+    renderHud();
+  } finally {
+    model.busy = false;
+  }
 }
 
 function fallbackHud() {
@@ -1237,6 +1283,7 @@ function renderHud() {
   renderMetaPill(`${beaconsForAnchor(model.currentAnchor).length} beacons`);
   renderMetaPill(aiHud ? "AI HUD online" : "local fallback");
   renderMetaPill(aiError ? "AI route fallback" : null);
+  renderMetaPill(model.sceneActionStatus);
 
   renderAgentQueue();
   renderStageMetrics();

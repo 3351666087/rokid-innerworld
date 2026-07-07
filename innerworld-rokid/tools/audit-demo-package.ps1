@@ -118,6 +118,15 @@ function Assert-SpaceDemoPins {
     if ($null -eq $action.spatial_binding -or $null -eq $action.spatial_binding.pose) { Add-Failure $Failures "$Label scene action $($expected.id) spatial pose missing." }
     if ([string]::IsNullOrWhiteSpace([string]$action.spatial_binding.projection)) { Add-Failure $Failures "$Label scene action $($expected.id) projection missing." }
     if ([string]::IsNullOrWhiteSpace([string]$action.spatial_binding.depth_layer)) { Add-Failure $Failures "$Label scene action $($expected.id) depth layer missing." }
+    if ($null -eq $action.spatial_choreography) { Add-Failure $Failures "$Label scene action $($expected.id) spatial choreography missing." }
+    if ($null -eq $action.spatial_choreography.growth_beats -or @($action.spatial_choreography.growth_beats).Count -lt 3) { Add-Failure $Failures "$Label scene action $($expected.id) growth beats too weak." }
+    if ($null -eq $action.task_target) { Add-Failure $Failures "$Label scene action $($expected.id) task target missing." }
+    if ($null -ne $action.task_target) {
+      if ([string]::IsNullOrWhiteSpace([string]$action.task_target.target_id)) { Add-Failure $Failures "$Label scene action $($expected.id) target id missing." }
+      if ($action.task_target.requires_trusted_shiyao_scan -ne $true) { Add-Failure $Failures "$Label scene action $($expected.id) must require trusted shiyao scan." }
+      if ($action.task_target.fallback_no_hardware_claim -ne $true) { Add-Failure $Failures "$Label scene action $($expected.id) fallback no hardware guard missing." }
+      if ($null -eq $action.task_target.endpoint_sequence -or @($action.task_target.endpoint_sequence).Count -lt 1) { Add-Failure $Failures "$Label scene action $($expected.id) endpoint sequence missing." }
+    }
   }
   $a1Action = $sceneActions | Where-Object { $_.action_id -eq "A1_CHECK_IN_STAMP" } | Select-Object -First 1
   if ($null -eq $a1Action -or $a1Action.handoff_to_shiyao_scan_scene -ne $true) {
@@ -406,7 +415,10 @@ try {
           "spatial_choreography",
           "growth_beats",
           "wall_seed_rule",
-          "gesture_affordance"
+          "gesture_affordance",
+          "task_target",
+          "endpoint_sequence",
+          "fallback_no_hardware_claim"
         )
         $nestedReadonlyText = Read-ZipEntryText -Zip $nestedZip -Path "server\space-server\check-readonly.js" -TempRoot $TempRoot
         Assert-TextContainsAll -Failures $failures -Label "nested check-readonly.js" -Text $nestedReadonlyText -Tokens @(

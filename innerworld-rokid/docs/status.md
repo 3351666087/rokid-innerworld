@@ -1,6 +1,8 @@
-﻿# Status
+# Status
 
 ## 2026-07-07
+
+- Executable scene target checkpoint: A1/A2/A3/User B `scene_actions` now have `task_target` contracts with endpoint sequences, trusted-shiyao-scan requirement, and fallback no-hardware guards. Unity scene action nodes are clickable/gaze-selectable targets that call existing local confirm, interactions, service action, write-back, and User B readback paths. Web fallback cards can execute the same sequence through Space API while displaying `no local hardware claim` status.
 
 - Shiyao-first spatial choreography checkpoint: `scene_actions` now include `spatial_choreography` for each P0 concrete task: time layer, depth meters, wall seed rule, gesture affordance, spatial sound, and three growth beats. Unity renders growth beat beads/trails from the same data, and the web fallback exposes time/depth/gesture/beats while keeping `data-hardware-ready="false"`. Contract and package audit now gate these fields so the post-scan scene cannot regress into flat cards.
 - Shiyao-first checkpoint at 19:24 Asia/Shanghai: teammate `shiyao` now holds the real Rokid hardware and owns a branch with scan/logo/QR scene discovery. Current branch priority is no longer local hardware claim work; it is to make the concrete post-scan A1/A2/A3 scene useful, spatial, and merge-friendly. Added `scene_actions` to `data/space_demo.json` for A1 check-in stamp, A2 memory fragment visit, A3 TimeMark write-back, and User B readback, each with physical wall cue, spatial binding pose/projection/depth layer, and P0 role.

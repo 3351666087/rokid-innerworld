@@ -468,6 +468,20 @@
             "scale": 0.05
           }
         ]
+      },
+      "task_target": {
+        "target_id": "TARGET_A1_CONFIRM_ENTRY",
+        "display_label": "Confirm A1 hidden-layer entry",
+        "confirm_mode": "gaze_dwell_or_tap",
+        "requires_trusted_shiyao_scan": true,
+        "fallback_no_hardware_claim": true,
+        "endpoint_sequence": [
+          {
+            "endpoint_key": "local_unity",
+            "method": "ConfirmA1SpatialEntryExperience",
+            "anchor_id": "A1"
+          }
+        ]
       }
     },
     {
@@ -527,6 +541,27 @@
               "z": -0.3
             },
             "scale": 0.055
+          }
+        ]
+      },
+      "task_target": {
+        "target_id": "TARGET_A2_READ_COLLECT",
+        "display_label": "Read A2 memory and collect year clue",
+        "confirm_mode": "gaze_focus_then_tap",
+        "requires_trusted_shiyao_scan": true,
+        "fallback_no_hardware_claim": true,
+        "endpoint_sequence": [
+          {
+            "endpoint_key": "interactions",
+            "step_id": "read",
+            "mission_state": "reading",
+            "anchor_id": "A2"
+          },
+          {
+            "endpoint_key": "interactions",
+            "step_id": "find_year",
+            "mission_state": "doing",
+            "anchor_id": "A2"
           }
         ]
       }
@@ -590,6 +625,26 @@
             "scale": 0.052
           }
         ]
+      },
+      "task_target": {
+        "target_id": "TARGET_A3_WRITE_TIMEMARK",
+        "display_label": "Write TimeMark at A3",
+        "confirm_mode": "trusted_scan_then_confirm",
+        "requires_trusted_shiyao_scan": true,
+        "fallback_no_hardware_claim": true,
+        "endpoint_sequence": [
+          {
+            "endpoint_key": "service_actions",
+            "action_id": "JOIN_EVENT_1430",
+            "step_id": "service_action",
+            "anchor_id": "A3"
+          },
+          {
+            "endpoint_key": "write_back",
+            "title": "Rokid TimeMark",
+            "anchor_id": "A3"
+          }
+        ]
       }
     },
     {
@@ -649,6 +704,22 @@
               "z": -0.34
             },
             "scale": 0.055
+          }
+        ]
+      },
+      "task_target": {
+        "target_id": "TARGET_USER_B_READBACK",
+        "display_label": "Switch to User B and verify readback",
+        "confirm_mode": "operator_confirmed_gaze",
+        "requires_trusted_shiyao_scan": true,
+        "fallback_no_hardware_claim": true,
+        "endpoint_sequence": [
+          {
+            "endpoint_key": "state",
+            "user_id": "B",
+            "step_id": "user_b_readback",
+            "mission_state": "complete",
+            "anchor_id": "A3"
           }
         ]
       }

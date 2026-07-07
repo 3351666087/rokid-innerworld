@@ -167,6 +167,22 @@ function assertSceneActionChoreography(action, actionId) {
   });
 }
 
+function assertSceneActionTaskTarget(action, actionId) {
+  const target = action?.task_target;
+  assert(target && typeof target === "object", `scene action ${actionId} task target missing`);
+  assert(typeof target.target_id === "string" && target.target_id.startsWith("TARGET_"), `scene action ${actionId} target id missing`);
+  assert(typeof target.display_label === "string" && target.display_label.length > 8, `scene action ${actionId} display label missing`);
+  assert(typeof target.confirm_mode === "string" && target.confirm_mode.length > 4, `scene action ${actionId} confirm mode missing`);
+  assert(target.requires_trusted_shiyao_scan === true, `scene action ${actionId} must require shiyao trusted scan for field evidence`);
+  assert(target.fallback_no_hardware_claim === true, `scene action ${actionId} fallback no-hardware guard missing`);
+  assert(Array.isArray(target.endpoint_sequence) && target.endpoint_sequence.length >= 1, `scene action ${actionId} endpoint sequence missing`);
+  const endpointKeys = target.endpoint_sequence.map((item) => item?.endpoint_key).filter(Boolean);
+  if (actionId === "A1_CHECK_IN_STAMP") assert(endpointKeys.includes("local_unity"), "A1 target must use local Unity confirm");
+  if (actionId === "A2_MEMORY_VIEW_AND_COLLECT") assert(endpointKeys.filter((key) => key === "interactions").length >= 2, "A2 target must post read/find_year interactions");
+  if (actionId === "A3_TIMEMARK_WRITE_BACK") assert(endpointKeys.includes("service_actions") && endpointKeys.includes("write_back"), "A3 target must post service action and write-back");
+  if (actionId === "USER_B_READBACK_PASS") assert(endpointKeys.includes("state"), "User B target must post state/readback interaction");
+}
+
 function assertSceneActionsContract(sceneActions) {
   assert(Array.isArray(sceneActions), "scene_actions missing");
   const expected = [
@@ -189,6 +205,7 @@ function assertSceneActionsContract(sceneActions) {
     assert(typeof action.spatial_binding?.depth_layer === "string" && action.spatial_binding.depth_layer.length > 4, `scene action ${actionId} depth layer missing`);
     assert(typeof action.interaction === "string" && action.interaction.length > 8, `scene action ${actionId} interaction missing`);
     assertSceneActionChoreography(action, actionId);
+    assertSceneActionTaskTarget(action, actionId);
   }
   assert(sceneActions.find((item) => item.action_id === "A1_CHECK_IN_STAMP")?.handoff_to_shiyao_scan_scene === true, "A1 scene action must document shiyao scan handoff");
   assert(sceneActions.filter((item) => item.writes_evidence === true).map((item) => item.action_id).join(",") === "A3_TIMEMARK_WRITE_BACK,USER_B_READBACK_PASS", "only A3 write-back and User B readback scene actions may write P0 evidence");
@@ -234,6 +251,7 @@ async function assertWebSceneActionFallback() {
   assert(html.includes("sceneActionLayer") && html.includes('data-fallback="web"') && html.includes('data-hardware-ready="false"'), "web scene action fallback/no-hardware layer missing");
   assert(app.includes("sceneActions()") && app.includes("renderSceneActions") && app.includes("shiyao scan"), "web scene action renderer missing");
   assert(app.includes("spatial_choreography") && app.includes("growth_beats") && app.includes("gesture_affordance"), "web scene action choreography renderer missing");
+  assert(app.includes("executeSceneActionTarget") && app.includes("task_target") && app.includes("fallback no hardware claim"), "web executable scene action target missing");
   assert(app.includes("Depth") || app.includes("depth_layer"), "web scene action depth layer token missing");
   assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow") && css.includes(".scene-action-beats"), "web scene action spatial CSS missing");
   assert(bridge.includes("ShiyaoConcreteSceneHandoffBridge") && bridge.includes("innerworld-shiyao-handoff/v1") && bridge.includes("no local hardware claim"), "shiyao concrete scene bridge missing");
@@ -893,6 +911,7 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
   assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
   assert(controller.includes("RenderSceneActionTasks") && controller.includes("Scene Action Spatial Binding"), "Unity scene action spatial task renderer missing");
+  assert(controller.includes("ExecuteSceneActionTarget") && controller.includes("SceneActionTaskTargetData") && controller.includes("no local hardware claim"), "Unity executable scene action target missing");
   assert(controller.includes("public SceneActionData[] scene_actions;"), "Unity SpaceResponse scene_actions DTO missing");
   assert(controller.includes("handoff_to_shiyao_scan_scene"), "Unity scene action shiyao handoff DTO missing");
   assert(controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin HUD guard missing");
