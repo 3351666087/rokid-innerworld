@@ -68,6 +68,7 @@ namespace InnerWorld.Rokid
         private string deviceManifestLine = "device manifest pending";
         private string sceneHandoffLine = "shiyao handoff pending";
         private string sceneActionExecutionLine = "scene action targets pending | no local hardware claim";
+        private string missionProvenanceLine = "mission provenance: rehearsal until trusted hardware evidence";
         private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
@@ -582,40 +583,67 @@ namespace InnerWorld.Rokid
             SelectAnchor(action.anchor_id);
             sceneActionExecutionLine = "scene action executing " + SafeLabel(action.task_target != null ? action.task_target.target_id : action.action_id, action.action_id) + " | " + SafeLabel(source, "confirm") + " | fallback allowed, no local hardware claim";
 
-            if (string.Equals(action.action_id, "A1_CHECK_IN_STAMP", StringComparison.Ordinal))
+            SceneActionEndpointData[] sequence = action.task_target != null ? action.task_target.endpoint_sequence : null;
+            if (sequence == null || sequence.Length == 0)
             {
-                ConfirmA1SpatialEntryExperience("scene_action_target");
-                sceneActionExecutionLine = "A1 scene target confirmed | requires shiyao trusted scan for field evidence | no local hardware claim";
+                sceneActionExecutionLine = "scene action target missing endpoint_sequence " + SafeLabel(action.action_id, "unknown") + " | no local hardware claim";
                 yield break;
             }
 
-            if (string.Equals(action.action_id, "A2_MEMORY_VIEW_AND_COLLECT", StringComparison.Ordinal))
+            int executed = 0;
+            foreach (SceneActionEndpointData endpoint in sequence)
             {
-                yield return PostInteraction("read", InnerWorldMissionStates.Reading, "A2");
-                yield return PostInteraction("find_year", InnerWorldMissionStates.Doing, "A2");
-                sceneActionExecutionLine = "A2 scene target posted read/find_year | no local hardware claim";
+                if (endpoint == null || string.IsNullOrWhiteSpace(endpoint.endpoint_key)) continue;
+                yield return ExecuteSceneActionEndpoint(action, endpoint);
+                executed += 1;
+            }
+
+            sceneActionExecutionLine = "scene action target executed " + executed + " endpoint(s) from endpoint_sequence | rehearsal complete allowed, hardware ready false";
+        }
+
+        private IEnumerator ExecuteSceneActionEndpoint(SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            string endpointKey = SafeLabel(endpoint.endpoint_key, "unknown");
+            if (string.Equals(endpointKey, "local_unity", StringComparison.Ordinal))
+            {
+                ConfirmA1SpatialEntryExperience("scene_action_endpoint_sequence");
+                sceneActionExecutionLine = "local_unity endpoint confirmed " + SafeLabel(action.action_id, "scene") + " | requires shiyao trusted scan for field evidence";
                 yield break;
             }
 
-            if (string.Equals(action.action_id, "A3_TIMEMARK_WRITE_BACK", StringComparison.Ordinal))
+            if (string.Equals(endpointKey, "interactions", StringComparison.Ordinal))
             {
-                if (!IsMissionStepComplete("service_action"))
-                {
-                    yield return PostServiceAction("A3");
-                }
-                yield return PostWriteBack("Rokid TimeMark from scene target " + DateTime.Now.ToString("HH:mm:ss"));
-                sceneActionExecutionLine = "A3 scene target posted service/write-back | no local hardware claim";
+                yield return PostInteraction(
+                    SafeLabel(endpoint.step_id, action.mission_step_id),
+                    SafeLabel(endpoint.mission_state, InnerWorldMissionStates.Doing),
+                    SafeLabel(endpoint.anchor_id, action.anchor_id),
+                    SafeLabel(endpoint.user_id, CurrentUserId()),
+                    action,
+                    endpoint);
                 yield break;
             }
 
-            if (string.Equals(action.action_id, "USER_B_READBACK_PASS", StringComparison.Ordinal))
+            if (string.Equals(endpointKey, "service_actions", StringComparison.Ordinal))
             {
-                yield return SwitchUserB("user_b_readback");
-                sceneActionExecutionLine = "User B readback scene target posted | no local hardware claim";
+                yield return PostServiceAction(SafeLabel(endpoint.anchor_id, action.anchor_id), SafeLabel(endpoint.action_id, "JOIN_EVENT_1430"), action, endpoint);
                 yield break;
             }
 
-            sceneActionExecutionLine = "scene action target has no executor " + SafeLabel(action.action_id, "unknown") + " | no local hardware claim";
+            if (string.Equals(endpointKey, "write_back", StringComparison.Ordinal))
+            {
+                string title = SafeLabel(endpoint.title, "Rokid TimeMark");
+                string text = title + " from endpoint_sequence " + DateTime.Now.ToString("HH:mm:ss");
+                yield return PostWriteBack(text, SafeLabel(endpoint.anchor_id, action.anchor_id), title, action, endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "state", StringComparison.Ordinal))
+            {
+                yield return SwitchUserB(SafeLabel(endpoint.step_id, "user_b_readback"), SafeLabel(endpoint.anchor_id, action.anchor_id), SafeLabel(endpoint.user_id, "B"), SafeLabel(endpoint.mission_state, InnerWorldMissionStates.Complete), action, endpoint);
+                yield break;
+            }
+
+            sceneActionExecutionLine = "scene action endpoint unsupported " + endpointKey + " | no local hardware claim";
         }
 
         private SceneActionData FindSceneAction(string actionId)
@@ -627,6 +655,42 @@ namespace InnerWorld.Rokid
                 if (action != null && string.Equals(action.action_id, clean, StringComparison.Ordinal)) return action;
             }
             return null;
+        }
+
+        private void ApplySceneActionProvenance(InteractionRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
+        private void ApplySceneActionProvenance(ServiceActionRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
+        private void ApplySceneActionProvenance(WriteBackRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
         }
 
         private IEnumerator PostInteraction(string stepId)
@@ -641,16 +705,22 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId)
         {
+            yield return PostInteraction(stepId, missionStateValue, anchorId, CurrentUserId(), null, null);
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId, string userId, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
-                user_id = CurrentUserId(),
+                user_id = SafeLabel(userId, CurrentUserId()),
                 step_id = stepId,
                 mission_state = string.IsNullOrWhiteSpace(missionStateValue) ? "doing" : missionStateValue.Trim()
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Interaction posted");
             yield return LoadSpace();
         }
@@ -662,17 +732,23 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostServiceAction(string anchorId)
         {
+            yield return PostServiceAction(anchorId, "JOIN_EVENT_1430", null, null);
+        }
+
+        private IEnumerator PostServiceAction(string anchorId, string actionId, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             ServiceActionRequest request = new ServiceActionRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
-                action_id = "JOIN_EVENT_1430",
+                action_id = SafeLabel(actionId, "JOIN_EVENT_1430"),
                 label = "Join 14:30 demo",
                 anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
                 step_id = "service_action"
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.ServiceActionsUrl, JsonUtility.ToJson(request), "Service action posted");
             yield return LoadSpace();
         }
@@ -1261,16 +1337,22 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostWriteBack(string text)
         {
+            yield return PostWriteBack(text, "A3", "Unity shell", null, null);
+        }
+
+        private IEnumerator PostWriteBack(string text, string anchorId, string title, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             WriteBackRequest request = new WriteBackRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
-                anchor_id = "A3",
-                title = "Unity shell",
+                anchor_id = SafeLabel(anchorId, "A3"),
+                title = SafeLabel(title, "Unity shell"),
                 text = string.IsNullOrWhiteSpace(text) ? "Unity shell writeback" : text.Trim()
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.WriteBackUrl, JsonUtility.ToJson(request), "Writeback posted");
             yield return LoadSpace();
         }
@@ -1282,16 +1364,22 @@ namespace InnerWorld.Rokid
 
         private IEnumerator SwitchUserB(string stepId)
         {
+            yield return SwitchUserB(stepId, "A3", "B", InnerWorldMissionStates.Complete, null, null);
+        }
+
+        private IEnumerator SwitchUserB(string stepId, string anchorId, string userId, string missionStateValue, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
-                anchor_id = "A3",
-                user_id = "B",
+                anchor_id = SafeLabel(anchorId, "A3"),
+                user_id = SafeLabel(userId, "B"),
                 step_id = string.IsNullOrWhiteSpace(stepId) ? null : stepId.Trim(),
-                mission_state = "complete"
+                mission_state = SafeLabel(missionStateValue, InnerWorldMissionStates.Complete)
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Switched to User B");
             yield return LoadSpace();
         }
@@ -3086,6 +3174,7 @@ namespace InnerWorld.Rokid
             int stepIndex = runtime != null ? runtime.current_step_index : localStepIndex;
             string[] completedSteps = runtime != null ? runtime.completed_steps : null;
             string userId = runtime != null ? runtime.active_user : (runtimeConfig != null ? runtimeConfig.active_user : InnerWorldRuntimeConfig.DefaultActiveUser);
+            missionProvenanceLine = BuildMissionProvenanceLine(runtime != null ? runtime.mission_provenance : null);
             missionState.ApplyRuntime(state, stepIndex, completedSteps, userId);
             ApplyPresentationStrategyToMissionState();
             localStepIndex = missionState.current_step_index;
@@ -3185,7 +3274,16 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + sceneActionExecutionLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + sceneActionExecutionLine + "\n" + missionProvenanceLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+        }
+
+        private string BuildMissionProvenanceLine(MissionProvenanceData provenance)
+        {
+            if (provenance == null) return "mission provenance: rehearsal/no trusted hardware mutation";
+            string status = SafeLabel(provenance.state_provenance_status, "rehearsal");
+            string source = SafeLabel(provenance.last_mutation_source_status, "none");
+            string ready = provenance.hardware_ready_claim_allowed ? "hardware-ready claim allowed" : "hardware-ready claim blocked";
+            return "mission provenance: " + status + " / " + source + " / " + ready;
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -5343,6 +5441,27 @@ namespace InnerWorld.Rokid
         public string mission_state;
         public int current_step_index;
         public string[] completed_steps;
+        public MissionProvenanceData mission_provenance;
+    }
+
+    [Serializable]
+    public sealed class MissionProvenanceData
+    {
+        public string schema;
+        public string state_provenance_status;
+        public string last_mutation_source_status;
+        public string last_action_type;
+        public string last_anchor_id;
+        public string last_source;
+        public bool trusted_hardware_session;
+        public bool trusted_mission_provenance;
+        public bool rehearsal_complete_allowed;
+        public bool hardware_ready_claim_allowed;
+        public bool fallback_no_hardware_claim;
+        public int mutation_count;
+        public int trusted_mutation_count;
+        public int rehearsal_mutation_count;
+        public string[] blockers;
     }
 
     [Serializable]

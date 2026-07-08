@@ -1165,29 +1165,20 @@ function renderSceneActions() {
 async function executeSceneActionTarget(action) {
   if (!action || model.busy) return;
   const target = action.task_target || {};
+  const sequence = Array.isArray(target.endpoint_sequence) ? target.endpoint_sequence : [];
   model.busy = true;
-  model.sceneActionStatus = `executing ${target.target_id || action.action_id} | no local hardware claim`;
+  model.sceneActionStatus = `executing ${target.target_id || action.action_id} from endpoint_sequence | no local hardware claim`;
   setCurrentAnchor(action.anchor_id, { skipAi: true });
   renderHud();
   try {
-    if (action.action_id === "A1_CHECK_IN_STAMP") {
-      recordLocalLedgerEvent("scene_action", { action_id: action.action_id, target_id: target.target_id, note: "local A1 confirm only" });
-    } else if (action.action_id === "A2_MEMORY_VIEW_AND_COLLECT") {
-      await api.interact({ user_id: model.activeUser, anchor_id: "A2", step_id: "read", mission_state: "reading" });
-      recordLocalLedgerEvent("interaction", { user_id: model.activeUser, anchor_id: "A2", step_id: "read", title: "A2 read" });
-      await api.interact({ user_id: model.activeUser, anchor_id: "A2", step_id: "find_year", mission_state: "doing" });
-      recordLocalLedgerEvent("interaction", { user_id: model.activeUser, anchor_id: "A2", step_id: "find_year", title: "A2 year clue" });
-    } else if (action.action_id === "A3_TIMEMARK_WRITE_BACK") {
-      await api.serviceAction({ user_id: model.activeUser, anchor_id: "A3", action_id: "JOIN_EVENT_1430", label: "Join 14:30 demo", step_id: "service_action" });
-      recordLocalLedgerEvent("service_action", { user_id: model.activeUser, anchor_id: "A3", action_id: "JOIN_EVENT_1430" });
-      await api.writeBack({ user_id: model.activeUser, anchor_id: "A3", title: "Rokid TimeMark", text: els.writeText?.value || WRITE_BACK_DEFAULT });
-      recordLocalLedgerEvent("write_back", { user_id: model.activeUser, anchor_id: "A3", title: "Rokid TimeMark" });
-    } else if (action.action_id === "USER_B_READBACK_PASS") {
-      model.activeUser = "B";
-      await api.interact({ user_id: "B", anchor_id: "A3", step_id: "user_b_readback", mission_state: "complete" });
-      recordLocalLedgerEvent("interaction", { user_id: "B", anchor_id: "A3", step_id: "user_b_readback", title: "User B readback" });
+    if (!sequence.length) throw new Error("endpoint_sequence missing");
+    let executed = 0;
+    for (const step of sequence) {
+      if (!step || !step.endpoint_key) continue;
+      await executeSceneActionEndpoint(action, target, step);
+      executed += 1;
     }
-    model.sceneActionStatus = `complete ${target.target_id || action.action_id} | fallback no hardware claim`;
+    model.sceneActionStatus = `complete ${target.target_id || action.action_id} via ${executed} endpoint(s) | rehearsal complete, hardware ready false`;
     await refresh({ anchorId: action.anchor_id || model.currentAnchor });
   } catch (error) {
     model.sceneActionStatus = `failed ${target.target_id || action.action_id}: ${error.message || error} | no local hardware claim`;
@@ -1197,6 +1188,51 @@ async function executeSceneActionTarget(action) {
   }
 }
 
+function sceneActionRehearsalPayload(action, target, step) {
+  return {
+    source: "web_scene_action_endpoint_sequence",
+    scene_action_id: action.action_id,
+    target_id: target.target_id || "",
+    endpoint_key: step.endpoint_key || "",
+    state_provenance_status: "rehearsal",
+    fallback_no_hardware_claim: true,
+    trusted_hardware_session: false,
+    hardware_ready_claim_allowed: false
+  };
+}
+
+async function executeSceneActionEndpoint(action, target, step) {
+  const payload = sceneActionRehearsalPayload(action, target, step);
+  const anchorId = step.anchor_id || action.anchor_id || model.currentAnchor;
+  if (step.endpoint_key === "local_unity") {
+    recordLocalLedgerEvent("scene_action", { ...payload, action_id: action.action_id, anchor_id: anchorId, note: "local confirm only" });
+    return;
+  }
+  if (step.endpoint_key === "interactions") {
+    const userId = step.user_id || model.activeUser;
+    await api.interact({ ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id, mission_state: step.mission_state || "doing" });
+    recordLocalLedgerEvent("interaction", { ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id, title: `${anchorId} ${step.step_id || "interaction"}` });
+    return;
+  }
+  if (step.endpoint_key === "service_actions") {
+    await api.serviceAction({ ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, action_id: step.action_id || "JOIN_EVENT_1430", label: target.display_label || "Join 14:30 demo", step_id: step.step_id || "service_action" });
+    recordLocalLedgerEvent("service_action", { ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, action_id: step.action_id || "JOIN_EVENT_1430" });
+    return;
+  }
+  if (step.endpoint_key === "write_back") {
+    await api.writeBack({ ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, title: step.title || "Rokid TimeMark", text: els.writeText?.value || WRITE_BACK_DEFAULT });
+    recordLocalLedgerEvent("write_back", { ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, title: step.title || "Rokid TimeMark" });
+    return;
+  }
+  if (step.endpoint_key === "state") {
+    const userId = step.user_id || "B";
+    model.activeUser = userId;
+    await api.interact({ ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id || "user_b_readback", mission_state: step.mission_state || "complete" });
+    recordLocalLedgerEvent("interaction", { ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id || "user_b_readback", title: "User B readback" });
+    return;
+  }
+  throw new Error(`unsupported endpoint_key ${step.endpoint_key}`);
+}
 function fallbackHud() {
   const anchor = anchorById(model.currentAnchor);
   const topBeacon = beaconsForAnchor(model.currentAnchor).at(-1);

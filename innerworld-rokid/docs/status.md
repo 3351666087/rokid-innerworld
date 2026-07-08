@@ -2,6 +2,8 @@
 
 ## 2026-07-07
 
+- Mission provenance split checkpoint: `/api/state` and `/api/spaces/innerworld_campus_wall.runtime` now expose `mission_provenance` with `state_provenance_status`, `rehearsal_complete_allowed`, `hardware_ready_claim_allowed`, and fallback guards. Unity and web scene action execution now dispatch `task_target.endpoint_sequence` instead of A2/A3/User B hard-coded branches, and every rehearsal mutation carries `state_provenance_status=rehearsal`, `trusted_hardware_session=false`, and `hardware_ready_claim_allowed=false`.
+
 - Scene target rehearsal smoke checkpoint: added `check:scene-targets` / `server/space-server/check-scene-targets.js` to execute A1/A2/A3/User B `task_target.endpoint_sequence` through the live Space API after reset, then verify mission state, ledger counts, A3 TimeMark write-back, and User B readback. The check is explicitly `mode=rehearsal`, requires the shiyao trusted-scan contract, and keeps `hardware_ready_claim_allowed=false` / `fallback_no_hardware_claim=true` while the real hardware is with shiyao.
 
 - Executable scene target checkpoint: A1/A2/A3/User B `scene_actions` now have `task_target` contracts with endpoint sequences, trusted-shiyao-scan requirement, and fallback no-hardware guards. Unity scene action nodes are clickable/gaze-selectable targets that call existing local confirm, interactions, service action, write-back, and User B readback paths. Web fallback cards can execute the same sequence through Space API while displaying `no local hardware claim` status.

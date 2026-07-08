@@ -270,7 +270,10 @@ async function assertWebSceneActionFallback() {
   assert(html.includes("sceneActionLayer") && html.includes('data-fallback="web"') && html.includes('data-hardware-ready="false"'), "web scene action fallback/no-hardware layer missing");
   assert(app.includes("sceneActions()") && app.includes("renderSceneActions") && app.includes("shiyao scan"), "web scene action renderer missing");
   assert(app.includes("spatial_choreography") && app.includes("growth_beats") && app.includes("gesture_affordance"), "web scene action choreography renderer missing");
-  assert(app.includes("executeSceneActionTarget") && app.includes("task_target") && app.includes("fallback no hardware claim"), "web executable scene action target missing");
+  assert(app.includes("executeSceneActionTarget") && app.includes("task_target") && app.includes("no local hardware claim"), "web executable scene action target missing");
+  assert(app.includes("executeSceneActionEndpoint") && app.includes("sceneActionRehearsalPayload") && app.includes("endpoint_sequence"), "web scene action must execute task_target endpoint_sequence");
+  assert(app.includes("state_provenance_status: \"rehearsal\"") && app.includes("trusted_hardware_session: false") && app.includes("hardware_ready_claim_allowed: false"), "web scene action provenance split missing");
+  assert(!app.includes('action.action_id === "A2_MEMORY_VIEW_AND_COLLECT"') && !app.includes('action.action_id === "A3_TIMEMARK_WRITE_BACK"'), "web scene action must not hard-code A2/A3 action branches");
   assert(app.includes("Depth") || app.includes("depth_layer"), "web scene action depth layer token missing");
   assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow") && css.includes(".scene-action-beats"), "web scene action spatial CSS missing");
   assert(bridge.includes("ShiyaoConcreteSceneHandoffBridge") && bridge.includes("innerworld-shiyao-handoff/v1") && bridge.includes("no local hardware claim"), "shiyao concrete scene bridge missing");
@@ -931,6 +934,9 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
   assert(controller.includes("RenderSceneActionTasks") && controller.includes("Scene Action Spatial Binding"), "Unity scene action spatial task renderer missing");
   assert(controller.includes("ExecuteSceneActionTarget") && controller.includes("SceneActionTaskTargetData") && controller.includes("no local hardware claim"), "Unity executable scene action target missing");
+  assert(controller.includes("ExecuteSceneActionEndpoint") && controller.includes("endpoint_sequence") && controller.includes("ApplySceneActionProvenance"), "Unity scene action must execute task_target endpoint_sequence");
+  assert(controller.includes("state_provenance_status = \"rehearsal\"") && controller.includes("trusted_hardware_session = false") && controller.includes("hardware_ready_claim_allowed = false"), "Unity scene action provenance split missing");
+  assert(!controller.includes('action.action_id, "A2_MEMORY_VIEW_AND_COLLECT"') && !controller.includes('action.action_id, "A3_TIMEMARK_WRITE_BACK"'), "Unity scene action must not hard-code A2/A3 action branches");
   assert(controller.includes("public SceneActionData[] scene_actions;"), "Unity SpaceResponse scene_actions DTO missing");
   assert(controller.includes("handoff_to_shiyao_scan_scene"), "Unity scene action shiyao handoff DTO missing");
   assert(controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin HUD guard missing");
@@ -1138,6 +1144,8 @@ async function assertServerCoreSkeleton() {
   assert(deviceRuntime.includes("innerworld-trusted-mission-provenance/v1"), "device runtime trusted mission provenance schema missing");
   assert(deviceRuntime.includes("input_confirm_missing"), "device runtime trusted mission provenance must require confirm input evidence");
   assert(apiRouter.includes("trustedMissionProvenance") && apiRouter.includes("trusted_mission_provenance"), "api router trusted mission provenance ledger wiring missing");
+  assert(apiRouter.includes("applyMissionProvenanceSummary") && apiRouter.includes("innerworld-mission-provenance/v1") && apiRouter.includes("state_provenance_status"), "api router mission provenance summary missing");
+  assert(apiRouter.includes("hardware_ready_claim_allowed: trusted") && apiRouter.includes("fallback_no_hardware_claim: !trusted"), "api router must split rehearsal complete from hardware-ready claims");
   assert(sqliteStore.includes("trusted_mission_provenance") && sqliteStore.includes("has_trusted_mission_provenance"), "SQLite trusted mission provenance summary missing");
   assert(sqliteStore.includes("\"device_id\"") && sqliteStore.includes("\"session_id\""), "SQLite ledger must treat raw session/device ids as sensitive");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");

@@ -2,7 +2,7 @@
 
 Updated: 2026-07-08 02:10 Asia/Shanghai
 
-Current execution slice: add and keep `check:scene-targets` as the post-scan concrete-scene rehearsal gate. It must execute the A1/A2/A3/User B `scene_actions[*].task_target.endpoint_sequence` against localhost/LAN Space API, prove state/ledger/write-back/readback behavior, and remain clearly labeled as rehearsal with `hardware_ready_claim_allowed=false` until shiyao's real hardware run supplies trusted scan/input evidence.
+Current execution slice: keep `mission_provenance` as the shared source-of-truth split between rehearsal completion and hardware readiness, and keep Unity/web concrete scene execution data-driven from `task_target.endpoint_sequence`. Rehearsal can complete A1/A2/A3/User B locally, but every local mutation must remain `state_provenance_status=rehearsal` with `hardware_ready_claim_allowed=false` until shiyao supplies trusted scan/input evidence.
 
 Current shiyao-first constraint: the real Rokid hardware is now with teammate `shiyao`, whose branch owns the scan/logo/QR scene discovery and hardware-side interaction polishing. This branch must therefore stop treating local live hardware as the immediate blocker and instead make the concrete A1/A2/A3 scene merge-friendly, spatially richer, and useful after shiyao's entry scene hands off into it. Local work may build localhost/LAN packages, scene data, Unity visuals, web fallback, contracts, and audits, but must not claim live hardware-ready while the device is not locally held.
 

@@ -145,6 +145,40 @@ function trustedMissionProvenance(deviceRuntime, body = {}, actionType, fallback
   });
 }
 
+function missionProvenanceSource(body = {}, provenance = {}) {
+  if (provenance.trusted === true) return "trusted_hardware";
+  if (body.trusted_hardware_session === true || body.hardware_ready_claim_allowed === true) return "claimed_hardware_untrusted";
+  if (body.fallback_no_hardware_claim === true || body.source === "check-scene-targets rehearsal") return "rehearsal";
+  return "untrusted_client";
+}
+
+function applyMissionProvenanceSummary(state, body = {}, provenance = {}, actionType = "interaction", anchorId = "A1") {
+  const sourceStatus = missionProvenanceSource(body, provenance);
+  const trusted = provenance.trusted === true;
+  const previous = state.mission_provenance || {};
+  const mutationCount = Number(previous.mutation_count || 0) + 1;
+  const trustedMutationCount = Number(previous.trusted_mutation_count || 0) + (trusted ? 1 : 0);
+  const rehearsalMutationCount = Number(previous.rehearsal_mutation_count || 0) + (trusted ? 0 : 1);
+  state.mission_provenance = {
+    schema: "innerworld-mission-provenance/v1",
+    state_provenance_status: trusted ? "trusted_hardware" : "rehearsal",
+    last_mutation_source_status: sourceStatus,
+    last_action_type: actionType,
+    last_anchor_id: anchorId,
+    last_source: String(body.source || "").trim() || "unknown_client",
+    trusted_hardware_session: trusted,
+    trusted_mission_provenance: trusted,
+    rehearsal_complete_allowed: true,
+    hardware_ready_claim_allowed: trusted,
+    fallback_no_hardware_claim: !trusted,
+    mutation_count: mutationCount,
+    trusted_mutation_count: trustedMutationCount,
+    rehearsal_mutation_count: rehearsalMutationCount,
+    blockers: Array.isArray(provenance.blockers) ? provenance.blockers.slice(0, 8) : []
+  };
+  return state.mission_provenance;
+}
+
 export function createApiRouter({
   aiPromptPath,
   aiSchemaPath,
@@ -705,7 +739,8 @@ export function createApiRouter({
           active_user: state.active_user,
           mission_state: state.mission_state,
           current_step_index: state.current_step_index,
-          completed_steps: state.completed_steps
+          completed_steps: state.completed_steps,
+          mission_provenance: state.mission_provenance || null
         },
         beacons: state.beacons
       });
@@ -748,10 +783,12 @@ export function createApiRouter({
         sendError(res, 400, "text_required");
         return;
       }
-      const updated = await updateState((state, latestSpace) => {
-        return applyWriteBack({ state, space: latestSpace, body, text });
-      });
       const provenance = trustedMissionProvenance(deviceRuntime, body, "write_back", "A3");
+      const updated = await updateState((state, latestSpace) => {
+        const beacon = applyWriteBack({ state, space: latestSpace, body, text });
+        applyMissionProvenanceSummary(state, body, provenance, "write_back", "A3");
+        return beacon;
+      });
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "write_back",
         space: updated.space,
@@ -771,10 +808,13 @@ export function createApiRouter({
 
     if (req.method === "POST" && url.pathname === "/api/interactions") {
       const body = await readBody(req);
-      const updated = await updateState((state, space) => {
-        return applyInteraction({ state, space, body });
-      });
       const provenance = trustedMissionProvenance(deviceRuntime, body, "interaction", missionActionAnchor(body, body.user_id === "B" ? "A3" : "A2"));
+      const provenanceAnchor = missionActionAnchor(body, body.user_id === "B" ? "A3" : "A2");
+      const updated = await updateState((state, space) => {
+        const result = applyInteraction({ state, space, body });
+        applyMissionProvenanceSummary(state, body, provenance, "interaction", provenanceAnchor);
+        return result;
+      });
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "interaction",
         space: updated.space,
@@ -832,8 +872,12 @@ export function createApiRouter({
       const body = await readBody(req);
       const createdAt = new Date().toISOString();
       const safeBody = sanitizeServiceActionValue(body) || {};
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "service_action", missionActionAnchor(safeBody, "A3"));
+      const provenanceAnchor = missionActionAnchor(safeBody, "A3");
       const updated = await updateState((state, space) => {
-        return applyServiceAction({ state, space, body: safeBody, createdAt });
+        const result = applyServiceAction({ state, space, body: safeBody, createdAt });
+        applyMissionProvenanceSummary(state, body, provenance, "service_action", provenanceAnchor);
+        return result;
       });
       const record = createServiceActionRecord({
         body,
@@ -842,7 +886,6 @@ export function createApiRouter({
         createdAt
       });
       const storedRecord = sqliteStore?.appendServiceActionRecord?.(record) || record;
-      const provenance = trustedMissionProvenance(deviceRuntime, body, "service_action", missionActionAnchor(safeBody, "A3"));
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "service_action",
         space: updated.space,

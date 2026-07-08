@@ -17,6 +17,20 @@ export function createRuntimeStore({ spacePath, statePath, sqliteStore = null })
       mission_state: "entered",
       current_step_index: 0,
       completed_steps: [],
+      mission_provenance: {
+        schema: "innerworld-mission-provenance/v1",
+        state_provenance_status: "rehearsal",
+        last_mutation_source_status: "none",
+        trusted_hardware_session: false,
+        trusted_mission_provenance: false,
+        rehearsal_complete_allowed: true,
+        hardware_ready_claim_allowed: false,
+        fallback_no_hardware_claim: true,
+        mutation_count: 0,
+        trusted_mutation_count: 0,
+        rehearsal_mutation_count: 0,
+        blockers: ["no_trusted_mission_mutation_yet"]
+      },
       beacons: space.beacons,
       events: []
     };

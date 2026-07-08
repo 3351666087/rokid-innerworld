@@ -171,12 +171,18 @@ async function main() {
   const acceptance = await fetchJson("/api/field/acceptance", "field_acceptance");
   const ledger = await fetchJson("/api/ledger/summary", "ledger_summary");
   const completedSteps = state.completed_steps || [];
+  const missionProvenance = state.mission_provenance || {};
   const requiredSteps = ["read", "find_year", "service_action", "write_back", "user_b_readback"];
   for (const stepId of requiredSteps) {
     assert(completedSteps.includes(stepId), `completed step missing after scene target execution: ${stepId}`);
   }
   assert(state.mission_state === "complete", "mission state must be complete after User B readback target");
   assert(state.active_user === "B", "active user must switch to B for readback proof");
+  assert(missionProvenance.schema === "innerworld-mission-provenance/v1", "mission provenance schema missing after scene target execution");
+  assert(missionProvenance.state_provenance_status === "rehearsal", "scene target rehearsal must not become trusted hardware provenance");
+  assert(missionProvenance.rehearsal_complete_allowed === true, "rehearsal complete flag missing");
+  assert(missionProvenance.hardware_ready_claim_allowed === false, "scene target rehearsal must keep hardware-ready claim blocked");
+  assert(missionProvenance.fallback_no_hardware_claim === true, "scene target rehearsal must keep fallback no-hardware guard");
   const writeBackCount = countWriteBackBeacons(state, space);
   assert(writeBackCount >= 1, "A3 TimeMark write-back beacon missing after scene target execution");
   assert(Number(ledger.by_type?.interaction || 0) >= 3, "ledger interaction count too low for scene target rehearsal");
@@ -204,6 +210,13 @@ async function main() {
       mission_state: state.mission_state,
       ready_for_shiyao_hardware_retest: true,
       hardware_ready_claim_allowed: false
+    },
+    mission_provenance: {
+      schema: missionProvenance.schema,
+      state_provenance_status: missionProvenance.state_provenance_status,
+      last_mutation_source_status: missionProvenance.last_mutation_source_status,
+      hardware_ready_claim_allowed: missionProvenance.hardware_ready_claim_allowed,
+      fallback_no_hardware_claim: missionProvenance.fallback_no_hardware_claim
     },
     field_readiness_status: readiness.status || readiness.summary?.status || "unknown",
     field_acceptance_status: acceptance.status || "unknown",
