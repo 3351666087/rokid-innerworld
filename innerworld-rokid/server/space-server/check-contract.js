@@ -46,6 +46,25 @@ function packageScriptMatches(packageJson, scriptName, commandPattern) {
   return new RegExp(`"${escapedName}"\\s*:\\s*"${commandPattern}"`).test(packageJson);
 }
 
+function assertSceneTargetSmokeScript(scriptText, packageJson) {
+  assert(packageScriptMatches(packageJson, "check:scene-targets", "node server/space-server/check-scene-targets\\.js"), "check:scene-targets npm script missing");
+  for (const token of [
+    "scene-targets",
+    "scene_actions",
+    "task_target",
+    "endpoint_sequence",
+    "fallback_no_hardware_claim",
+    "requires_trusted_shiyao_scan",
+    "hardware_ready_claim_allowed: false",
+    "trusted_hardware_session: false",
+    "/api/field/target-readiness",
+    "/api/field/acceptance",
+    "/api/ledger/summary"
+  ]) {
+    assert(scriptText.includes(token), `check-scene-targets.js token missing: ${token}`);
+  }
+}
+
 async function readJson(relativePath) {
   const raw = await readFile(path.join(root, relativePath), "utf8");
   return JSON.parse(raw.replace(/^\uFEFF/, ""));
@@ -1270,9 +1289,10 @@ async function assertFieldAcceptanceSessionSkeleton() {
 }
 
 async function assertFieldTargetPassSkeleton() {
-  const [tool, packageJson] = await Promise.all([
+  const [tool, packageJson, releasePackage] = await Promise.all([
     readText("tools/field-target-pass.js"),
-    readText("package.json")
+    readText("package.json"),
+    readText("tools/package-server-release.ps1")
   ]);
 
   assert(packageJson.includes("\"field:target-pass\""), "package field target pass script missing");
@@ -1316,6 +1336,8 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("trustedMissionInputForAnchor") && tool.includes("session_id") && tool.includes("device_id"), "field target pass mutation must carry trusted mission session/device inputs");
   assert(tool.includes("missionProvenanceInputBlockers") && tool.includes("live_mission_provenance_input_missing"), "field target pass mutation must require live mission provenance input before writing");
   assert(tool.includes("input_frame_ray_not_reported") && tool.includes("pointable_ui_focus_missing") && tool.includes("input_confirm_missing"), "field target pass provenance input readiness blockers missing");
+  assert(packageScriptMatches(packageJson, "check:field-target-pass", "node tools/field-target-pass\\.js --require-live-session"), "check:field-target-pass must require live session");
+  assert(releasePackage.includes('"check:field-target-pass" = "node tools/field-target-pass.js --require-live-session"'), "server release check:field-target-pass must match root live-session gate");
   assert(tool.includes("provenance_ready") && tool.includes("provenance_blockers"), "field target pass mutation provenance readiness markdown missing");
   assert(tool.includes("provenance_input") && tool.includes("raw_session_ids_included: false") && tool.includes("raw_device_ids_included: false"), "field target pass mutation provenance summary/privacy guard missing");
   assert(tool.includes("snapshot.mission_loop_ready = snapshot.field_acceptance.mission_loop_ready === true"), "field target pass mission loop must follow field acceptance gate");
@@ -1370,19 +1392,22 @@ async function assertUnityAndroidBuildSkeleton() {
 }
 
 async function main() {
-  const [space, aiSchema, hardwareManifest, markerConfig, shiyaoMergeMap, shiyaoHandoffDoc] = await Promise.all([
+  const [space, aiSchema, hardwareManifest, markerConfig, shiyaoMergeMap, shiyaoHandoffDoc, packageJson, sceneTargetSmoke] = await Promise.all([
     readJson("data/space_demo.json"),
     readJson("ai/schema.json"),
     readJson("data/hardware_manifest.json"),
     readJson("data/field_markers.json"),
     readJson("data/merge_map.json"),
-    readText("docs/shiyao-handoff-contract.md")
+    readText("docs/shiyao-handoff-contract.md"),
+    readText("package.json"),
+    readText("server/space-server/check-scene-targets.js")
   ]);
 
   assertSpaceContract(space);
   assertAiContract(aiSchema);
   assertHardwareManifest(hardwareManifest);
   assertShiyaoHandoffContract(shiyaoMergeMap, shiyaoHandoffDoc);
+  assertSceneTargetSmokeScript(sceneTargetSmoke, packageJson);
   assertEndpointMap(buildEndpointMap("http://localhost:5177", INNERWORLD_SPACE_ID));
   assertBootstrapContract(space, aiSchema);
   assertDeviceRuntimeContract(space, aiSchema);
@@ -1464,6 +1489,7 @@ async function main() {
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,
     web_scene_action_fallback: webSceneActionFallback,
+    scene_target_smoke: "server/space-server/check-scene-targets.js",
     shared_contract: "shared/innerworld-contract.js"
   }, null, 2));
 }

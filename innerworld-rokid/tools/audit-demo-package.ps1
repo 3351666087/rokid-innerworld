@@ -194,6 +194,7 @@ try {
   $required = @(
     "server\space-server\index.js",
     "server\space-server\check-contract.js",
+    "server\space-server\check-scene-targets.js",
     "server\space-server\src\domain\hud-generator.js",
     "server\space-server\src\domain\mission-engine.js",
     "server\space-server\src\http\api-router.js",
@@ -297,6 +298,20 @@ try {
     'task_board',
     'no local hardware claim'
   )
+  $sceneTargetsText = Read-ZipEntryText -Zip $zip -Path "server\space-server\check-scene-targets.js" -TempRoot $TempRoot
+  Assert-TextContainsAll -Failures $failures -Label "check-scene-targets.js" -Text $sceneTargetsText -Tokens @(
+    "scene-targets",
+    "scene_actions",
+    "task_target",
+    "endpoint_sequence",
+    "fallback_no_hardware_claim",
+    "requires_trusted_shiyao_scan",
+    "hardware_ready_claim_allowed: false",
+    "trusted_hardware_session: false",
+    "/api/field/target-readiness",
+    "/api/field/acceptance",
+    "/api/ledger/summary"
+  )
 
   if ($entries -contains "data\runtime_state.json") {
     Add-Failure $failures "Package contains data/runtime_state.json"
@@ -387,7 +402,38 @@ try {
       $nestedZip = [System.IO.Compression.ZipFile]::OpenRead($nestedZipPath)
       try {
         $nestedEntries = @($nestedZip.Entries | ForEach-Object { $_.FullName })
-        foreach ($item in @("server\space-server\index.js", "server\space-server\check-contract.js", "server\space-server\check-readonly.js", "server\space-server\src\domain\evidence-chain.js", "server\space-server\src\domain\hud-generator.js", "server\space-server\src\domain\mission-engine.js", "server\space-server\src\http\api-router.js", "server\space-server\src\http\response.js", "server\space-server\src\http\static-files.js", "server\space-server\src\ops\status-service.js", "server\space-server\src\store\runtime-store.js", "server\space-server\check-device.js", "server\space-server\check-ops.js", "apps\web-demo\index.html", "shared\innerworld-contract.js", "data\hardware_manifest.json", "data\merge_map.json", "data\space_demo.json", "docs\shiyao-handoff-contract.md", "README-SERVER.txt", "start-server.ps1", "start-server-lan.ps1", "start-server.sh", "package.json", "SERVER-RELEASE-MANIFEST.json")) {
+        foreach ($item in @(
+          "server\space-server\index.js",
+          "server\space-server\check-contract.js",
+          "server\space-server\check-scene-targets.js",
+          "server\space-server\check-readonly.js",
+          "server\space-server\src\domain\evidence-chain.js",
+          "server\space-server\src\domain\hud-generator.js",
+          "server\space-server\src\domain\mission-engine.js",
+          "server\space-server\src\http\api-router.js",
+          "server\space-server\src\http\response.js",
+          "server\space-server\src\http\static-files.js",
+          "server\space-server\src\ops\status-service.js",
+          "server\space-server\src\store\runtime-store.js",
+          "server\space-server\check-device.js",
+          "server\space-server\check-ops.js",
+          "apps\web-demo\index.html",
+          "shared\innerworld-contract.js",
+          "data\hardware_manifest.json",
+          "data\merge_map.json",
+          "data\space_demo.json",
+          "docs\shiyao-handoff-contract.md",
+          "README-SERVER.txt",
+          "start-server.ps1",
+          "start-server-lan.ps1",
+          "start-server.sh",
+          "tools\package-server-release.ps1",
+          "tools\server-deploy-plan.ps1",
+          "tools\deploy-dry-run-server.ps1",
+          "tools\smoke-server-release.ps1",
+          "package.json",
+          "SERVER-RELEASE-MANIFEST.json"
+        )) {
           if (!($nestedEntries -contains $item)) {
             Add-Failure $failures "Nested server release missing required entry: $item"
           }
@@ -419,6 +465,20 @@ try {
           "task_target",
           "endpoint_sequence",
           "fallback_no_hardware_claim"
+        )
+        $nestedSceneTargetsText = Read-ZipEntryText -Zip $nestedZip -Path "server\space-server\check-scene-targets.js" -TempRoot $TempRoot
+        Assert-TextContainsAll -Failures $failures -Label "nested check-scene-targets.js" -Text $nestedSceneTargetsText -Tokens @(
+          "scene-targets",
+          "scene_actions",
+          "task_target",
+          "endpoint_sequence",
+          "fallback_no_hardware_claim",
+          "requires_trusted_shiyao_scan",
+          "hardware_ready_claim_allowed: false",
+          "trusted_hardware_session: false",
+          "/api/field/target-readiness",
+          "/api/field/acceptance",
+          "/api/ledger/summary"
         )
         $nestedReadonlyText = Read-ZipEntryText -Zip $nestedZip -Path "server\space-server\check-readonly.js" -TempRoot $TempRoot
         Assert-TextContainsAll -Failures $failures -Label "nested check-readonly.js" -Text $nestedReadonlyText -Tokens @(

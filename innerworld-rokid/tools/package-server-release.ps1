@@ -99,6 +99,10 @@ foreach ($toolPath in @(
   "tools\field-input-readiness.js",
   "tools\field-live-pass.js",
   "tools\field-target-pass.js",
+  "tools\package-server-release.ps1",
+  "tools\server-deploy-plan.ps1",
+  "tools\deploy-dry-run-server.ps1",
+  "tools\smoke-server-release.ps1",
   "tools\station-pro-apk-smoke.ps1",
   "tools\station-pro-field-input-assist.ps1",
   "tools\uxr-readiness.js"
@@ -137,13 +141,14 @@ $packageJson = [ordered]@{
     "check:contract" = "node server/space-server/check-contract.js"
     "check:device" = "node server/space-server/check-device.js"
     "check:field-acceptance" = "node server/space-server/check-field-acceptance.js"
+    "check:scene-targets" = "node server/space-server/check-scene-targets.js"
     "field:live-pass" = "node tools/field-live-pass.js --single"
     "check:field-live-pass" = "node tools/field-live-pass.js --single --require-ready"
     "field:target-pass" = "node tools/field-target-pass.js"
     "field:target-pass:watch" = "node tools/field-target-pass.js --watch --require-live-session --require-target-diagnostics"
     "field:target-pass:apply" = "node tools/field-target-pass.js --apply-mission-actions --require-live-session --require-target-diagnostics"
     "field:target-pass:strict" = "node tools/field-target-pass.js --apply-mission-actions --confirm-user-b-readback --require-live-session --require-target-diagnostics --require-trusted --require-mission-loop"
-    "check:field-target-pass" = "node tools/field-target-pass.js --require-ready"
+    "check:field-target-pass" = "node tools/field-target-pass.js --require-live-session"
     "field:acceptance-session" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1"
     "field:acceptance-session:live" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch"
     "field:acceptance-session:strict" = "powershell -NoProfile -ExecutionPolicy Bypass -File tools/field-acceptance-session.ps1 -PairSmoke -Watch -RequireTrusted -RequireMissionLoop"
@@ -230,6 +235,7 @@ Checks:
   npm install --omit=dev --no-audit
   node server/space-server/check-contract.js
   node server/space-server/check-device.js
+  node server/space-server/check-scene-targets.js
   node server/space-server/check-readonly.js
   node server/space-server/check-ops.js
   node server/space-server/capture-rehearsal.js --reset-after

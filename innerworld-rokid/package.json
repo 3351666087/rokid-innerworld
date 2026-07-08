@@ -22,6 +22,7 @@
     "check:uxr-readiness:ready": "node server/space-server/check-uxr-readiness.js --require-ready",
     "check:store": "node server/space-server/check-store.js",
     "check:service-actions": "node server/space-server/check-service-actions.js",
+    "check:scene-targets": "node server/space-server/check-scene-targets.js",
     "check:security": "node server/space-server/check-security.js",
     "check:readonly": "node server/space-server/check-readonly.js",
     "check:ops": "node server/space-server/check-ops.js",
