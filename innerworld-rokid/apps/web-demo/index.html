@@ -10,7 +10,7 @@
 </head>
 <body>
   <main class="app-shell" aria-label="镜见 InnerWorld 校园记忆展墙">
-    <section class="spatial-stage" aria-label="Rokid 空间镜像">
+    <section class="spatial-stage" aria-label="Rokid spatial lens">
       <header class="top-bar">
         <div class="brand-lockup">
           <span class="brand-mark" aria-hidden="true">IW</span>
@@ -24,14 +24,14 @@
           <span id="sdkBindingPill" class="status-pill warn">SDK fallback</span>
           <span id="missionState" class="status-pill">entered</span>
           <span id="userBadge" class="status-pill">User A</span>
-          <button id="panelToggleBtn" class="panel-toggle" type="button" aria-label="收起控制台" aria-pressed="false" title="收起控制台">
+          <button id="panelToggleBtn" class="panel-toggle" type="button" aria-label="Collapse control panel" aria-pressed="false" title="Collapse control panel">
             <span aria-hidden="true"></span>
           </button>
         </div>
       </header>
 
       <div class="stage-frame">
-        <section class="scene-system" aria-label="空间工作台">
+        <section class="scene-system" aria-label="Spatial workstation">
           <div class="scene-header">
             <div>
               <p>Spatial Canvas</p>
@@ -51,11 +51,12 @@
                 <span></span>
                 <span></span>
               </div>
-              <div class="anchor-layer" id="anchorLayer" aria-label="空间锚点"></div>
+              <div class="anchor-layer" id="anchorLayer" aria-label="Spatial anchors"></div>
+              <div class="scene-action-layer" id="sceneActionLayer" aria-label="Concrete scene actions opened after shiyao scan" data-fallback="web" data-hardware-ready="false"></div>
             </div>
 
-            <aside class="lens-dock" aria-label="镜头与空间状态">
-              <section class="stage-telemetry" aria-label="空间镜头状态">
+            <aside class="lens-dock" aria-label="Lens and spatial state">
+              <section class="stage-telemetry" aria-label="Spatial lens status">
                 <div class="stage-telemetry-head">
                   <span>Rokid Lens</span>
                   <strong id="lensState">Spatial Ready</strong>
@@ -63,24 +64,24 @@
                 <div class="stage-metrics" id="stageMetrics"></div>
               </section>
 
-              <section class="spatial-stack" aria-label="空间产品层">
+              <section class="spatial-stack" aria-label="Spatial product layer">
                 <div>
                   <span>Input</span>
                   <strong>Gaze / Tap / Voice</strong>
                 </div>
                 <div>
                   <span>Layer</span>
-                  <strong>Official · Public · Time Capsule</strong>
+                  <strong>Official 路 Public 路 Time Capsule</strong>
                 </div>
                 <div>
                   <span>Output</span>
-                  <strong>Rokid HUD · Space Server</strong>
+                  <strong>Rokid HUD 路 Space Server</strong>
                 </div>
               </section>
             </aside>
           </div>
 
-          <section class="hud-surface" aria-label="眼镜端 HUD">
+          <section class="hud-surface" aria-label="Rokid HUD">
             <div class="hud-topline">
               <span id="hudAnchor">A1 入口海报</span>
               <span id="hudHintLevel">hint none</span>
@@ -101,10 +102,10 @@
             <p>Operator Console</p>
             <h2>现场闭环</h2>
           </div>
-          <button id="resetBtn" class="icon-button" type="button" title="重置演示" aria-label="重置演示">↻</button>
+          <button id="resetBtn" class="icon-button" type="button" title="Reset demo" aria-label="Reset demo">↻</button>
         </div>
 
-        <div class="control-strip" aria-label="演示动作">
+        <div class="control-strip" aria-label="Demo actions">
           <button id="nextBtn" class="primary-action" type="button">推进一步</button>
           <button id="autoBtn" type="button">90 秒彩排</button>
           <button id="serviceBtn" type="button">服务动作</button>
@@ -123,17 +124,17 @@
         <div class="field-pass-grid" id="fieldPassGrid"></div>
       </section>
 
-      <section class="panel-section route-section" aria-label="空间导航">
+      <section class="panel-section route-section" aria-label="绌洪棿瀵艰埅">
         <div class="section-head compact">
           <div>
             <p>Spatial Route</p>
-            <h2>空间导航</h2>
+            <h2>空间路线</h2>
           </div>
         </div>
         <div class="route-grid" id="routeGrid"></div>
       </section>
 
-      <section class="panel-section lens-section" aria-label="镜头与设备状态">
+      <section class="panel-section lens-section" aria-label="Lens and device status">
         <div class="section-head compact">
           <div>
             <p>Rokid Lens</p>
@@ -153,7 +154,7 @@
         <div class="binding-grid" id="sdkBindingGrid"></div>
       </section>
 
-      <section class="panel-section workflow-section" aria-label="低噪音任务流">
+      <section class="panel-section workflow-section" aria-label="Mission flow">
         <div class="section-head compact">
           <div>
             <p>Mission Flow</p>
@@ -163,7 +164,7 @@
         <div class="stepper" id="stepper"></div>
       </section>
 
-      <section class="panel-section writeback-section" aria-label="写回审核">
+      <section class="panel-section writeback-section" aria-label="Write-back review">
         <div class="section-head compact">
           <div>
             <p>Write-back Review</p>
@@ -188,7 +189,7 @@
         <div class="ledger-grid" id="ledgerGrid"></div>
       </section>
 
-      <section class="panel-section product-section" aria-label="产品模块">
+      <section class="panel-section product-section" aria-label="Product modules">
         <div class="section-head compact">
           <div>
             <p>Product System</p>
@@ -198,7 +199,7 @@
         <div class="product-grid" id="productGrid"></div>
       </section>
 
-      <section class="panel-section agent-section" aria-label="AI agent 队列">
+      <section class="panel-section agent-section" aria-label="AI agent queue">
         <div class="section-head compact">
           <div>
             <p>Agent Runtime</p>
@@ -208,7 +209,7 @@
         <div class="agent-queue" id="agentQueue"></div>
       </section>
 
-      <section class="panel-section evidence-section" aria-label="证据链">
+      <section class="panel-section evidence-section" aria-label="Evidence chain">
         <div class="section-head compact">
           <div>
             <p>Evidence Chain</p>
@@ -218,7 +219,7 @@
         <div class="evidence-rail" id="evidenceRail"></div>
       </section>
 
-      <section class="panel-section showcase-section" aria-label="现场展示模式">
+      <section class="panel-section showcase-section" aria-label="Show mode">
         <div class="section-head compact">
           <div>
             <p>Show Mode</p>
@@ -228,7 +229,7 @@
         <div class="showcase-grid" id="showcaseGrid"></div>
       </section>
 
-      <section class="panel-section delivery-section" aria-label="交付剧本">
+      <section class="panel-section delivery-section" aria-label="Delivery script">
         <div class="section-head compact">
           <div>
             <p>Delivery Script</p>
@@ -238,7 +239,7 @@
         <div class="delivery-timeline" id="deliveryTimeline"></div>
       </section>
 
-      <section class="panel-section risk-section" aria-label="风险护栏">
+      <section class="panel-section risk-section" aria-label="Risk guardrails">
         <div class="section-head compact">
           <div>
             <p>Risk Guardrails</p>
@@ -248,13 +249,13 @@
         <div class="risk-grid" id="riskGrid"></div>
       </section>
 
-      <section class="panel-section ops-section" aria-label="设备和发布状态">
+      <section class="panel-section ops-section" aria-label="Device and release status">
         <div class="section-head compact">
           <div>
             <p>Device / Release</p>
             <h2>现场状态</h2>
           </div>
-          <button id="opsRefreshBtn" class="icon-button" type="button" title="刷新状态" aria-label="刷新状态">↻</button>
+          <button id="opsRefreshBtn" class="icon-button" type="button" title="Refresh status" aria-label="Refresh status">↻</button>
         </div>
         <div class="ops-grid" id="opsGrid"></div>
       </section>
@@ -269,7 +270,7 @@
         <div class="acceptance-grid" id="acceptanceGrid"></div>
       </section>
 
-      <section class="panel-section hardware-section" aria-label="硬件接入运行时">
+      <section class="panel-section hardware-section" aria-label="Hardware runtime">
         <div class="section-head compact">
           <div>
             <p>Hardware Runtime</p>
@@ -279,7 +280,7 @@
         <div class="hardware-grid" id="hardwareGrid"></div>
       </section>
 
-      <section class="panel-section calibration-section" aria-label="真实展墙标定和现场 marker 包">
+      <section class="panel-section calibration-section" aria-label="Wall calibration and field marker kit">
         <div class="section-head compact">
           <div>
             <p>Wall Calibration / Field Kit</p>
@@ -289,7 +290,7 @@
         <div class="calibration-grid" id="calibrationGrid"></div>
       </section>
 
-      <section class="panel-section telemetry-section" aria-label="遥测日志">
+      <section class="panel-section telemetry-section" aria-label="閬ユ祴鏃ュ織">
         <div class="section-head compact">
           <div>
             <p>Agent Trace</p>

@@ -5,6 +5,7 @@ param(
   [switch]$RequireDevice,
   [switch]$RequireGlassesDisplay,
   [switch]$PairWithOperator,
+  [switch]$ReinstallOnSignatureMismatch,
   [string]$ApiBaseUrl = "http://127.0.0.1:5177",
   [int]$PairingVerifyTimeoutSeconds = 12,
   [string]$OutputRoot = ""
@@ -1171,6 +1172,7 @@ if ($PairWithOperator -and $errors.Count -eq 0) {
 }
 
 $install = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
+$reinstall = [pscustomobject]@{ requested = $false; attempted = $false; reason = $null; uninstall_ok = $null; uninstall_output = $null; reinstall_ok = $null; reinstall_output = $null }
 $forceStop = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
 $clearLogcat = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; output = $null }
 $launch = [pscustomobject]@{ requested = [bool]$InstallAndLaunch; ok = $false; exit_code = $null; method = $null; output = $null }
@@ -1192,6 +1194,41 @@ $launchDiagnostics = [pscustomobject]@{
 if ($InstallAndLaunch -and $errors.Count -eq 0) {
   $knownPairingCodes = @($operatorPairingCode | Where-Object { ![string]::IsNullOrWhiteSpace($_) })
   $installResult = Invoke-Capture -Command $adbPath -Arguments @("install", "-r", $ApkPath) -KnownDeviceIds $knownIds -KnownPairingCodes $knownPairingCodes
+  $signatureMismatch = $installResult.text -match "INSTALL_FAILED_UPDATE_INCOMPATIBLE|signatures do not match"
+  if (!$installResult.ok -and $signatureMismatch -and $ReinstallOnSignatureMismatch) {
+    $uninstallResult = Invoke-Capture -Command $adbPath -Arguments @("uninstall", $PackageName) -KnownDeviceIds $knownIds -KnownPairingCodes $knownPairingCodes
+    $retryInstallResult = if ($uninstallResult.ok) {
+      Invoke-Capture -Command $adbPath -Arguments @("install", "-r", $ApkPath) -KnownDeviceIds $knownIds -KnownPairingCodes $knownPairingCodes
+    } else {
+      $null
+    }
+    $reinstall = [pscustomobject]@{
+      requested = $true
+      attempted = $true
+      reason = "signature_mismatch"
+      uninstall_ok = [bool]$uninstallResult.ok
+      uninstall_output = $uninstallResult.text
+      reinstall_ok = [bool]($retryInstallResult -and $retryInstallResult.ok)
+      reinstall_output = if ($retryInstallResult) { $retryInstallResult.text } else { $null }
+    }
+    if ($retryInstallResult) {
+      $installResult = $retryInstallResult
+    }
+    if ($installResult.ok) {
+      [void]$warnings.Add("adb_reinstalled_after_signature_mismatch")
+    }
+  } elseif (!$installResult.ok -and $signatureMismatch) {
+    $reinstall = [pscustomobject]@{
+      requested = $false
+      attempted = $false
+      reason = "signature_mismatch"
+      uninstall_ok = $null
+      uninstall_output = $null
+      reinstall_ok = $null
+      reinstall_output = $null
+    }
+    [void]$warnings.Add("adb_install_signature_mismatch_use_reinstall_flag")
+  }
   $install = [pscustomobject]@{
     requested = $true
     ok = [bool]$installResult.ok
@@ -1350,6 +1387,7 @@ $report = [pscustomobject]@{
   }
   actions = [pscustomobject]@{
     install = $install
+    reinstall = $reinstall
     force_stop = $forceStop
     clear_logcat = $clearLogcat
     launch = $launch

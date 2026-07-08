@@ -94,7 +94,9 @@
     "station:field-input-assist:apply": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Apply -RequireDevice",
     "station:field-input-assist:p0": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-field-input-assist.ps1 -Action P0Loop",
     "field:input-readiness": "node tools/field-input-readiness.js",
-    "check:field-input-readiness": "node tools/field-input-readiness.js --require-ready"
+    "check:field-input-readiness": "node tools/field-input-readiness.js --require-ready",
+    "check:scene-targets": "node server/space-server/check-scene-targets.js",
+    "station:apk:smoke:reinstall": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/station-pro-apk-smoke.ps1 -RequireDevice -InstallAndLaunch -ReinstallOnSignatureMismatch"
   },
   "engines": {
     "node": ">=20"
