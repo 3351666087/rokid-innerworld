@@ -41,6 +41,30 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function packageScriptMatches(packageJson, scriptName, commandPattern) {
+  const escapedName = scriptName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`"${escapedName}"\\s*:\\s*"${commandPattern}"`).test(packageJson);
+}
+
+function assertSceneTargetSmokeScript(scriptText, packageJson) {
+  assert(packageScriptMatches(packageJson, "check:scene-targets", "node server/space-server/check-scene-targets\\.js"), "check:scene-targets npm script missing");
+  for (const token of [
+    "scene-targets",
+    "scene_actions",
+    "task_target",
+    "endpoint_sequence",
+    "fallback_no_hardware_claim",
+    "requires_trusted_shiyao_scan",
+    "hardware_ready_claim_allowed: false",
+    "trusted_hardware_session: false",
+    "/api/field/target-readiness",
+    "/api/field/acceptance",
+    "/api/ledger/summary"
+  ]) {
+    assert(scriptText.includes(token), `check-scene-targets.js token missing: ${token}`);
+  }
+}
+
 async function readJson(relativePath) {
   const raw = await readFile(path.join(root, relativePath), "utf8");
   return JSON.parse(raw.replace(/^\uFEFF/, ""));
@@ -138,10 +162,72 @@ function assertSpaceContract(space) {
   assert(whaleCloud.controlled_demo === true && whaleCloud.open_ugc_allowed === false, "Whale Cloud open UGC guard mismatch");
   assert(whaleCloud.hardware_acceptance_evidence === false && whaleCloud.p0_required === false, "Whale Cloud must not become P0 hardware evidence");
   assert(whaleCloud.safety?.user_generated === false && whaleCloud.safety?.merchant_or_marketplace === false && whaleCloud.safety?.broad_route === false, "Whale Cloud safety guard mismatch");
+  assertSceneActionsContract(space.scene_actions || []);
   assert(Array.isArray(space.mission?.steps), "mission steps missing");
   assert(space.mission.steps.map((step) => step.step_id).join(",") === MISSION_STEP_IDS.join(","), "mission step ids mismatch");
   assertStoryGraphContract(space.mission?.story_graph, "space mission story graph");
   assert(space.service_actions?.some((action) => action.action_id === "JOIN_EVENT_1430"), "service action JOIN_EVENT_1430 missing");
+}
+
+function assertSceneActionChoreography(action, actionId) {
+  const choreography = action?.spatial_choreography;
+  assert(choreography && typeof choreography === "object", `scene action ${actionId} spatial choreography missing`);
+  assert(typeof choreography.time_layer === "string" && choreography.time_layer.length > 4, `scene action ${actionId} time layer missing`);
+  assert(Number.isFinite(choreography.depth_meters) && choreography.depth_meters >= 0.16 && choreography.depth_meters <= 0.75, `scene action ${actionId} depth meters out of range`);
+  assert(typeof choreography.wall_seed_rule === "string" && choreography.wall_seed_rule.toLowerCase().includes("wall"), `scene action ${actionId} wall seed rule missing`);
+  assert(typeof choreography.gesture_affordance === "string" && choreography.gesture_affordance.length > 12, `scene action ${actionId} gesture affordance missing`);
+  assert(typeof choreography.spatial_sound === "string" && choreography.spatial_sound.length > 8, `scene action ${actionId} spatial sound missing`);
+  assert(Array.isArray(choreography.growth_beats) && choreography.growth_beats.length >= 3, `scene action ${actionId} growth beats too weak`);
+  choreography.growth_beats.forEach((beat, index) => {
+    assert(typeof beat?.beat_id === "string" && beat.beat_id.length > 2, `scene action ${actionId} growth beat ${index} id missing`);
+    assert(typeof beat?.label === "string" && beat.label.length > 2, `scene action ${actionId} growth beat ${index} label missing`);
+    assert(beat?.offset && Number.isFinite(beat.offset.x) && Number.isFinite(beat.offset.y) && Number.isFinite(beat.offset.z), `scene action ${actionId} growth beat ${index} offset missing`);
+    assert(Number.isFinite(beat.scale) && beat.scale > 0 && beat.scale <= 0.15, `scene action ${actionId} growth beat ${index} scale invalid`);
+  });
+}
+
+function assertSceneActionTaskTarget(action, actionId) {
+  const target = action?.task_target;
+  assert(target && typeof target === "object", `scene action ${actionId} task target missing`);
+  assert(typeof target.target_id === "string" && target.target_id.startsWith("TARGET_"), `scene action ${actionId} target id missing`);
+  assert(typeof target.display_label === "string" && target.display_label.length > 8, `scene action ${actionId} display label missing`);
+  assert(typeof target.confirm_mode === "string" && target.confirm_mode.length > 4, `scene action ${actionId} confirm mode missing`);
+  assert(target.requires_trusted_shiyao_scan === true, `scene action ${actionId} must require shiyao trusted scan for field evidence`);
+  assert(target.fallback_no_hardware_claim === true, `scene action ${actionId} fallback no-hardware guard missing`);
+  assert(Array.isArray(target.endpoint_sequence) && target.endpoint_sequence.length >= 1, `scene action ${actionId} endpoint sequence missing`);
+  const endpointKeys = target.endpoint_sequence.map((item) => item?.endpoint_key).filter(Boolean);
+  if (actionId === "A1_CHECK_IN_STAMP") assert(endpointKeys.includes("local_unity"), "A1 target must use local Unity confirm");
+  if (actionId === "A2_MEMORY_VIEW_AND_COLLECT") assert(endpointKeys.filter((key) => key === "interactions").length >= 2, "A2 target must post read/find_year interactions");
+  if (actionId === "A3_TIMEMARK_WRITE_BACK") assert(endpointKeys.includes("service_actions") && endpointKeys.includes("write_back"), "A3 target must post service action and write-back");
+  if (actionId === "USER_B_READBACK_PASS") assert(endpointKeys.includes("state"), "User B target must post state/readback interaction");
+}
+
+function assertSceneActionsContract(sceneActions) {
+  assert(Array.isArray(sceneActions), "scene_actions missing");
+  const expected = [
+    ["A1_CHECK_IN_STAMP", "A1", "spatial_entry"],
+    ["A2_MEMORY_VIEW_AND_COLLECT", "A2", "memory_read"],
+    ["A3_TIMEMARK_WRITE_BACK", "A3", "timemark_writeback"],
+    ["USER_B_READBACK_PASS", "A3", "user_b_readback"]
+  ];
+  assert(sceneActions.length === expected.length, "scene_actions must contain exactly A1/A2/A3/User B tasks");
+  for (const [actionId, anchorId, p0Role] of expected) {
+    const action = sceneActions.find((item) => item?.action_id === actionId);
+    assert(action, `scene action missing: ${actionId}`);
+    assert(action.anchor_id === anchorId, `scene action ${actionId} anchor mismatch`);
+    assert(action.p0_role === p0Role, `scene action ${actionId} P0 role mismatch`);
+    assert(typeof action.title === "string" && action.title.length > 4, `scene action ${actionId} title missing`);
+    assert(typeof action.user_task === "string" && action.user_task.length > 20, `scene action ${actionId} user task too weak`);
+    assert(typeof action.physical_cue === "string" && action.physical_cue.toLowerCase().includes("wall"), `scene action ${actionId} must bind to physical wall cue`);
+    assert(action.spatial_binding?.pose && Number.isFinite(action.spatial_binding.pose.x) && Number.isFinite(action.spatial_binding.pose.y) && Number.isFinite(action.spatial_binding.pose.z), `scene action ${actionId} spatial pose missing`);
+    assert(typeof action.spatial_binding?.projection === "string" && action.spatial_binding.projection.length > 8, `scene action ${actionId} projection missing`);
+    assert(typeof action.spatial_binding?.depth_layer === "string" && action.spatial_binding.depth_layer.length > 4, `scene action ${actionId} depth layer missing`);
+    assert(typeof action.interaction === "string" && action.interaction.length > 8, `scene action ${actionId} interaction missing`);
+    assertSceneActionChoreography(action, actionId);
+    assertSceneActionTaskTarget(action, actionId);
+  }
+  assert(sceneActions.find((item) => item.action_id === "A1_CHECK_IN_STAMP")?.handoff_to_shiyao_scan_scene === true, "A1 scene action must document shiyao scan handoff");
+  assert(sceneActions.filter((item) => item.writes_evidence === true).map((item) => item.action_id).join(",") === "A3_TIMEMARK_WRITE_BACK,USER_B_READBACK_PASS", "only A3 write-back and User B readback scene actions may write P0 evidence");
 }
 
 function assertAiContract(aiSchema) {
@@ -159,6 +245,39 @@ function assertHardwareManifest(manifest) {
   const devices = Array.isArray(manifest.applied_hardware) ? manifest.applied_hardware : [];
   assert(devices.some((device) => device.product_name === "Rokid Max Pro" && device.model === "RA202" && device.quantity === 1), "Rokid Max Pro RA202 missing");
   assert(devices.some((device) => device.product_name === "Rokid Station Pro" && device.model === "RAS201" && device.quantity === 1), "Rokid Station Pro RAS201 missing");
+}
+
+function assertShiyaoHandoffContract(mergeMap, handoffDoc) {
+  assert(mergeMap?.schema === "innerworld-shiyao-merge-map/v1", "shiyao merge map schema mismatch");
+  assert(mergeMap.handoff_version === "innerworld-shiyao-handoff/v1", "shiyao handoff version mismatch");
+  assert(String(mergeMap.handoff_receiver || "").includes("EnterConcreteScene"), "shiyao handoff receiver missing");
+  assert(mergeMap.conflict_rules?.do_not_edit_shiyao_scenes === true, "shiyao scene conflict guard missing");
+  assert(mergeMap.conflict_rules?.do_not_merge_hardware_claims_without_field_acceptance === true, "shiyao hardware claim guard missing");
+  assert(String(mergeMap.unity_bridge?.file || "").includes("ShiyaoConcreteSceneHandoffBridge.cs"), "shiyao bridge file missing from merge map");
+  assert(String(mergeMap.unity_bridge?.claim_guard || "").includes("no local hardware claim"), "shiyao bridge claim guard missing");
+  assert(handoffDoc.includes("ISceneHandoffReceiver.EnterConcreteScene") && handoffDoc.includes("innerworld-shiyao-handoff/v1"), "shiyao handoff doc seam missing");
+  assert(handoffDoc.includes("ShiyaoConcreteSceneHandoffBridge"), "shiyao handoff bridge doc missing");
+  assert(handoffDoc.includes("real Rokid hardware is with teammate `shiyao`") && handoffDoc.includes("must not claim live hardware-ready"), "shiyao hardware possession boundary missing");
+}
+
+async function assertWebSceneActionFallback() {
+  const [html, app, css, bridge] = await Promise.all([
+    readText("apps/web-demo/index.html"),
+    readText("apps/web-demo/app.js"),
+    readText("apps/web-demo/styles.css"),
+    readText("apps/unity-shell/Assets/Scripts/Concrete/ShiyaoConcreteSceneHandoffBridge.cs")
+  ]);
+  assert(html.includes("sceneActionLayer") && html.includes('data-fallback="web"') && html.includes('data-hardware-ready="false"'), "web scene action fallback/no-hardware layer missing");
+  assert(app.includes("sceneActions()") && app.includes("renderSceneActions") && app.includes("shiyao scan"), "web scene action renderer missing");
+  assert(app.includes("spatial_choreography") && app.includes("growth_beats") && app.includes("gesture_affordance"), "web scene action choreography renderer missing");
+  assert(app.includes("executeSceneActionTarget") && app.includes("task_target") && app.includes("no local hardware claim"), "web executable scene action target missing");
+  assert(app.includes("executeSceneActionEndpoint") && app.includes("sceneActionRehearsalPayload") && app.includes("endpoint_sequence"), "web scene action must execute task_target endpoint_sequence");
+  assert(app.includes("state_provenance_status: \"rehearsal\"") && app.includes("trusted_hardware_session: false") && app.includes("hardware_ready_claim_allowed: false"), "web scene action provenance split missing");
+  assert(!app.includes('action.action_id === "A2_MEMORY_VIEW_AND_COLLECT"') && !app.includes('action.action_id === "A3_TIMEMARK_WRITE_BACK"'), "web scene action must not hard-code A2/A3 action branches");
+  assert(app.includes("Depth") || app.includes("depth_layer"), "web scene action depth layer token missing");
+  assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow") && css.includes(".scene-action-beats"), "web scene action spatial CSS missing");
+  assert(bridge.includes("ShiyaoConcreteSceneHandoffBridge") && bridge.includes("innerworld-shiyao-handoff/v1") && bridge.includes("no local hardware claim"), "shiyao concrete scene bridge missing");
+  return "verified";
 }
 
 function buildContractOpsStatus(hardwareManifest) {
@@ -242,7 +361,7 @@ function assertAiHudGenerator(space, aiSchema) {
     aiSchema,
     body: {
       anchor_id: "A3",
-      write_back_text: "愿后来的人在这里先看见彼此，再看见答案。"
+      write_back_text: "Later visitors should see each other here before seeing the answer."
     }
   });
   assertAiHudOutput(writeBackOutput, aiSchema);
@@ -813,6 +932,13 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.ServiceActionsUrl"), "Unity controller service URL not using client");
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
   assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
+  assert(controller.includes("RenderSceneActionTasks") && controller.includes("Scene Action Spatial Binding"), "Unity scene action spatial task renderer missing");
+  assert(controller.includes("ExecuteSceneActionTarget") && controller.includes("SceneActionTaskTargetData") && controller.includes("no local hardware claim"), "Unity executable scene action target missing");
+  assert(controller.includes("ExecuteSceneActionEndpoint") && controller.includes("endpoint_sequence") && controller.includes("ApplySceneActionProvenance"), "Unity scene action must execute task_target endpoint_sequence");
+  assert(controller.includes("state_provenance_status = \"rehearsal\"") && controller.includes("trusted_hardware_session = false") && controller.includes("hardware_ready_claim_allowed = false"), "Unity scene action provenance split missing");
+  assert(!controller.includes('action.action_id, "A2_MEMORY_VIEW_AND_COLLECT"') && !controller.includes('action.action_id, "A3_TIMEMARK_WRITE_BACK"'), "Unity scene action must not hard-code A2/A3 action branches");
+  assert(controller.includes("public SceneActionData[] scene_actions;"), "Unity SpaceResponse scene_actions DTO missing");
+  assert(controller.includes("handoff_to_shiyao_scan_scene"), "Unity scene action shiyao handoff DTO missing");
   assert(controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin HUD guard missing");
   assert(controller.includes("public NearbyPin[] semantic_pins;"), "Unity SpaceResponse semantic_pins DTO missing");
   assert(controller.includes("apiClient.DeviceRegisterUrl"), "Unity controller device register URL not using client");
@@ -1018,6 +1144,8 @@ async function assertServerCoreSkeleton() {
   assert(deviceRuntime.includes("innerworld-trusted-mission-provenance/v1"), "device runtime trusted mission provenance schema missing");
   assert(deviceRuntime.includes("input_confirm_missing"), "device runtime trusted mission provenance must require confirm input evidence");
   assert(apiRouter.includes("trustedMissionProvenance") && apiRouter.includes("trusted_mission_provenance"), "api router trusted mission provenance ledger wiring missing");
+  assert(apiRouter.includes("applyMissionProvenanceSummary") && apiRouter.includes("innerworld-mission-provenance/v1") && apiRouter.includes("state_provenance_status"), "api router mission provenance summary missing");
+  assert(apiRouter.includes("hardware_ready_claim_allowed: trusted") && apiRouter.includes("fallback_no_hardware_claim: !trusted"), "api router must split rehearsal complete from hardware-ready claims");
   assert(sqliteStore.includes("trusted_mission_provenance") && sqliteStore.includes("has_trusted_mission_provenance"), "SQLite trusted mission provenance summary missing");
   assert(sqliteStore.includes("\"device_id\"") && sqliteStore.includes("\"session_id\""), "SQLite ledger must treat raw session/device ids as sensitive");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
@@ -1169,9 +1297,10 @@ async function assertFieldAcceptanceSessionSkeleton() {
 }
 
 async function assertFieldTargetPassSkeleton() {
-  const [tool, packageJson] = await Promise.all([
+  const [tool, packageJson, releasePackage] = await Promise.all([
     readText("tools/field-target-pass.js"),
-    readText("package.json")
+    readText("package.json"),
+    readText("tools/package-server-release.ps1")
   ]);
 
   assert(packageJson.includes("\"field:target-pass\""), "package field target pass script missing");
@@ -1204,7 +1333,7 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("function buildPhysicalBlockers"), "field target pass physical blocker builder missing");
   assert(tool.includes("field_acceptance_not_ready"), "field target pass physical field-acceptance blocker missing");
   assert(tool.includes("target_index_map_ready") && tool.includes("Target index map ready"), "field target pass target index map preflight evidence missing");
-  assert(packageJson.includes("\"field:target-pass:apply\": \"node tools/field-target-pass.js --apply-mission-actions --require-live-session --require-target-diagnostics\""), "field target pass apply must require live session and target diagnostics");
+  assert(packageScriptMatches(packageJson, "field:target-pass:apply", "node tools/field-target-pass\\.js --apply-mission-actions --require-live-session --require-target-diagnostics"), "field target pass apply must require live session and target diagnostics");
   assert(packageJson.includes("--require-target-diagnostics"), "strict field target pass must require current target diagnostics preflight");
   assert(packageJson.includes("\"field:target-pass:watch\"") && packageJson.includes("--watch --require-live-session --require-target-diagnostics"), "field target pass watch script must require live session and target diagnostics");
   assert(tool.includes("captureWatchSnapshots") && tool.includes("duration_sec") && tool.includes("snapshot_count"), "field target pass watch snapshots missing");
@@ -1215,6 +1344,8 @@ async function assertFieldTargetPassSkeleton() {
   assert(tool.includes("trustedMissionInputForAnchor") && tool.includes("session_id") && tool.includes("device_id"), "field target pass mutation must carry trusted mission session/device inputs");
   assert(tool.includes("missionProvenanceInputBlockers") && tool.includes("live_mission_provenance_input_missing"), "field target pass mutation must require live mission provenance input before writing");
   assert(tool.includes("input_frame_ray_not_reported") && tool.includes("pointable_ui_focus_missing") && tool.includes("input_confirm_missing"), "field target pass provenance input readiness blockers missing");
+  assert(packageScriptMatches(packageJson, "check:field-target-pass", "node tools/field-target-pass\\.js --require-live-session"), "check:field-target-pass must require live session");
+  assert(releasePackage.includes('"check:field-target-pass" = "node tools/field-target-pass.js --require-live-session"'), "server release check:field-target-pass must match root live-session gate");
   assert(tool.includes("provenance_ready") && tool.includes("provenance_blockers"), "field target pass mutation provenance readiness markdown missing");
   assert(tool.includes("provenance_input") && tool.includes("raw_session_ids_included: false") && tool.includes("raw_device_ids_included: false"), "field target pass mutation provenance summary/privacy guard missing");
   assert(tool.includes("snapshot.mission_loop_ready = snapshot.field_acceptance.mission_loop_ready === true"), "field target pass mission loop must follow field acceptance gate");
@@ -1269,16 +1400,22 @@ async function assertUnityAndroidBuildSkeleton() {
 }
 
 async function main() {
-  const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
+  const [space, aiSchema, hardwareManifest, markerConfig, shiyaoMergeMap, shiyaoHandoffDoc, packageJson, sceneTargetSmoke] = await Promise.all([
     readJson("data/space_demo.json"),
     readJson("ai/schema.json"),
     readJson("data/hardware_manifest.json"),
-    readJson("data/field_markers.json")
+    readJson("data/field_markers.json"),
+    readJson("data/merge_map.json"),
+    readText("docs/shiyao-handoff-contract.md"),
+    readText("package.json"),
+    readText("server/space-server/check-scene-targets.js")
   ]);
 
   assertSpaceContract(space);
   assertAiContract(aiSchema);
   assertHardwareManifest(hardwareManifest);
+  assertShiyaoHandoffContract(shiyaoMergeMap, shiyaoHandoffDoc);
+  assertSceneTargetSmokeScript(sceneTargetSmoke, packageJson);
   assertEndpointMap(buildEndpointMap("http://localhost:5177", INNERWORLD_SPACE_ID));
   assertBootstrapContract(space, aiSchema);
   assertDeviceRuntimeContract(space, aiSchema);
@@ -1297,6 +1434,7 @@ async function main() {
   const unityAndroidBuildCheck = await assertUnityAndroidBuildSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
+  const webSceneActionFallback = await assertWebSceneActionFallback();
 
   const client = createInnerWorldClient({ baseUrl: "http://localhost:5177" });
   assert(typeof client.getStoreStatus === "function", "client store status method missing");
@@ -1358,6 +1496,8 @@ async function main() {
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,
+    web_scene_action_fallback: webSceneActionFallback,
+    scene_target_smoke: "server/space-server/check-scene-targets.js",
     shared_contract: "shared/innerworld-contract.js"
   }, null, 2));
 }

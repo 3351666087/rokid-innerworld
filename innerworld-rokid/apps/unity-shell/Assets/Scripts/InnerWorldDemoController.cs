@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using InnerWorld.Rokid.Concrete;
 using InnerWorld.Rokid.Protocol;
 using InnerWorld.Rokid.Runtime;
 using UnityEngine;
@@ -11,7 +12,7 @@ using UnityEngine.UI;
 
 namespace InnerWorld.Rokid
 {
-    public sealed class InnerWorldDemoController : MonoBehaviour
+    public sealed class InnerWorldDemoController : MonoBehaviour, ISceneHandoffReceiver
     {
         [Header("Localhost API")]
         public string baseUrl = "http://localhost:5177";
@@ -65,6 +66,9 @@ namespace InnerWorld.Rokid
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
         private string deviceManifestLine = "device manifest pending";
+        private string sceneHandoffLine = "shiyao handoff pending";
+        private string sceneActionExecutionLine = "scene action targets pending | no local hardware claim";
+        private string missionProvenanceLine = "mission provenance: rehearsal until trusted hardware evidence";
         private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
@@ -309,7 +313,10 @@ namespace InnerWorld.Rokid
             if (TryGetAnchorHit(gaze, out target, out hit))
             {
                 AnchorData anchor = FindAnchor(target.anchorId);
-                string label = anchor != null ? anchor.label : target.anchorId;
+                SceneActionData sceneAction = FindSceneAction(target.sceneActionId);
+                string label = sceneAction != null && sceneAction.task_target != null && !string.IsNullOrWhiteSpace(sceneAction.task_target.display_label)
+                    ? sceneAction.task_target.display_label
+                    : (anchor != null ? anchor.label : target.anchorId);
                 if (rokidInputStateSink != null)
                 {
                     rokidInputStateSink.SetGazeAnchorHit(target.anchorId, label, hit.point, hit.distance);
@@ -342,8 +349,49 @@ namespace InnerWorld.Rokid
                 if (target.IsValid)
                 {
                     SelectAnchor(target.AnchorId);
+                    AnchorClickTarget clickTarget = CurrentGazeClickTarget();
+                    if (clickTarget != null && clickTarget.executeSceneAction && !string.IsNullOrWhiteSpace(clickTarget.sceneActionId))
+                    {
+                        ExecuteSceneActionTarget(clickTarget.sceneActionId, "rokid_gaze_select");
+                    }
                 }
             }
+        }
+
+        public void EnterConcreteScene(SceneHandoffData data)
+        {
+            bool fallback = data.fallback || string.IsNullOrWhiteSpace(data.handoff_version) || data.handoff_version != "innerworld-shiyao-handoff/v1";
+            string sceneAnchor = SafeLabel(data.scene_id, "A1");
+            if (sceneAnchor != "A1" && sceneAnchor != "A2" && sceneAnchor != "A3")
+            {
+                sceneAnchor = "A1";
+                fallback = true;
+            }
+
+            if (float.IsNaN(data.anchor_position.x) || float.IsNaN(data.anchor_position.y) || float.IsNaN(data.anchor_position.z) || float.IsInfinity(data.anchor_position.x) || float.IsInfinity(data.anchor_position.y) || float.IsInfinity(data.anchor_position.z))
+            {
+                fallback = true;
+                data = SceneHandoffData.Fallback(sceneAnchor);
+            }
+
+            if (!fallback && data.anchor_position.sqrMagnitude <= 0.001f)
+            {
+                fallback = true;
+                data = SceneHandoffData.Fallback(sceneAnchor);
+            }
+
+            if (!fallback)
+            {
+                wallCenter = data.anchor_position + new Vector3(0f, 0f, 0.8f);
+            }
+
+            sceneHandoffLine = "shiyao handoff " + SafeLabel(data.handoff_version, "missing")
+                + " | scene " + sceneAnchor
+                + " | origin " + SafeLabel(data.origin_mode, fallback ? "fallback" : "anchor_relative")
+                + " | fallback " + BoolLabel(fallback)
+                + " | no local hardware claim";
+            SelectAnchor(sceneAnchor);
+            RenderAnchors();
         }
 
         public void SelectAnchor(string anchorId)
@@ -409,7 +457,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.LockCandidate;
             entryConfirmationStatus = "entry_confirmation_ready";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
-            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 开启空间层.";
+            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 瀵偓閸氼垳鈹栭梻鏉戠湴.";
             ApplyLocalA1SpatialEntryToMissionState();
         }
 
@@ -422,7 +470,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.DeliberateConfirmed;
             entryConfirmationStatus = "entry_confirmation_confirmed";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerOpening;
-            spatialLayerTransitionLabel = "开启空间层 transition armed from A1 deliberate confirmation.";
+            spatialLayerTransitionLabel = "瀵偓閸氼垳鈹栭梻鏉戠湴 transition armed from A1 deliberate confirmation.";
             a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
 
             if (missionState != null)
@@ -430,7 +478,7 @@ namespace InnerWorld.Rokid
                 missionState.SelectAnchor(A1EntryAnchorId, anchor != null ? anchor.label : "Entry Poster", anchor != null ? anchor.kind : "entry");
             }
             ApplyLocalA1SpatialEntryToMissionState();
-            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation · 开启空间层 · fallback is not hardware ready");
+            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation 璺?瀵偓閸氼垳鈹栭梻鏉戠湴 璺?fallback is not hardware ready");
             RefreshAnchorVisualStates();
             RefreshHud();
         }
@@ -512,6 +560,139 @@ namespace InnerWorld.Rokid
             }
         }
 
+        public void ExecuteSceneActionTarget(string actionId, string source = "scene_action_confirm")
+        {
+            if (string.IsNullOrWhiteSpace(actionId))
+            {
+                sceneActionExecutionLine = "scene action target missing | no local hardware claim";
+                return;
+            }
+
+            RunFieldAssistAction("scene target " + actionId, () => StartCoroutine(ExecuteSceneActionTargetCoroutine(actionId.Trim(), source)));
+        }
+
+        private IEnumerator ExecuteSceneActionTargetCoroutine(string actionId, string source)
+        {
+            SceneActionData action = FindSceneAction(actionId);
+            if (action == null)
+            {
+                sceneActionExecutionLine = "scene action target not found " + SafeLabel(actionId, "unknown") + " | no local hardware claim";
+                yield break;
+            }
+
+            SelectAnchor(action.anchor_id);
+            sceneActionExecutionLine = "scene action executing " + SafeLabel(action.task_target != null ? action.task_target.target_id : action.action_id, action.action_id) + " | " + SafeLabel(source, "confirm") + " | fallback allowed, no local hardware claim";
+
+            SceneActionEndpointData[] sequence = action.task_target != null ? action.task_target.endpoint_sequence : null;
+            if (sequence == null || sequence.Length == 0)
+            {
+                sceneActionExecutionLine = "scene action target missing endpoint_sequence " + SafeLabel(action.action_id, "unknown") + " | no local hardware claim";
+                yield break;
+            }
+
+            int executed = 0;
+            foreach (SceneActionEndpointData endpoint in sequence)
+            {
+                if (endpoint == null || string.IsNullOrWhiteSpace(endpoint.endpoint_key)) continue;
+                yield return ExecuteSceneActionEndpoint(action, endpoint);
+                executed += 1;
+            }
+
+            sceneActionExecutionLine = "scene action target executed " + executed + " endpoint(s) from endpoint_sequence | rehearsal complete allowed, hardware ready false";
+        }
+
+        private IEnumerator ExecuteSceneActionEndpoint(SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            string endpointKey = SafeLabel(endpoint.endpoint_key, "unknown");
+            if (string.Equals(endpointKey, "local_unity", StringComparison.Ordinal))
+            {
+                ConfirmA1SpatialEntryExperience("scene_action_endpoint_sequence");
+                sceneActionExecutionLine = "local_unity endpoint confirmed " + SafeLabel(action.action_id, "scene") + " | requires shiyao trusted scan for field evidence";
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "interactions", StringComparison.Ordinal))
+            {
+                yield return PostInteraction(
+                    SafeLabel(endpoint.step_id, action.mission_step_id),
+                    SafeLabel(endpoint.mission_state, InnerWorldMissionStates.Doing),
+                    SafeLabel(endpoint.anchor_id, action.anchor_id),
+                    SafeLabel(endpoint.user_id, CurrentUserId()),
+                    action,
+                    endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "service_actions", StringComparison.Ordinal))
+            {
+                yield return PostServiceAction(SafeLabel(endpoint.anchor_id, action.anchor_id), SafeLabel(endpoint.action_id, "JOIN_EVENT_1430"), action, endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "write_back", StringComparison.Ordinal))
+            {
+                string title = SafeLabel(endpoint.title, "Rokid TimeMark");
+                string text = title + " from endpoint_sequence " + DateTime.Now.ToString("HH:mm:ss");
+                yield return PostWriteBack(text, SafeLabel(endpoint.anchor_id, action.anchor_id), title, action, endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "state", StringComparison.Ordinal))
+            {
+                yield return SwitchUserB(SafeLabel(endpoint.step_id, "user_b_readback"), SafeLabel(endpoint.anchor_id, action.anchor_id), SafeLabel(endpoint.user_id, "B"), SafeLabel(endpoint.mission_state, InnerWorldMissionStates.Complete), action, endpoint);
+                yield break;
+            }
+
+            sceneActionExecutionLine = "scene action endpoint unsupported " + endpointKey + " | no local hardware claim";
+        }
+
+        private SceneActionData FindSceneAction(string actionId)
+        {
+            if (space == null || space.scene_actions == null || string.IsNullOrWhiteSpace(actionId)) return null;
+            string clean = actionId.Trim();
+            foreach (SceneActionData action in space.scene_actions)
+            {
+                if (action != null && string.Equals(action.action_id, clean, StringComparison.Ordinal)) return action;
+            }
+            return null;
+        }
+
+        private void ApplySceneActionProvenance(InteractionRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
+        private void ApplySceneActionProvenance(ServiceActionRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
+        private void ApplySceneActionProvenance(WriteBackRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
         private IEnumerator PostInteraction(string stepId)
         {
             yield return PostInteraction(stepId, "doing");
@@ -524,21 +705,37 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId)
         {
+            yield return PostInteraction(stepId, missionStateValue, anchorId, CurrentUserId(), null, null);
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId, string userId, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
-                user_id = CurrentUserId(),
+                user_id = SafeLabel(userId, CurrentUserId()),
                 step_id = stepId,
                 mission_state = string.IsNullOrWhiteSpace(missionStateValue) ? "doing" : missionStateValue.Trim()
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Interaction posted");
             yield return LoadSpace();
         }
 
         private IEnumerator PostServiceAction()
+        {
+            yield return PostServiceAction(CurrentActiveAnchorId());
+        }
+
+        private IEnumerator PostServiceAction(string anchorId)
+        {
+            yield return PostServiceAction(anchorId, "JOIN_EVENT_1430", null, null);
+        }
+
+        private IEnumerator PostServiceAction(string anchorId, string actionId, SceneActionData sceneAction, SceneActionEndpointData endpoint)
         {
             ServiceActionRequest request = new ServiceActionRequest
             {
@@ -546,11 +743,12 @@ namespace InnerWorld.Rokid
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
-                action_id = "JOIN_EVENT_1430",
+                action_id = SafeLabel(actionId, "JOIN_EVENT_1430"),
                 label = "Join 14:30 demo",
-                anchor_id = CurrentActiveAnchorId(),
+                anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
                 step_id = "service_action"
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.ServiceActionsUrl, JsonUtility.ToJson(request), "Service action posted");
             yield return LoadSpace();
         }
@@ -1139,31 +1337,49 @@ namespace InnerWorld.Rokid
 
         private IEnumerator PostWriteBack(string text)
         {
+            yield return PostWriteBack(text, "A3", "Unity shell", null, null);
+        }
+
+        private IEnumerator PostWriteBack(string text, string anchorId, string title, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             WriteBackRequest request = new WriteBackRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
-                anchor_id = "A3",
-                title = "Unity shell",
+                anchor_id = SafeLabel(anchorId, "A3"),
+                title = SafeLabel(title, "Unity shell"),
                 text = string.IsNullOrWhiteSpace(text) ? "Unity shell writeback" : text.Trim()
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.WriteBackUrl, JsonUtility.ToJson(request), "Writeback posted");
             yield return LoadSpace();
         }
 
         private IEnumerator SwitchUserB()
         {
+            yield return SwitchUserB(string.Empty);
+        }
+
+        private IEnumerator SwitchUserB(string stepId)
+        {
+            yield return SwitchUserB(stepId, "A3", "B", InnerWorldMissionStates.Complete, null, null);
+        }
+
+        private IEnumerator SwitchUserB(string stepId, string anchorId, string userId, string missionStateValue, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
                 session_id = CurrentCalibrationSessionId(),
                 device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
-                anchor_id = "A3",
-                user_id = "B",
-                mission_state = "complete"
+                anchor_id = SafeLabel(anchorId, "A3"),
+                user_id = SafeLabel(userId, "B"),
+                step_id = string.IsNullOrWhiteSpace(stepId) ? null : stepId.Trim(),
+                mission_state = SafeLabel(missionStateValue, InnerWorldMissionStates.Complete)
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Switched to User B");
             yield return LoadSpace();
         }
@@ -1337,6 +1553,7 @@ namespace InnerWorld.Rokid
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
                 + "\nOperator " + BuildFieldOperatorPlanHudLine()
                 + "\nInput " + BuildFieldInputAssistStatusLine()
+                + "\nScene target " + sceneActionExecutionLine
                 + "\nShell " + ArShellStatusCompactLabel()
                 + "\nPreview " + ControlledSemanticPinHudLine()
                 + "\nTarget " + ActiveAnchorSummaryLabel();
@@ -1611,6 +1828,7 @@ namespace InnerWorld.Rokid
             }
 
             BuildSpatialRouteLine();
+            RenderSceneActionTasks();
             RenderControlledSemanticPins();
 
             if (!string.IsNullOrEmpty(selectedAnchorId) && !anchorVisuals.ContainsKey(selectedAnchorId))
@@ -1764,6 +1982,151 @@ namespace InnerWorld.Rokid
 
                 CreateSemanticPinStem(pin, position, color);
                 CreateSemanticPinLabel(pin, position);
+            }
+        }
+
+        private void RenderSceneActionTasks()
+        {
+            if (space == null || space.scene_actions == null || space.scene_actions.Length == 0)
+            {
+                return;
+            }
+
+            foreach (SceneActionData action in space.scene_actions)
+            {
+                if (action == null || string.IsNullOrWhiteSpace(action.anchor_id))
+                {
+                    continue;
+                }
+
+                Vector3 basePosition = SceneActionDisplayPosition(action);
+                Color color = ColorForSceneAction(action);
+                GameObject node = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                node.name = "Scene Action Task " + SafeLabel(action.action_id, action.anchor_id);
+                node.transform.position = basePosition;
+                node.transform.rotation = Quaternion.LookRotation((cameraPosition - basePosition).normalized, Vector3.up);
+                node.transform.localScale = new Vector3(0.18f, 0.08f, 0.015f);
+                ApplyMaterial(node.GetComponent<Renderer>(), color);
+                AnchorClickTarget clickTarget = node.AddComponent<AnchorClickTarget>();
+                clickTarget.anchorId = action.anchor_id;
+                clickTarget.sceneActionId = action.action_id;
+                clickTarget.executeSceneAction = true;
+                clickTarget.controller = this;
+                spawnedObjects.Add(node);
+
+                CreateSceneActionLine(action, basePosition, color);
+                CreateSceneActionGrowthBeats(action, basePosition, color);
+                CreateSceneActionLabel(action, basePosition, color);
+            }
+        }
+
+        private Vector3 SceneActionDisplayPosition(SceneActionData action)
+        {
+            if (action != null && action.spatial_binding != null && action.spatial_binding.pose != null)
+            {
+                SpacePose pose = action.spatial_binding.pose;
+                return new Vector3(Mathf.Clamp(pose.x, -1.55f, 1.55f), Mathf.Clamp(pose.y, 0.8f, 2.25f), Mathf.Lerp(wallCenter.z, pose.z, 0.5f));
+            }
+
+            if (action != null && anchorVisuals.ContainsKey(action.anchor_id))
+            {
+                return anchorVisuals[action.anchor_id].MarkerTransform.position + new Vector3(0f, -0.28f, -0.08f);
+            }
+
+            return wallCenter + new Vector3(0f, -0.35f, -0.18f);
+        }
+
+        private Color ColorForSceneAction(SceneActionData action)
+        {
+            if (action == null) return new Color(0.48f, 0.86f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A1", StringComparison.Ordinal)) return new Color(0.38f, 0.92f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A2", StringComparison.Ordinal)) return new Color(0.76f, 0.58f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A3", StringComparison.Ordinal)) return new Color(1f, 0.72f, 0.38f, 0.72f);
+            return new Color(0.48f, 0.86f, 1f, 0.72f);
+        }
+
+        private void CreateSceneActionLine(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null || !anchorVisuals.ContainsKey(action.anchor_id)) return;
+            Vector3 anchorPosition = anchorVisuals[action.anchor_id].MarkerTransform.position;
+            GameObject lineObject = new GameObject("Scene Action Spatial Binding " + SafeLabel(action.action_id, action.anchor_id));
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 3;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.003f;
+            line.startColor = new Color(color.r, color.g, color.b, 0.42f);
+            line.endColor = new Color(color.r, color.g, color.b, 0.16f);
+            Material material = CreateLineMaterial(color, 0.34f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, anchorPosition + new Vector3(0f, -0.08f, -0.02f));
+            line.SetPosition(1, Vector3.Lerp(anchorPosition, taskPosition, 0.55f) + new Vector3(0f, 0.06f, -0.08f));
+            line.SetPosition(2, taskPosition);
+            spawnedObjects.Add(lineObject);
+        }
+
+        private void CreateSceneActionLabel(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null) return;
+            GameObject label = new GameObject("Scene Action Label " + SafeLabel(action.action_id, action.anchor_id));
+            label.transform.position = taskPosition + new Vector3(-0.24f, 0.11f, -0.02f);
+            label.transform.rotation = Quaternion.LookRotation((label.transform.position - cameraPosition).normalized, Vector3.up);
+            TextMesh mesh = label.AddComponent<TextMesh>();
+            string title = SafeLabel(action.title, SafeLabel(action.action_id, "scene task"));
+            string task = SafeLabel(action.user_task, "Do the wall task at this anchor.");
+            string cue = SafeLabel(action.physical_cue, "real wall marker");
+            string placement = action.spatial_binding != null ? SafeLabel(action.spatial_binding.placement, "wall bound") : "wall bound";
+            mesh.text = action.anchor_id + " TASK  " + title + "\n" + task + "\nPhysical cue: " + cue + "\n3D placement: " + placement;
+            mesh.font = uiFont;
+            mesh.fontSize = 28;
+            mesh.characterSize = 0.012f;
+            mesh.anchor = TextAnchor.MiddleLeft;
+            mesh.color = new Color(color.r, color.g, color.b, 0.92f);
+            MeshRenderer meshRenderer = label.GetComponent<MeshRenderer>();
+            if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
+            spawnedObjects.Add(label);
+        }
+
+        private void CreateSceneActionGrowthBeats(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null || action.spatial_choreography == null || action.spatial_choreography.growth_beats == null)
+            {
+                return;
+            }
+
+            SceneActionGrowthBeatData[] beats = action.spatial_choreography.growth_beats;
+            Vector3 previous = taskPosition;
+            for (int i = 0; i < beats.Length; i++)
+            {
+                SceneActionGrowthBeatData beat = beats[i];
+                if (beat == null) continue;
+                Vector3 offset = beat.offset != null ? new Vector3(beat.offset.x, beat.offset.y, beat.offset.z) : new Vector3(0.08f * i, 0.03f * i, -0.08f * i);
+                Vector3 beatPosition = taskPosition + offset;
+                float scale = Mathf.Clamp(beat.scale > 0f ? beat.scale : 0.045f, 0.025f, 0.12f);
+
+                GameObject bead = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bead.name = "Scene Action Growth Beat " + SafeLabel(beat.beat_id, action.action_id);
+                bead.transform.position = beatPosition;
+                bead.transform.localScale = new Vector3(scale, scale, scale);
+                ApplyMaterial(bead.GetComponent<Renderer>(), new Color(color.r, color.g, color.b, 0.66f));
+                spawnedObjects.Add(bead);
+
+                GameObject trailObject = new GameObject("Scene Action Depth Time Trail " + SafeLabel(beat.beat_id, action.action_id));
+                LineRenderer trail = trailObject.AddComponent<LineRenderer>();
+                trail.useWorldSpace = true;
+                trail.positionCount = 2;
+                trail.numCapVertices = 3;
+                trail.startWidth = 0.0035f;
+                trail.endWidth = 0.002f;
+                trail.startColor = new Color(color.r, color.g, color.b, 0.28f);
+                trail.endColor = new Color(color.r, color.g, color.b, 0.1f);
+                Material trailMaterial = CreateLineMaterial(color, 0.22f);
+                if (trailMaterial != null) trail.material = trailMaterial;
+                trail.SetPosition(0, previous);
+                trail.SetPosition(1, beatPosition);
+                spawnedObjects.Add(trailObject);
+                previous = beatPosition;
             }
         }
 
@@ -1985,6 +2348,16 @@ namespace InnerWorld.Rokid
 
             target = collider.GetComponent<AnchorClickTarget>();
             return target != null;
+        }
+
+        private AnchorClickTarget CurrentGazeClickTarget()
+        {
+            if (rokidInputSource == null || !rokidInputSource.IsPoseValid) return null;
+            RokidGazeState gaze;
+            if (!rokidInputSource.TryGetGaze(out gaze)) return null;
+            RaycastHit hit;
+            AnchorClickTarget target;
+            return TryGetAnchorHit(gaze, out target, out hit) ? target : null;
         }
 
         private void SetGazeVisualTarget(string anchorId, string label, Vector3 hitPoint, bool isSelecting)
@@ -2801,6 +3174,7 @@ namespace InnerWorld.Rokid
             int stepIndex = runtime != null ? runtime.current_step_index : localStepIndex;
             string[] completedSteps = runtime != null ? runtime.completed_steps : null;
             string userId = runtime != null ? runtime.active_user : (runtimeConfig != null ? runtimeConfig.active_user : InnerWorldRuntimeConfig.DefaultActiveUser);
+            missionProvenanceLine = BuildMissionProvenanceLine(runtime != null ? runtime.mission_provenance : null);
             missionState.ApplyRuntime(state, stepIndex, completedSteps, userId);
             ApplyPresentationStrategyToMissionState();
             localStepIndex = missionState.current_step_index;
@@ -2900,7 +3274,16 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + sceneActionExecutionLine + "\n" + missionProvenanceLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+        }
+
+        private string BuildMissionProvenanceLine(MissionProvenanceData provenance)
+        {
+            if (provenance == null) return "mission provenance: rehearsal/no trusted hardware mutation";
+            string status = SafeLabel(provenance.state_provenance_status, "rehearsal");
+            string source = SafeLabel(provenance.last_mutation_source_status, "none");
+            string ready = provenance.hardware_ready_claim_allowed ? "hardware-ready claim allowed" : "hardware-ready claim blocked";
+            return "mission provenance: " + status + " / " + source + " / " + ready;
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -4971,11 +5354,19 @@ namespace InnerWorld.Rokid
     public sealed class AnchorClickTarget : MonoBehaviour
     {
         public string anchorId;
+        public string sceneActionId;
+        public bool executeSceneAction;
         public InnerWorldDemoController controller;
 
         private void OnMouseDown()
         {
-            if (controller != null) controller.SelectAnchor(anchorId);
+            if (controller == null) return;
+            if (executeSceneAction && !string.IsNullOrWhiteSpace(sceneActionId))
+            {
+                controller.ExecuteSceneActionTarget(sceneActionId, "mouse_click");
+                return;
+            }
+            controller.SelectAnchor(anchorId);
         }
     }
 
@@ -4987,6 +5378,7 @@ namespace InnerWorld.Rokid
         public AnchorData[] anchors;
         public BeaconData[] beacons;
         public NearbyPin[] semantic_pins;
+        public SceneActionData[] scene_actions;
         public MissionData mission;
         public RuntimeData runtime;
         public ServiceActionData[] service_actions;
@@ -5049,6 +5441,27 @@ namespace InnerWorld.Rokid
         public string mission_state;
         public int current_step_index;
         public string[] completed_steps;
+        public MissionProvenanceData mission_provenance;
+    }
+
+    [Serializable]
+    public sealed class MissionProvenanceData
+    {
+        public string schema;
+        public string state_provenance_status;
+        public string last_mutation_source_status;
+        public string last_action_type;
+        public string last_anchor_id;
+        public string last_source;
+        public bool trusted_hardware_session;
+        public bool trusted_mission_provenance;
+        public bool rehearsal_complete_allowed;
+        public bool hardware_ready_claim_allowed;
+        public bool fallback_no_hardware_claim;
+        public int mutation_count;
+        public int trusted_mutation_count;
+        public int rehearsal_mutation_count;
+        public string[] blockers;
     }
 
     [Serializable]
@@ -5057,6 +5470,78 @@ namespace InnerWorld.Rokid
         public string action_id;
         public string label;
         public string status;
+    }
+
+    [Serializable]
+    public sealed class SceneActionData
+    {
+        public string action_id;
+        public string anchor_id;
+        public string scene_id;
+        public string title;
+        public string user_task;
+        public string physical_cue;
+        public SceneActionSpatialBinding spatial_binding;
+        public string interaction;
+        public bool writes_evidence;
+        public string p0_role;
+        public string mission_step_id;
+        public bool handoff_to_shiyao_scan_scene;
+        public SceneActionChoreographyData spatial_choreography;
+        public SceneActionTaskTargetData task_target;
+    }
+
+    [Serializable]
+    public sealed class SceneActionTaskTargetData
+    {
+        public string target_id;
+        public string display_label;
+        public string confirm_mode;
+        public bool requires_trusted_shiyao_scan;
+        public bool fallback_no_hardware_claim;
+        public SceneActionEndpointData[] endpoint_sequence;
+    }
+
+    [Serializable]
+    public sealed class SceneActionEndpointData
+    {
+        public string endpoint_key;
+        public string method;
+        public string step_id;
+        public string action_id;
+        public string mission_state;
+        public string anchor_id;
+        public string user_id;
+        public string title;
+    }
+
+    [Serializable]
+    public sealed class SceneActionChoreographyData
+    {
+        public string time_layer;
+        public float depth_meters;
+        public string wall_seed_rule;
+        public string gesture_affordance;
+        public string spatial_sound;
+        public SceneActionGrowthBeatData[] growth_beats;
+    }
+
+    [Serializable]
+    public sealed class SceneActionGrowthBeatData
+    {
+        public string beat_id;
+        public string label;
+        public SpacePose offset;
+        public float scale;
+    }
+
+    [Serializable]
+    public sealed class SceneActionSpatialBinding
+    {
+        public string placement;
+        public SpacePose pose;
+        public string projection;
+        public string depth_layer;
     }
 
 }

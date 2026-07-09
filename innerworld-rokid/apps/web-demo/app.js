@@ -101,6 +101,7 @@ const model = {
     interactions: 0
   },
   localLedgerEvents: [],
+  sceneActionStatus: "scene action targets pending | no local hardware claim",
   deviceManifest: null,
   deviceAdapterChecklist: null,
   deviceSessions: null,
@@ -163,6 +164,7 @@ const els = {
   progress: document.querySelector("#progress"),
   riskGrid: document.querySelector("#riskGrid"),
   routeGrid: document.querySelector("#routeGrid"),
+  sceneActionLayer: document.querySelector("#sceneActionLayer"),
   sdkBindingGrid: document.querySelector("#sdkBindingGrid"),
   sdkBindingPill: document.querySelector("#sdkBindingPill"),
   showcaseGrid: document.querySelector("#showcaseGrid"),
@@ -1042,9 +1044,14 @@ function beaconsForAnchor(anchorId) {
   return (model.space?.beacons || []).filter((beacon) => beacon.anchor_id === anchorId);
 }
 
+function sceneActions() {
+  return Array.isArray(model.space?.scene_actions) ? model.space.scene_actions : [];
+}
+
 function renderAnchors() {
   if (!els.anchorLayer || !model.space) return;
   els.anchorLayer.innerHTML = "";
+  if (els.sceneActionLayer) els.sceneActionLayer.innerHTML = "";
 
   anchors().forEach((anchor, index) => {
     const position = anchorPosition(anchor, index);
@@ -1077,8 +1084,155 @@ function renderAnchors() {
     button.append(dot, title, subline);
     els.anchorLayer.append(button);
   });
+
+  renderSceneActions();
 }
 
+function sceneActionPosition(action, index) {
+  const anchor = anchorById(action?.anchor_id) || anchors()[index % Math.max(anchors().length, 1)];
+  const anchorIndex = Math.max(0, anchors().findIndex((item) => item.anchor_id === anchor?.anchor_id));
+  const base = anchorPosition(anchor || {}, anchorIndex);
+  const pose = action?.spatial_binding?.pose || {};
+  const z = Number(pose.z) || 2.5;
+  const depthPush = clamp((z - 2.2) * 7.5, -4, 12);
+  const lane = index % 2 === 0 ? -1 : 1;
+  return {
+    left: clamp(base.left + lane * (5 + depthPush * 0.25), 6, 86),
+    top: clamp(base.top + 13 + depthPush, 42, 84)
+  };
+}
+
+function renderSceneActions() {
+  if (!els.sceneActionLayer || !model.space) return;
+  els.sceneActionLayer.innerHTML = "";
+  sceneActions().forEach((action, index) => {
+    const cardPosition = sceneActionPosition(action, index);
+    const anchor = anchorById(action.anchor_id);
+    const anchorIndex = Math.max(0, anchors().findIndex((item) => item.anchor_id === action.anchor_id));
+    const anchorPos = anchorPosition(anchor || {}, anchorIndex);
+
+    const stem = document.createElement("span");
+    stem.className = `scene-action-stem scene-action-${String(action.anchor_id || "wall").toLowerCase()}`;
+    stem.style.setProperty("--stem-left", `${anchorPos.left.toFixed(2)}%`);
+    stem.style.setProperty("--stem-top", `${anchorPos.top.toFixed(2)}%`);
+    stem.style.setProperty("--stem-x", `${(cardPosition.left - anchorPos.left).toFixed(2)}%`);
+    stem.style.setProperty("--stem-y", `${(cardPosition.top - anchorPos.top).toFixed(2)}%`);
+
+    const choreography = action.spatial_choreography || {};
+    const growthBeats = Array.isArray(choreography.growth_beats) ? choreography.growth_beats : [];
+    const card = document.createElement("article");
+    card.className = `scene-action-card scene-action-${String(action.anchor_id || "wall").toLowerCase()}${action.writes_evidence ? " evidence-write" : ""}`;
+    card.style.setProperty("--action-left", `${cardPosition.left.toFixed(2)}%`);
+    card.style.setProperty("--action-top", `${cardPosition.top.toFixed(2)}%`);
+    card.style.setProperty("--action-depth", `${Math.max(0.16, Number(choreography.depth_meters) || 0.24).toFixed(2)}`);
+    card.tabIndex = 0;
+    card.dataset.actionId = action.action_id || "scene_action";
+    card.dataset.timeLayer = choreography.time_layer || "wall_time";
+    card.dataset.taskTarget = action.task_target?.target_id || "scene_task_target";
+    card.innerHTML = `
+      <span class="scene-action-kicker">shiyao scan -> ${action.anchor_id || "wall"} / ${action.p0_role || "scene"}</span>
+      <strong>${action.title || action.action_id || "Wall task"}</strong>
+      <p>${action.user_task || "Do the concrete wall task at this anchor."}</p>
+      <small>Physical cue: ${action.physical_cue || "real wall marker"}</small>
+      <small>3D: ${(action.spatial_binding && action.spatial_binding.projection) || "wall seeded projection"} / ${(action.spatial_binding && action.spatial_binding.depth_layer) || "depth layer"}</small>
+      <small>Time/depth: ${choreography.time_layer || "wall_time"} @ ${Number(choreography.depth_meters || 0).toFixed(2)}m</small>
+      <small>Gesture: ${choreography.gesture_affordance || action.interaction || "ray confirm"}</small>
+      <small>Target: ${(action.task_target && action.task_target.display_label) || "Scene task target"} / ${(action.task_target && action.task_target.confirm_mode) || "confirm"}</small>
+      <small>Gate: requires shiyao trusted scan for field evidence; fallback is no hardware claim.</small>
+    `;
+    card.addEventListener("click", () => executeSceneActionTarget(action));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        executeSceneActionTarget(action);
+      }
+    });
+    if (growthBeats.length) {
+      const beatRail = document.createElement("div");
+      beatRail.className = "scene-action-beats";
+      growthBeats.forEach((beat, beatIndex) => {
+        const dot = document.createElement("span");
+        dot.title = beat.label || beat.beat_id || `beat ${beatIndex + 1}`;
+        dot.textContent = String(beatIndex + 1);
+        beatRail.append(dot);
+      });
+      card.append(beatRail);
+    }
+    els.sceneActionLayer.append(stem, card);
+  });
+}
+
+async function executeSceneActionTarget(action) {
+  if (!action || model.busy) return;
+  const target = action.task_target || {};
+  const sequence = Array.isArray(target.endpoint_sequence) ? target.endpoint_sequence : [];
+  model.busy = true;
+  model.sceneActionStatus = `executing ${target.target_id || action.action_id} from endpoint_sequence | no local hardware claim`;
+  setCurrentAnchor(action.anchor_id, { skipAi: true });
+  renderHud();
+  try {
+    if (!sequence.length) throw new Error("endpoint_sequence missing");
+    let executed = 0;
+    for (const step of sequence) {
+      if (!step || !step.endpoint_key) continue;
+      await executeSceneActionEndpoint(action, target, step);
+      executed += 1;
+    }
+    model.sceneActionStatus = `complete ${target.target_id || action.action_id} via ${executed} endpoint(s) | rehearsal complete, hardware ready false`;
+    await refresh({ anchorId: action.anchor_id || model.currentAnchor });
+  } catch (error) {
+    model.sceneActionStatus = `failed ${target.target_id || action.action_id}: ${error.message || error} | no local hardware claim`;
+    renderHud();
+  } finally {
+    model.busy = false;
+  }
+}
+
+function sceneActionRehearsalPayload(action, target, step) {
+  return {
+    source: "web_scene_action_endpoint_sequence",
+    scene_action_id: action.action_id,
+    target_id: target.target_id || "",
+    endpoint_key: step.endpoint_key || "",
+    state_provenance_status: "rehearsal",
+    fallback_no_hardware_claim: true,
+    trusted_hardware_session: false,
+    hardware_ready_claim_allowed: false
+  };
+}
+
+async function executeSceneActionEndpoint(action, target, step) {
+  const payload = sceneActionRehearsalPayload(action, target, step);
+  const anchorId = step.anchor_id || action.anchor_id || model.currentAnchor;
+  if (step.endpoint_key === "local_unity") {
+    recordLocalLedgerEvent("scene_action", { ...payload, action_id: action.action_id, anchor_id: anchorId, note: "local confirm only" });
+    return;
+  }
+  if (step.endpoint_key === "interactions") {
+    const userId = step.user_id || model.activeUser;
+    await api.interact({ ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id, mission_state: step.mission_state || "doing" });
+    recordLocalLedgerEvent("interaction", { ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id, title: `${anchorId} ${step.step_id || "interaction"}` });
+    return;
+  }
+  if (step.endpoint_key === "service_actions") {
+    await api.serviceAction({ ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, action_id: step.action_id || "JOIN_EVENT_1430", label: target.display_label || "Join 14:30 demo", step_id: step.step_id || "service_action" });
+    recordLocalLedgerEvent("service_action", { ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, action_id: step.action_id || "JOIN_EVENT_1430" });
+    return;
+  }
+  if (step.endpoint_key === "write_back") {
+    await api.writeBack({ ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, title: step.title || "Rokid TimeMark", text: els.writeText?.value || WRITE_BACK_DEFAULT });
+    recordLocalLedgerEvent("write_back", { ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, title: step.title || "Rokid TimeMark" });
+    return;
+  }
+  if (step.endpoint_key === "state") {
+    const userId = step.user_id || "B";
+    model.activeUser = userId;
+    await api.interact({ ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id || "user_b_readback", mission_state: step.mission_state || "complete" });
+    recordLocalLedgerEvent("interaction", { ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id || "user_b_readback", title: "User B readback" });
+    return;
+  }
+  throw new Error(`unsupported endpoint_key ${step.endpoint_key}`);
+}
 function fallbackHud() {
   const anchor = anchorById(model.currentAnchor);
   const topBeacon = beaconsForAnchor(model.currentAnchor).at(-1);
@@ -1165,6 +1319,7 @@ function renderHud() {
   renderMetaPill(`${beaconsForAnchor(model.currentAnchor).length} beacons`);
   renderMetaPill(aiHud ? "AI HUD online" : "local fallback");
   renderMetaPill(aiError ? "AI route fallback" : null);
+  renderMetaPill(model.sceneActionStatus);
 
   renderAgentQueue();
   renderStageMetrics();

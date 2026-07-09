@@ -12,6 +12,13 @@ namespace InnerWorld.Rokid.Protocol
         public string user_id;
         public string step_id;
         public string mission_state;
+        public string scene_action_id;
+        public string target_id;
+        public string endpoint_key;
+        public string state_provenance_status;
+        public bool fallback_no_hardware_claim;
+        public bool trusted_hardware_session;
+        public bool hardware_ready_claim_allowed;
     }
 
     [Serializable]
@@ -67,6 +74,13 @@ namespace InnerWorld.Rokid.Protocol
         public string label;
         public string anchor_id;
         public string step_id;
+        public string scene_action_id;
+        public string target_id;
+        public string endpoint_key;
+        public string state_provenance_status;
+        public bool fallback_no_hardware_claim;
+        public bool trusted_hardware_session;
+        public bool hardware_ready_claim_allowed;
     }
 
     [Serializable]
@@ -115,6 +129,13 @@ namespace InnerWorld.Rokid.Protocol
         public string anchor_id;
         public string title;
         public string text;
+        public string scene_action_id;
+        public string target_id;
+        public string endpoint_key;
+        public string state_provenance_status;
+        public bool fallback_no_hardware_claim;
+        public bool trusted_hardware_session;
+        public bool hardware_ready_claim_allowed;
     }
 
     [Serializable]

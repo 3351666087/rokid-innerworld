@@ -1,0 +1,45 @@
+{
+  "schema": "innerworld-shiyao-merge-map/v1",
+  "owner_branch": "codex/rokid-real-device-sync",
+  "teammate_branch": "shiyao",
+  "purpose": "Keep shiyao scan/logo/QR entry scene decoupled from the concrete A1/A2/A3 Campus Hidden Layer scene.",
+  "handoff_version": "innerworld-shiyao-handoff/v1",
+  "handoff_receiver": "InnerWorld.Rokid.Concrete.ISceneHandoffReceiver.EnterConcreteScene(SceneHandoffData)",
+  "scan_scene_outputs": [
+    "scene_id",
+    "anchor_id",
+    "anchor_position",
+    "anchor_rotation",
+    "wall_normal",
+    "origin_mode",
+    "event_id",
+    "gps_latitude",
+    "gps_longitude",
+    "confidence",
+    "fallback"
+  ],
+  "concrete_scene_inputs": [
+    "data/space_demo.json scene_actions",
+    "A1/A2/A3 anchors",
+    "Space API mission/write-back state"
+  ],
+  "conflict_rules": {
+    "do_not_edit_shiyao_scenes": true,
+    "do_not_merge_hardware_claims_without_field_acceptance": true,
+    "keep_scene_actions_data_driven": true,
+    "sky_pin_preview_only": true
+  },
+  "unity_bridge": {
+    "file": "apps/unity-shell/Assets/Scripts/Concrete/ShiyaoConcreteSceneHandoffBridge.cs",
+    "purpose": "Non-invasive adapter from shiyao scan/logo scene ids and marker indexes to ISceneHandoffReceiver.EnterConcreteScene(SceneHandoffData).",
+    "maps": {
+      "campus_memory_wall": "A1",
+      "whale_cloud": "A2",
+      "task_board": "A3",
+      "marker_1": "A1",
+      "marker_2": "A2",
+      "marker_3": "A3"
+    },
+    "claim_guard": "Bridge handoff status must include no local hardware claim; field acceptance remains the only hardware-ready source."
+  }
+}

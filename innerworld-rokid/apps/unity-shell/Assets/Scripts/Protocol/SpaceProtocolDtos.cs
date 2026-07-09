@@ -274,8 +274,29 @@ namespace InnerWorld.Rokid.Protocol
         public string mission_state;
         public int current_step_index;
         public string[] completed_steps;
+        public MissionProvenanceResponse mission_provenance;
         public SpaceBeacon[] beacons;
         public RuntimeEvent[] events;
+    }
+
+    [Serializable]
+    public sealed class MissionProvenanceResponse
+    {
+        public string schema;
+        public string state_provenance_status;
+        public string last_mutation_source_status;
+        public string last_action_type;
+        public string last_anchor_id;
+        public string last_source;
+        public bool trusted_hardware_session;
+        public bool trusted_mission_provenance;
+        public bool rehearsal_complete_allowed;
+        public bool hardware_ready_claim_allowed;
+        public bool fallback_no_hardware_claim;
+        public int mutation_count;
+        public int trusted_mutation_count;
+        public int rehearsal_mutation_count;
+        public string[] blockers;
     }
 
     [Serializable]
