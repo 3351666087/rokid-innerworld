@@ -101,6 +101,7 @@
         "campus_wall_only": true,
         "generic_tour_or_ugc": false,
         "open_ugc": false,
+        "controlled_semantic_pin_demo": true,
         "phone_or_ppt_primary": false,
         "required_anchor_ids": [
           "A1",
@@ -365,14 +366,22 @@
   "semantic_pins": [
     {
       "pin_id": "SKY_WHALE_CLOUD_001",
+      "pin_kind": "semantic",
+      "pin_type": "sky",
       "label": "Whale Cloud Sky Pin",
+      "title": "鲸鱼云",
+      "subtitle": "西浦操场 · 开放世界 TimeMark",
+      "text": "今天没有鲸鱼，但有晚风。",
+      "display_text": "天空里有一枚高热度 TimeMark",
       "kind": "sky_pin",
       "demo_role": "controlled_extension_preview",
+      "demo_scope": "controlled_semantic_pin_demo",
       "controlled_demo": true,
       "open_ugc_allowed": false,
       "hardware_acceptance_evidence": false,
       "p0_required": false,
       "anchor_id": null,
+      "anchor_mode": "world",
       "pose": {
         "x": 0,
         "y": 4.8,
@@ -382,23 +391,49 @@
         "placement": "far_above_wall",
         "scale": 1.8,
         "depth_layer": "sky_preview",
-        "render_hint": "volumetric_cloud_pin"
+        "render_hint": "volumetric_cloud_pin",
+        "height_mode": "semantic",
+        "height_offset_m": 18,
+        "display_distance_limit_m": 35,
+        "local_pose": {
+          "x": 2.4,
+          "y": 4.8,
+          "z": 8.5
+        },
+        "billboard": true
       },
       "geo": {
         "scope": "campus_hidden_layer_preview",
-        "url": "innerworld://space/innerworld_campus_wall/pins/SKY_WHALE_CLOUD_001"
+        "url": "innerworld://space/innerworld_campus_wall/pins/SKY_WHALE_CLOUD_001",
+        "lat": 31.27532,
+        "lng": 120.73852,
+        "alt": 0,
+        "accuracy_radius_m": 12,
+        "visible_radius_m": 80
       },
       "media": {
         "title": "Whale Cloud",
         "subtitle": "Controlled 3D Pin preview",
-        "body": "A high-heat semantic pin preview. It demonstrates future open-world 3D pins only after the A1/A2/A3/User B wall loop is proven."
+        "body": "A high-heat semantic pin preview. It demonstrates future open-world 3D pins only after the A1/A2/A3/User B wall loop is proven.",
+        "type": "image",
+        "thumbnail_url": "/assets/demo/whale-cloud-thumb.svg",
+        "image_url": "/assets/demo/whale-cloud.svg",
+        "alt": "一张鲸鱼形状云朵的 TimeMark 配图"
+      },
+      "social": {
+        "likes": 217,
+        "comments": 42,
+        "checkins": 89,
+        "heat_score": 0.86
       },
       "safety": {
         "moderation_state": "curated_seed",
         "user_generated": false,
         "merchant_or_marketplace": false,
         "broad_route": false
-      }
+      },
+      "created_at": "2026-07-01T17:23:00+08:00",
+      "source": "demo_seed"
     }
   ],
   "service_actions": [

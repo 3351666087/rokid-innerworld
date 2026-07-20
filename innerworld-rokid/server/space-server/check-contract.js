@@ -166,6 +166,12 @@ function assertSpaceContract(space) {
   assert(Array.isArray(space.mission?.steps), "mission steps missing");
   assert(space.mission.steps.map((step) => step.step_id).join(",") === MISSION_STEP_IDS.join(","), "mission step ids mismatch");
   assertStoryGraphContract(space.mission?.story_graph, "space mission story graph");
+  assert(space.mission?.story_graph?.scope_guard?.controlled_semantic_pin_demo === true, "controlled semantic pin demo guard missing");
+  assert(Array.isArray(space.semantic_pins) && space.semantic_pins.length >= 1, "semantic pins missing");
+  const whalePin = whaleCloud;
+  assert(whalePin?.pin_kind === "semantic" && whalePin?.pin_type === "sky", "whale cloud semantic sky pin missing");
+  assert(whalePin?.media?.thumbnail_url && whalePin?.media?.image_url, "whale cloud media contract missing");
+  assert(Number(whalePin?.social?.heat_score) > 0, "whale cloud heat score missing");
   assert(space.service_actions?.some((action) => action.action_id === "JOIN_EVENT_1430"), "service action JOIN_EVENT_1430 missing");
 }
 

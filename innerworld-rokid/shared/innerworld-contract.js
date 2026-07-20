@@ -202,6 +202,7 @@ export function buildStoryGraphMissionRuntimeContract({
       campus_wall_only: graph.scope_guard?.campus_wall_only !== false,
       generic_tour_or_ugc: graph.scope_guard?.generic_tour_or_ugc === true,
       open_ugc: graph.scope_guard?.open_ugc === true,
+      controlled_semantic_pin_demo: graph.scope_guard?.controlled_semantic_pin_demo === true,
       phone_or_ppt_primary: graph.scope_guard?.phone_or_ppt_primary === true,
       required_anchor_ids: Array.isArray(graph.scope_guard?.required_anchor_ids)
         ? graph.scope_guard.required_anchor_ids

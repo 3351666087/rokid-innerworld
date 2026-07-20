@@ -179,6 +179,32 @@ function applyMissionProvenanceSummary(state, body = {}, provenance = {}, action
   return state.mission_provenance;
 }
 
+function buildNearbyAnchorPin(anchor, state) {
+  return {
+    ...anchor,
+    pin_id: anchor.anchor_id,
+    pin_kind: "anchored",
+    pin_type: "anchor",
+    kind: anchor.kind || "anchor",
+    anchor_mode: "wall_anchor",
+    beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
+  };
+}
+
+function buildNearbySemanticPin(pin) {
+  return {
+    ...pin,
+    pin_kind: pin.pin_kind || "semantic",
+    anchor_id: pin.anchor_id || null,
+    kind: pin.kind || pin.pin_type || "semantic",
+    label: pin.label || pin.title || pin.pin_id,
+    default_state: pin.default_state || "available",
+    pose: pin.pose || pin.spatial?.local_pose || null,
+    grid_pos: pin.grid_pos || null,
+    beacons: Array.isArray(pin.beacons) ? pin.beacons : []
+  };
+}
+
 export function createApiRouter({
   aiPromptPath,
   aiSchemaPath,
@@ -750,22 +776,21 @@ export function createApiRouter({
     if (req.method === "GET" && url.pathname === "/api/pins/nearby") {
       const space = await loadSpace();
       const state = await loadState();
-      const anchorPins = space.anchors.map((anchor) => ({
-        pin_type: "anchor",
-        ...anchor,
-        beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
-      }));
-      const semanticPins = (Array.isArray(space.semantic_pins) ? space.semantic_pins : []).map((pin) => ({
-        pin_type: "semantic",
-        ...pin,
-        beacons: []
-      }));
+      const anchoredPins = space.anchors.map((anchor) => buildNearbyAnchorPin(anchor, state));
+      const semanticPins = Array.isArray(space.semantic_pins)
+        ? space.semantic_pins.map((pin) => buildNearbySemanticPin(pin))
+        : [];
       sendJson(res, 200, {
         space_id: space.space_id,
         radius_m: Number(url.searchParams.get("radius") || 20),
-        p0_anchor_count: anchorPins.length,
-        semantic_preview_count: semanticPins.length,
-        pins: [...anchorPins, ...semanticPins]
+        p0_anchor_count: anchoredPins.length,
+        semantic_preview_count: semanticPins.filter((pin) => pin.controlled_demo === true && pin.open_ugc_allowed === false).length,
+        pin_counts: {
+          anchored: anchoredPins.length,
+          semantic: semanticPins.length,
+          total: anchoredPins.length + semanticPins.length
+        },
+        pins: [...anchoredPins, ...semanticPins]
       });
       return;
     }
