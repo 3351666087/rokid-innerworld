@@ -27,6 +27,7 @@ const SENSITIVE_LEDGER_KEYS = new Set([
   "access_token",
   "address",
   "bssid",
+  "device_id",
   "gateway",
   "ip",
   "ip_address",
@@ -38,6 +39,7 @@ const SENSITIVE_LEDGER_KEYS = new Set([
   "recipient",
   "serial",
   "serial_number",
+  "session_id",
   "ssid",
   "token"
 ]);
@@ -145,6 +147,51 @@ function ledgerEventFromRow(row) {
     result: sanitizeLedgerValue(parseJson(row.result_json, {})) || {},
     state: sanitizeLedgerValue(parseJson(row.state_json, {})) || {},
     created_at: row.created_at
+  };
+}
+
+function trustedMissionProvenanceFromEvent(event) {
+  const fromPayload = event?.payload?.trusted_mission_provenance;
+  const fromResult = event?.result?.trusted_mission_provenance;
+  const proof = fromPayload && typeof fromPayload === "object" ? fromPayload : fromResult;
+  return proof && typeof proof === "object" ? proof : null;
+}
+
+function summarizeTrustedMissionProvenance(events) {
+  const proofs = events
+    .map((event) => ({ event, proof: trustedMissionProvenanceFromEvent(event) }))
+    .filter((item) => item.proof);
+  const trusted = proofs.filter((item) => item.proof.trusted === true);
+  const trustedTypes = new Set(trusted.map((item) => item.event.type));
+  const trustedSteps = new Set(trusted.map((item) => item.event.step_id).filter(Boolean));
+  const trustedAnchors = new Set(trusted.map((item) => item.proof.anchor_id || item.event.anchor_id).filter(Boolean));
+  const userBTrusted = trusted.some((item) => item.event.type === "interaction" && item.event.user_id === "B");
+
+  return {
+    schema: "innerworld-trusted-mission-provenance-summary/v1",
+    ready: trustedTypes.has("interaction")
+      && trustedTypes.has("service_action")
+      && trustedTypes.has("write_back")
+      && trustedSteps.has("read")
+      && trustedSteps.has("find_year")
+      && userBTrusted
+      && trustedAnchors.has("A2")
+      && trustedAnchors.has("A3"),
+    trusted_event_count: trusted.length,
+    reported_event_count: proofs.length,
+    trusted_types: Array.from(trustedTypes).sort(),
+    trusted_steps: Array.from(trustedSteps).sort(),
+    trusted_anchor_ids: Array.from(trustedAnchors).sort(),
+    user_b_readback_trusted: userBTrusted,
+    missing: [
+      trustedSteps.has("read") ? null : "trusted_read_missing",
+      trustedSteps.has("find_year") ? null : "trusted_find_year_missing",
+      trustedTypes.has("service_action") ? null : "trusted_service_action_missing",
+      trustedTypes.has("write_back") ? null : "trusted_write_back_missing",
+      userBTrusted ? null : "trusted_user_b_readback_missing",
+      trustedAnchors.has("A2") ? null : "trusted_a2_action_missing",
+      trustedAnchors.has("A3") ? null : "trusted_a3_action_missing"
+    ].filter(Boolean)
   };
 }
 
@@ -1121,6 +1168,13 @@ export async function createSqliteStore({
       ORDER BY datetime(created_at) DESC, event_id DESC
       LIMIT 5
     `).map(ledgerEventFromRow);
+    const allEvents = select(`
+      SELECT event_id, type, space_id, user_id, anchor_id, step_id, action_id, beacon_id,
+        payload_json, result_json, state_json, created_at
+      FROM mission_ledger
+      ORDER BY datetime(created_at) DESC, event_id DESC
+      LIMIT 200
+    `).map(ledgerEventFromRow);
     const latestEvent = latest[0] || null;
     const runtime = loadRuntimeState() || {};
     const stateSummary = summarizeRuntimeState(runtime);
@@ -1170,12 +1224,14 @@ export async function createSqliteStore({
         last_event_at: latestEvent?.created_at || null,
         sources: Array.from(new Set(latest.map((event) => event.user_id || "system"))).filter(Boolean)
       },
+      trusted_mission_provenance: summarizeTrustedMissionProvenance(allEvents),
       latest,
       latest_event: latestEvent,
       checks: {
         has_service_action: serviceActionTotal > 0,
         has_write_back: (byType.write_back || 0) > 0,
-        has_interaction: (byType.interaction || 0) > 0
+        has_interaction: (byType.interaction || 0) > 0,
+        has_trusted_mission_provenance: summarizeTrustedMissionProvenance(allEvents).ready === true
       },
       privacy: "Mission ledger is safe for local field evidence and release summaries; it does not expose raw private chat exports or device/network identifiers."
     };

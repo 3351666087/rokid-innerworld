@@ -2,6 +2,46 @@
 
 本工程服务于 Rokid「镜见 InnerWorld / 校园记忆展墙」最终方案。当前目标是在没有硬件的阶段，先把本机 localhost 闭环跑成可演示、可打包、可迁移到真机的版本。
 
+## Current Hardware Checkpoint
+
+Station Pro is connected and the project is in the real-device lane. The current disk APK is LAN-ready, UXR-manifest-ready, and packaged with the Rokid image database/native libraries: 45,798,669 bytes, SHA256 `5b1d4641616dfc75bee98f1772af5c592820b07ba90c0e38413dff2bdd253029`, min SDK 28, target SDK 36, `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so`. The packaged `libopenxr_loader.so` is now verified as the Rokid package loader (`b7e723e8017e`, marker `com.rokid.openxr.runtime`) instead of Unity's default Khronos-broker loader. The APK-packaged `RKImage.db/Data.json` target map is parsed by package gates and is green for the P0 mapping `1:A1`, `2:A2`, `3:A3`.
+
+The current APK has passed Station Pro install/cold-launch/process smoke for the same `5b1d4641616d...` SHA. The black-screen runtime-unavailable cause is fixed: fresh logcat no longer shows `XR_ERROR_RUNTIME_UNAVAILABLE` or Khronos broker failure and now shows Rokid runtime manifest/load success. If the glasses still show black, the active blocker is the physical Station Pro -> glasses display session: the diagnostics now select one ADB transport when USB and TCP are both present, the current Station Pro display dump still shows only the internal display, `rokid_display` reports USB display/device present but `dsp_connected=false`, and the Station USB role is still device/MTP mode toward Windows instead of a glasses-ready host/display path. Runtime logs also include `getGlassName failed: glass not detected` plus head-pose failures. It also contains the `IW_TARGET_*` target-observation diagnostics and latest mission provenance payload code in APK metadata. Target reports still separate `precheck_ok` from `physical_acceptance_ready`; the former can be green while the latter remains false. This is still not hardware acceptance: `/api/field/acceptance` remains `rehearsal_ready` until operator-paired trusted A1/A2/A3 observations, A3 write-back, and explicit User B readback (`active_user=B`) pass on the real wall.
+
+Station smoke now records a separate display/glasses gate. It clears logcat before launch, keeps raw dumpsys/logcat out of evidence, chooses one sanitized ADB target when USB/TCP duplicate transports exist, and reports only display summaries plus runtime pattern counts. Current fresh evidence is: install/run smoke true, Rokid runtime loaded, runtime-unavailable false, external display false, internal-only true, selected ADB transport recorded, and `glass_name_failure_count=2`. `npm run station:apk:display-smoke` is the strict gate for the physical glasses display chain and currently fails correctly with `rokid_glasses_display_not_detected`.
+
+Use `npm run station:glasses:diagnose` for read-only hardware-layer diagnosis after any cable, dock, HDMI, or glasses wake/sleep change. Current diagnostic evidence shows the Rokid/OpenXR runtime package and service are present, runtime signals are active, Rokid-like input devices and USB tokens exist, but Android display enumeration remains internal-only and `station_usb_role_device_mode_blocks_glasses` / `rokid_display_dsp_not_connected` remain active blockers. `npm run station:glasses:require-ready` is expected-red until an external/Rokid display appears, the Station USB role is compatible with the glasses path, and head pose is healthy.
+
+The Web operator console now reads `/api/field/target-readiness`, a read-only Space API summary derived from `/api/field/acceptance`. It displays `precheck_ok`, `physical_acceptance_ready`, trusted A1/A2/A3 count, mission/User B status, and physical blockers without reading `output/*.json`, running ADB/logcat, creating simulator/manual observations, or mutating mission state. The Hardware Runtime panel now labels wall-lock evidence as a lock candidate; only `/api/field/acceptance.ready` plus trusted A1/A2/A3, A3 TimeMark write-back, and User B readback can make physical acceptance true.
+
+The operator console now has a first-class Field Pass panel backed by read-only `/api/field/operator-plan`. It compresses the commercial P0现场 flow into six phases: preflight, A1 spatial entry, A2 memory read, A3 TimeMark write-back, User B readback, and closeout. The endpoint and UI expose current phase, next actions, required evidence, blockers, state-mutating phase flags, readiness booleans, scope guards, and privacy guards. It never runs ADB/logcat, never creates simulator/manual observations, never writes evidence files, and never exposes raw serials, USB ids, session ids, device ids, private IPs, pairing codes, raw pose/ray, logcat, or dumpsys.
+
+Use `npm run field:operator-plan` after `npm run dev` or `npm run dev:lan` to write the same plan as a local/LAN operator handoff under `output/field-operator-plan/field-operator-plan-latest.*`. The command is read-only and is meant for field execution flow, not hardware acceptance by itself.
+
+Unity heartbeat now sends a sanitized `input_frame` summary for the RKInput 3DoF ray / PointableUI focus path: source, sequence, command/buttons, focused A1/A2/A3 anchor, hit distance, `ray_reported`, and `pointable_ui_focus`. The Space Server stores only the summary and never returns raw ray vectors. This is field evidence for the live adapter path, not a hardware-ready shortcut.
+
+Mission/write-back acceptance now also requires trusted mission provenance and trusted A1/A2/A3 physical prerequisites. Unity/Rokid interaction, service action, TimeMark write-back, and User B readback requests carry session/device/anchor inputs for server-side proof, while public ledger/API output keeps raw session ids, raw device ids, private network identifiers, pairing codes, raw pose streams, and raw ray vectors out. The field reports expose `mission_ledger_ready` separately; `mission_loop_ready` stays false while trusted A1/A2/A3 observations are missing, even when ledger/User B/provenance evidence is complete.
+
+The generated `field-live-pass` and `field-target-pass` Markdown now put this split in the top summary: mission ledger ready, trusted A1/A2/A3 prerequisite ready, missing trusted anchors, and trusted mission provenance ready. This keeps the现场 operator focused on rescanning the real wall when the ledger is already green but physical evidence is not.
+
+Unity now converts trusted Rokid image-target observations into the narrow P0 mission path only after the Space API returns `hardware_observation_trusted=true`: A2 can advance `read/find_year`, A3 can post the fixed TimeMark write-back only after `service_action`, and A1 still waits for deliberate entry confirmation. Simulator/manual observations remain rehearsal-only and cannot trigger this assist.
+
+`device-probe` is bounded against real Windows/ADB enumeration hangs: command/PnP timeouts are recorded in the sanitized report, and `check:device-probe` has an outer timeout. Station APK package gates also read inspect-only evidence so a later `station:apk:pair-smoke` cannot be mistaken for a non-mutating APK inspection. `tools/build-unity-android.ps1` now runs post-build external checks through a direct timeout-bounded .NET process wrapper, so Unity success cannot leave the build report hanging behind a PowerShell Job.
+
+Use `npm run field:live-pass` for a read-only live field snapshot, `npm run check:field-live-pass` to verify the current operator-paired live session window, and `npm run field:live-pass -- --require-trusted --require-mission-loop` during final physical acceptance. The live-pass report now lists missing trusted anchors, missing raw hardware anchors, missing mission steps, and next required field actions. `npm run field:acceptance-session` wraps the non-mutating device/APK/live-pass prechecks into one field report; `npm run field:acceptance-session:live` adds the explicit mutating Station Pro pair smoke plus live watch for the physical pass. These commands do not post simulator/manual observations.
+
+Use `npm run field:acceptance-session:target` during the physical wall pass to run Station Pro pair smoke, live watch, and target-pass diagnostics in one sanitized report. `npm run field:target-pass:apply` may post A2 mission progress, the controlled service action, and A3 TimeMark only after trusted A2/A3 evidence exists; `npm run field:acceptance-session:target-strict` also requires explicit User B readback confirmation and must stay red until the real hardware loop is complete. The operator runbook is `docs/field-hardware-runbook.md`.
+
+When `field:target-pass:apply` does mutate mission state, it now requires current online operator-paired live session/device/anchor inputs plus RKInput ray, PointableUI focus, and confirm evidence before the Space API write. The JSON/Markdown report only exposes sanitized `provenance_input` fields such as readiness, blockers, session availability, hash prefixes, anchor, and input-confirm status; raw session ids and raw device ids stay out.
+
+`field:target-pass:strict` also verifies the current target-diagnostics APK preflight before acceptance: current APK SHA prefix, `IW_TARGET_*` token scan, latest mutating Station Pro launch evidence, UXR readiness, and the APK-packaged `RKImage.db` target index map must all match. This is a package/evidence freshness guard only; it does not replace trusted A1/A2/A3 observations or User B readback.
+
+Use `npm run field:target-pass:watch` during the live wall scan. It is read-only by default, records repeated API snapshots, and counts `IW_TARGET_*` logcat diagnostics without writing raw logcat; counts stay zero until the glasses actually see A1/A2/A3 target events.
+
+The latest field reports now include an `Untrusted Hardware Observations` section. This is a diagnostic aid for the physical pass, not a readiness shortcut: A2/A3 hardware-mode observations can be listed with sanitized trust issues and SDK binding stage while still remaining rejected for hardware acceptance. Re-scan/re-bind through the operator-paired live SDK session is still required before A1/A2/A3 can count as trusted.
+
+Unity now keeps one pending trusted target observation per A1/A2/A3 anchor when target events arrive before a same-session server heartbeat has acknowledged operator pairing, hardware eligibility, and input/overlay/live SDK binding. Once that heartbeat ack is visible, the runtime retries the queued target observation through the normal `/api/calibration/observations` path; the server still decides trust, and strict field acceptance remains red until fresh physical A1/A2/A3 plus the P0 mission/User B loop pass.
+
 ## Quick Start
 
 ```powershell
@@ -81,6 +121,9 @@ npm run env:doctor
 npm run ops:monitor:once
 npm run evidence:rehearsal -- --reset-after
 npm run field:preflight
+npm run field:operator-plan
+npm run field:live-pass
+npm run check:field-live-pass
 npm run pdf:fieldkit
 npm run check:field-markers
 npm run check:field-acceptance

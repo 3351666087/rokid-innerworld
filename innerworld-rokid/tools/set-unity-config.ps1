@@ -12,6 +12,12 @@ $configPaths = @(
   (Join-Path $root "apps\unity-shell\Assets\Resources\innerworld-config.json")
 )
 
+function Redact-PrivateUrl {
+  param([AllowNull()][string]$Value)
+  if ($null -eq $Value) { return $null }
+  return "$Value" -replace '\b(?:(?:10|127)\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})\b', '<private-ip-redacted>'
+}
+
 if ($BaseUrl -notmatch '^https?://') {
   throw "BaseUrl must start with http:// or https://"
 }
@@ -27,5 +33,5 @@ foreach ($configPath in $configPaths) {
   Write-Output "Unity config updated: $configPath"
 }
 
-Write-Output "base_url=$($config.base_url)"
+Write-Output "base_url=$(Redact-PrivateUrl $config.base_url)"
 Write-Output "space_id=$($config.space_id)"

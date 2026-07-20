@@ -39,8 +39,9 @@ async function readText(relativePath) {
 }
 
 async function assertUnityAdapterBoundary() {
-  const [controller, presentationMode, missionState, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
+  const [controller, imageTrackingObserver, presentationMode, missionState, poseProvider, bindingProbe, boundaryStatus, resolver, editorInput, fallbackOverlay, uxrInput, uxrOverlay, docs] = await Promise.all([
     readText("apps/unity-shell/Assets/Scripts/InnerWorldDemoController.cs"),
+    readText("apps/unity-shell/Assets/Scripts/Rokid/InnerWorldRokidImageTrackingObserver.cs"),
     readText("apps/unity-shell/Assets/Scripts/Runtime/RokidPresentationMode.cs"),
     readText("apps/unity-shell/Assets/Scripts/Runtime/InnerWorldMissionState.cs"),
     readText("apps/unity-shell/Assets/Scripts/Rokid/IRokidPoseProvider.cs"),
@@ -66,14 +67,18 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("private WallCalibrationManifest wallCalibrationManifest;"), "Unity controller wall calibration manifest field missing");
   assert(controller.includes("private FieldMarkerManifest fieldMarkerManifest;"), "Unity controller field marker manifest field missing");
   assert(controller.includes("private FieldAcceptanceManifest fieldAcceptanceManifest;"), "Unity controller field acceptance manifest field missing");
+  assert(controller.includes("private FieldOperatorPlanManifest fieldOperatorPlan;"), "Unity controller field operator plan manifest field missing");
   assert(controller.includes("private string fieldAcceptanceLine"), "Unity controller field acceptance status line missing");
+  assert(controller.includes("private string fieldOperatorPlanLine"), "Unity controller field operator plan status line missing");
   assert(controller.includes("yield return LoadWallCalibrationManifest();"), "Unity controller startup wall calibration fetch missing");
   assert(controller.includes("yield return LoadDeviceManifest();"), "Unity controller startup device manifest fetch missing");
   assert(controller.includes("yield return LoadFieldMarkerManifest();"), "Unity controller startup field marker fetch missing");
   assert(controller.includes("yield return LoadFieldAcceptanceManifest();"), "Unity controller startup field acceptance fetch missing");
+  assert(/private IEnumerator LoadRuntimeServiceContracts\(\)[\s\S]*yield return LoadEvidenceChain\(\);[\s\S]*yield return LoadSessionPlan\(\);[\s\S]*yield return LoadFieldAcceptanceManifest\(\);[\s\S]*yield return LoadFieldOperatorPlanManifest\(\);[\s\S]*RefreshHud\(\);/.test(controller), "Unity controller runtime contract load must fetch field operator plan after field acceptance and before HUD refresh");
   assert(controller.includes("LoadWallCalibrationManifest"), "Unity controller wall calibration coroutine missing");
   assert(controller.includes("LoadFieldMarkerManifest"), "Unity controller field marker coroutine missing");
   assert(controller.includes("LoadFieldAcceptanceManifest"), "Unity controller field acceptance coroutine missing");
+  assert(controller.includes("LoadFieldOperatorPlanManifest"), "Unity controller field operator plan coroutine missing");
   assert(controller.includes("LoadDeviceManifest"), "Unity controller device manifest coroutine missing");
   assert(controller.includes("bootstrap.endpoints.device_manifest"), "Unity controller bootstrap device manifest endpoint missing");
   assert(controller.includes("apiClient.DeviceManifestUrl"), "Unity controller device manifest fallback URL missing");
@@ -89,8 +94,10 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("a1_spatial_entry_experience"), "Unity controller A1 spatial entry contract missing");
   assert(controller.includes("A1EntryConfirmMinDistanceMeters = 0.4f") && controller.includes("A1EntryConfirmMaxDistanceMeters = 0.5f"), "Unity controller A1 deliberate confirmation window must be 0.4m-0.5m");
   assert(controller.includes("BuildA1SpatialEntryHudLine") && controller.includes("BuildA1SpatialEntryHeartbeatLine"), "Unity controller A1 entry HUD/heartbeat lines missing");
-  assert(controller.includes("entry_confirmation_status") && controller.includes("spatial_layer_transition_state") && controller.includes("开启空间层"), "Unity controller A1 confirmation / spatial layer transition fields missing");
+  assert(controller.includes("entry_confirmation_status") && controller.includes("spatial_layer_transition_state") && controller.includes("a1_spatial_entry_experience"), "Unity controller A1 confirmation / spatial layer transition fields missing");
   assert(controller.includes("fallback_not_hardware_ready") && controller.includes("fallback_hardware_ready false"), "Unity controller fallback must not claim hardware ready for A1 entry");
+  assert(controller.includes("Field Input Assist Rail") && controller.includes("operator_assist_rehearsal_not_hardware_ready") && controller.includes("visible_but_no_remote_or_hand"), "Unity controller visible-but-no-input field assist rail missing");
+  assert(controller.includes("CreateButton(\"A1\"") && controller.includes("CreateButton(\"A2\"") && controller.includes("CreateButton(\"A3\"") && controller.includes("ConfirmEntryOrCompleteNextStep(\"operator_assist_confirm\")"), "Unity controller P0 field assist controls missing");
   assert(controller.includes("bootstrap.endpoints.wall_calibration"), "Unity controller bootstrap wall calibration endpoint missing");
   assert(controller.includes("apiClient.WallCalibrationUrl"), "Unity controller wall calibration fallback URL missing");
   assert(controller.includes("JsonUtility.FromJson<WallCalibrationManifest>"), "Unity controller wall calibration manifest parsing missing");
@@ -100,15 +107,23 @@ async function assertUnityAdapterBoundary() {
   assert(controller.includes("bootstrap.endpoints.field_acceptance"), "Unity controller bootstrap field acceptance endpoint missing");
   assert(controller.includes("apiClient.FieldAcceptanceUrl"), "Unity controller field acceptance fallback URL missing");
   assert(controller.includes("JsonUtility.FromJson<FieldAcceptanceManifest>"), "Unity controller field acceptance manifest parsing missing");
+  assert(controller.includes("bootstrap.endpoints.field_operator_plan"), "Unity controller bootstrap field operator plan endpoint missing");
+  assert(controller.includes("apiClient.FieldOperatorPlanUrl"), "Unity controller field operator plan fallback URL missing");
+  assert(controller.includes("JsonUtility.FromJson<FieldOperatorPlanManifest>"), "Unity controller field operator plan parsing missing");
   assert(controller.includes("BuildWallCalibrationStatusLine"), "Unity controller wall calibration HUD/log status missing");
   assert(controller.includes("BuildFieldMarkerStatusLine"), "Unity controller field marker HUD/log status missing");
   assert(controller.includes("BuildFieldAcceptanceStatusLine"), "Unity controller field acceptance HUD/log status missing");
+  assert(controller.includes("BuildFieldOperatorPlanStatusLine"), "Unity controller field operator plan HUD/log status missing");
+  assert(controller.includes("BuildFieldOperatorPlanNextActionLine") && controller.includes("FieldOperatorPlanHudBadge"), "Unity controller field operator plan HUD badge/next action missing");
+  assert(controller.includes("BuildFieldOperatorPlanTargetLine") && controller.includes("BuildFieldOperatorPlanDebugLine"), "Unity controller field operator plan target HUD missing");
+  assert(controller.includes("FieldOperatorPlanScopeGuardLabel") && controller.includes("P0 A1/A2/A3/User B"), "Unity controller field operator plan P0 scope guard label missing");
   assert(controller.includes("BuildFieldMarkerHeartbeatLine"), "Unity controller field marker heartbeat status missing");
   assert(controller.includes("BuildFieldMarkerImageTargetAssetLine"), "Unity controller image target asset active line missing");
   assert(controller.includes("FieldMarkerImageTargetAssetReadinessLabel"), "Unity controller image target asset readiness line missing");
   assert(controller.includes("FieldMarkerImageTargetAssetsLabel"), "Unity controller image target asset status summary missing");
   assert(controller.includes("CreateHudPanel") && controller.includes("Target Card") && controller.includes("Radar Strip"), "Unity controller premium HUD panels missing");
   assert(controller.includes("CreateAnchorHalo") && controller.includes("BuildSpatialRouteLine") && controller.includes("TickPremiumSpatialSurfaces"), "Unity controller premium spatial anchor surfaces missing");
+  assert(controller.includes("DepthLayerOffset") && controller.includes("Spatial Memory Depth Ribbon"), "Unity controller spatial memory depth layering missing");
   assert(controller.includes("BuildPremiumTargetCardLine") && controller.includes("ImageTargetAssetCardLine") && controller.includes("ArShellStatusCompactLabel"), "Unity controller premium target card / AR shell status missing");
   assert(controller.includes("ApplyPresentationStrategyToMissionState"), "Unity controller must apply presentation strategy to mission state");
   assert(controller.includes("marker.image_target_asset"), "Unity controller must consume marker image_target_asset");
@@ -147,6 +162,7 @@ async function assertUnityAdapterBoundary() {
   assert(/private IEnumerator LoadWallCalibrationManifest\(\)[\s\S]*bootstrap\.endpoints\.wall_calibration[\s\S]*apiClient\.WallCalibrationUrl[\s\S]*UnityWebRequest\.Get\(url\)[\s\S]*JsonUtility\.FromJson<WallCalibrationManifest>/.test(controller), "Unity controller must actively GET and parse the wall calibration manifest");
   assert(/private IEnumerator LoadFieldMarkerManifest\(\)[\s\S]*bootstrap\.endpoints\.field_markers[\s\S]*apiClient\.FieldMarkersUrl[\s\S]*UnityWebRequest\.Get\(url\)[\s\S]*JsonUtility\.FromJson<FieldMarkerManifest>/.test(controller), "Unity controller must actively GET and parse the field marker manifest");
   assert(/private IEnumerator LoadFieldAcceptanceManifest\(\)[\s\S]*bootstrap\.endpoints\.field_acceptance[\s\S]*apiClient\.FieldAcceptanceUrl[\s\S]*UnityWebRequest\.Get\(url\)[\s\S]*JsonUtility\.FromJson<FieldAcceptanceManifest>/.test(controller), "Unity controller must actively GET and parse the field acceptance manifest");
+  assert(/private IEnumerator LoadFieldOperatorPlanManifest\(\)[\s\S]*bootstrap\.endpoints\.field_operator_plan[\s\S]*apiClient\.FieldOperatorPlanUrl[\s\S]*UnityWebRequest\.Get\(url\)[\s\S]*JsonUtility\.FromJson<FieldOperatorPlanManifest>/.test(controller), "Unity controller must actively GET and parse the field operator plan manifest");
   assert(/private IEnumerator SubmitWallCalibrationObservation\(string trackingMode\)[\s\S]*bootstrap\.endpoints\.wall_calibration_observations[\s\S]*apiClient\.WallCalibrationObservationsUrl[\s\S]*JsonUtility\.ToJson\(payload\)[\s\S]*new UnityWebRequest\(url, "POST"\)/.test(controller), "Unity controller must actively POST wall calibration observations as JSON");
   assert(/new WallCalibrationObservationPayload[\s\S]*session_id[\s\S]*device_id[\s\S]*anchor_id[\s\S]*tracking_mode[\s\S]*observed_pose[\s\S]*confidence[\s\S]*notes[\s\S]*client_time/.test(controller), "Unity controller wall calibration observation payload must include required fields");
   assert(/BuildWallCalibrationObservationPayload[\s\S]*BuildObservedPoseFromExpectedPose\(anchor != null \? anchor\.expected_pose/.test(controller), "Unity controller must rehearse observations from manifest expected_pose");
@@ -158,6 +174,8 @@ async function assertUnityAdapterBoundary() {
   assert(/ImageTargetPhysicalSizeLabel\(FieldMarkerImageTargetAsset asset\)[\s\S]*asset\.physical_width_mm[\s\S]*asset\.physical_height_mm/.test(controller), "Unity controller image target asset line must consume physical target dimensions");
   assert(/BuildFieldAcceptanceHeartbeatLine\(\)[\s\S]*FieldAcceptanceReadyForHardwareFlag[\s\S]*FieldAcceptanceHardwareEvidenceCount[\s\S]*FieldAcceptanceTrackingGuardLabel[\s\S]*simulator_rehearsal_is_not_hardware_ready/.test(controller), "Unity controller field acceptance heartbeat must include hardware evidence and simulator guard flags");
   assert(controller.includes("a1_spatial_entry_experience"), "Unity controller A1 spatial entry experience token missing");
+  assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
+  assert(controller.includes("public NearbyPin[] semantic_pins;") && controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin DTO/HUD guard missing");
   assert(controller.includes("A1EntryConfirmMinDistanceMeters = 0.4f") && controller.includes("A1EntryConfirmMaxDistanceMeters = 0.5f"), "Unity controller A1 deliberate confirmation distance guard missing");
   assert(controller.includes("ResetA1SpatialEntryExperience") && controller.includes("PrimeA1SpatialEntryLock") && controller.includes("ConfirmA1SpatialEntryExperience"), "Unity controller A1 entry state machine missing");
   assert(/ConfirmEntryOrCompleteNextStep\(\)[\s\S]*ShouldConfirmA1SpatialEntry\(\)[\s\S]*ConfirmA1SpatialEntryExperience/.test(controller), "Unity controller A1 entry confirmation must gate first action");
@@ -170,10 +188,37 @@ async function assertUnityAdapterBoundary() {
   assert(/BuildAdapterReadinessHeartbeatLine\(\)[\s\S]*BuildAdapterReadinessCompactLine[\s\S]*AdapterChecklistSummaryLabel[\s\S]*live_binding_ready/.test(controller), "Unity controller heartbeat must include adapter readiness checklist status");
   assert(/AdapterChecklistSummaryLabel\(\)[\s\S]*hardware acceptance remains gated/.test(controller), "Unity controller must not claim hardware ready from adapter checklist alone");
   assert(/BuildAdapterChecklistReportPayload[\s\S]*a1_entry_lock_ready\s*=\s*IsA1EntryLockReady\(\)[\s\S]*entry_lock_ready\s*=\s*IsA1EntryLockReady\(\)[\s\S]*trusted_hardware_proof_ready\s*=\s*false/.test(controller), "Unity controller A1 entry checklist must report local lock without trusted hardware proof");
-  assert(/private string BuildRuntimeContractLine\(\)[\s\S]*BuildWallCalibrationStatusLine[\s\S]*BuildFieldMarkerStatusLine[\s\S]*BuildFieldAcceptanceStatusLine/.test(controller), "Unity controller HUD runtime line must expose wall calibration, field marker, and field acceptance status");
+  assert(controller.includes("trustedHardwareMissionAssistLine"), "Unity trusted hardware mission assist HUD line missing");
+  assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*IsTrustedAcceptedHardwareObservation\(observation\)[\s\S]*trusted A1 target locked[\s\S]*deliberate entry confirmation still required/.test(controller), "Unity trusted target mission assist must gate A1 behind deliberate confirmation");
+  assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*PostInteraction\("read", InnerWorldMissionStates\.Reading, "A2"\)[\s\S]*PostInteraction\("find_year", InnerWorldMissionStates\.Doing, "A2"\)/.test(controller), "Unity trusted A2 image target must advance read/find_year only after trusted hardware observation");
+  assert(/private IEnumerator PostInteraction\(string stepId, string missionStateValue, string anchorId\)[\s\S]*session_id = CurrentCalibrationSessionId\(\)[\s\S]*device_id = string\.IsNullOrWhiteSpace\(deviceId\)[\s\S]*anchor_id = SafeLabel\(anchorId/.test(controller), "Unity mission interactions must carry trusted provenance session/device/anchor fields");
+  assert(/private IEnumerator PostServiceAction\(string anchorId\)[\s\S]*session_id = CurrentCalibrationSessionId\(\)[\s\S]*device_id = string\.IsNullOrWhiteSpace\(deviceId\)[\s\S]*anchor_id = SafeLabel\(anchorId, CurrentActiveAnchorId\(\)\)/.test(controller), "Unity service action must carry trusted provenance session/device/anchor fields");
+  assert(/private IEnumerator PostWriteBack\(string text, string anchorId, string title, SceneActionData sceneAction, SceneActionEndpointData endpoint\)[\s\S]*session_id = CurrentCalibrationSessionId\(\)[\s\S]*device_id = string\.IsNullOrWhiteSpace\(deviceId\)[\s\S]*anchor_id = SafeLabel\(anchorId, "A3"\)[\s\S]*ApplySceneActionProvenance\(request, sceneAction, endpoint\)/.test(controller), "Unity write-back must carry provenance session/device/anchor fields through the endpoint_sequence overload");
+  assert(/private IEnumerator SwitchUserB\(string stepId, string anchorId, string userId, string missionStateValue, SceneActionData sceneAction, SceneActionEndpointData endpoint\)[\s\S]*session_id = CurrentCalibrationSessionId\(\)[\s\S]*device_id = string\.IsNullOrWhiteSpace\(deviceId\)[\s\S]*anchor_id = SafeLabel\(anchorId, "A3"\)[\s\S]*ApplySceneActionProvenance\(request, sceneAction, endpoint\)/.test(controller), "Unity User B readback confirmation must carry provenance session/device/anchor fields through the endpoint_sequence overload");
+  assert(/bool serviceReady = IsMissionStepComplete\("service_action"\)\s*\|\|\s*MissionStateIs\(InnerWorldMissionStates\.ServiceReady\);/.test(controller), "Unity trusted A3 image target must require completed service_action or service_ready state before TimeMark write-back");
+  assert(!/bool serviceReady =[\s\S]{0,220}(Writing|WritebackReady)/.test(controller), "Unity trusted A3 TimeMark gate must not accept loose writing/writeback-ready labels without service_action");
+  assert(/AdvanceMissionFromTrustedImageObservation\(string anchorId, WallCalibrationObservation observation\)[\s\S]*service action required before TimeMark[\s\S]*PostWriteBack\(text\)/.test(controller), "Unity trusted A3 image target must gate TimeMark write-back behind service action");
+  assert(imageTrackingObserver.includes("IW_TARGET_EVENT") && imageTrackingObserver.includes("image_index=") && imageTrackingObserver.includes("size_m=") && imageTrackingObserver.includes("pose_position_m="), "Rokid image tracking observer must log stable IW_TARGET_EVENT diagnostics");
+  assert(controller.includes("IW_TARGET_IGNORED_UNKNOWN_INDEX") && controller.includes("IW_TARGET_GATE_LIVE_PAIRING_REQUIRED") && controller.includes("IW_TARGET_THROTTLED"), "Unity trusted target diagnostics must expose unknown-index, live-pairing gate, and throttle tokens");
+  assert(controller.includes("IW_TARGET_POST_START") && controller.includes("IW_TARGET_POST_RESULT") && controller.includes("IW_TARGET_POST_FAIL"), "Unity trusted target diagnostics must expose POST start/result/fail tokens");
+  assert(controller.includes("IW_TARGET_MISSION_ASSIST") && controller.includes("a2_read_find_year_posted") && controller.includes("a3_service_action_required") && controller.includes("a3_timemark_write_back_posted"), "Unity trusted target diagnostics must expose mission assist outcomes");
+  assert(controller.includes("TrustedRokidHardwareObservationGateReason") && controller.includes("device_session_missing") && controller.includes("operator_pairing_missing") && controller.includes("live_binding_not_ready"), "Unity target diagnostics must preserve specific live-pairing gate reasons");
+  assert(controller.includes("pendingTrustedTargetObservations") && controller.includes("QueuePendingTrustedTargetObservation") && controller.includes("TryFlushPendingTrustedTargetObservations"), "Unity trusted target events must queue until live-bound heartbeat ack");
+  assert(controller.includes("ServerAckedLiveBindingReady") && controller.includes("server_live_binding_heartbeat_ack_missing") && controller.includes("lastDeviceHeartbeat.session_id"), "Unity trusted target gate must require server-acknowledged live binding heartbeat for the same session");
+  assert(controller.includes("lastDeviceHeartbeat.hardware_acceptance_eligible") && controller.includes("lastDeviceHeartbeat.pairing") && controller.includes("lastDeviceHeartbeat.pairing.paired"), "Unity trusted target gate must require heartbeat-acknowledged operator pairing and hardware eligibility");
+  const targetLogLines = `${controller}\n${imageTrackingObserver}`.split(/\r?\n/).filter((line) => line.includes("IW_TARGET_"));
+  assert(targetLogLines.length >= 8, "Unity target diagnostics token coverage too small");
+  assert(!targetLogLines.some((line) => /(operatorPairingCode|pairing_code|CleanOperatorPairingCode|deviceSessionId|session_id)/.test(line)), "Unity IW_TARGET diagnostics must not log raw pairing codes or session ids");
+  const rehearsalObservationStart = controller.indexOf("private IEnumerator SubmitWallCalibrationObservation(string trackingMode)");
+  const trustedObservationStart = controller.indexOf("public void SubmitRokidTrackedImageObservation");
+  const rehearsalObservationBody = rehearsalObservationStart >= 0 && trustedObservationStart > rehearsalObservationStart
+    ? controller.slice(rehearsalObservationStart, trustedObservationStart)
+    : "";
+  assert(rehearsalObservationBody && !rehearsalObservationBody.includes("AdvanceMissionFromTrustedImageObservation"), "Unity simulator/manual calibration observations must not trigger trusted mission assist");
+  assert(/private string BuildRuntimeContractLine\(\)[\s\S]*BuildWallCalibrationStatusLine[\s\S]*BuildFieldMarkerStatusLine[\s\S]*BuildFieldAcceptanceStatusLine[\s\S]*BuildFieldOperatorPlanStatusLine/.test(controller), "Unity controller HUD runtime line must expose wall calibration, field marker, field acceptance, and field operator plan status");
   assert(/private string BuildWallCalibrationHeartbeatLine\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerHeartbeatLine[\s\S]*BuildFieldAcceptanceHeartbeatLine/.test(controller), "Unity controller heartbeat payload must expose last calibration observation, field marker status, and field acceptance status");
-  assert(/private void RefreshHud\(\)[\s\S]*FieldAcceptanceHudBadge/.test(controller), "Unity controller main HUD must expose field acceptance status");
-  assert(/private void RefreshTargetHud\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerActiveLine[\s\S]*BuildFieldAcceptanceDebugLine/.test(controller), "Unity controller target HUD must expose last calibration observation, active field marker, and field acceptance details");
+  assert(/private void RefreshHud\(\)[\s\S]*FieldAcceptanceHudBadge[\s\S]*BuildFieldOperatorPlanHudLine/.test(controller), "Unity controller main HUD must expose field acceptance and field operator plan status");
+  assert(/private void RefreshTargetHud\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerActiveLine[\s\S]*BuildFieldAcceptanceDebugLine[\s\S]*BuildFieldOperatorPlanDebugLine/.test(controller), "Unity controller target HUD must expose last calibration observation, active field marker, field acceptance, and operator plan details");
   assert(/private void RefreshInputStatusLine\(\)[\s\S]*BuildWallCalibrationObservationLine[\s\S]*BuildFieldMarkerReadinessLine[\s\S]*FieldAcceptanceHudBadge/.test(controller), "Unity controller device/input status must expose calibration observation, field marker readiness, and field acceptance status");
   assert(/BuildPremiumTargetCardLine\(string debugLine\)[\s\S]*SpatialFocusLine[\s\S]*FieldMarkerTargetSummary[\s\S]*ImageTargetAssetCardLine[\s\S]*CalibrationCompactLine[\s\S]*AcceptanceCompactLine/.test(controller), "Unity controller premium target card must summarize focus, marker, image asset, calibration, and acceptance");
   assert(/BuildRadarHudLine\(\)[\s\S]*RadarAnchorSegment\("A1"[\s\S]*RadarAnchorSegment\("A2"[\s\S]*RadarAnchorSegment\("A3"[\s\S]*ArShellStatusCompactLabel/.test(controller), "Unity controller radar HUD must expose A1/A2/A3 route and AR shell status");
@@ -196,6 +241,10 @@ async function assertUnityAdapterBoundary() {
   assert(!/\[Header\(\"Device Pairing\"\)\]\s+public string operatorPairingCode/.test(controller), "Unity controller must not expose pairing code as serialized Inspector field");
   assert(!/(PlayerPrefs\.SetString|File\.WriteAllText|File\.AppendAllText|localStorage|sessionStorage)[\s\S]{0,120}(operatorPairingCode|pairing_code|pairing code)/i.test(controller), "Unity controller must not persist plaintext pairing code");
   assert(controller.includes("BuildDeviceHeartbeatRequest"), "Unity controller device heartbeat payload builder missing");
+  assert(/BuildDeviceHeartbeatRequest\(\)[\s\S]*input_frame\s*=\s*BuildDeviceInputFramePayload\(\)/.test(controller), "Unity controller heartbeat must include sanitized input_frame");
+  assert(controller.includes("BuildDeviceInputFramePayload") && controller.includes("DeviceInputFramePayload"), "Unity controller input frame payload builder missing");
+  assert(controller.includes("pointable_ui_focus") && controller.includes("voice_text_present"), "Unity controller input frame focus/voice evidence missing");
+  assert(controller.includes("fallback_input_visible") && controller.includes("operator_assist_input") && controller.includes("input_blocker") && controller.includes("input_acceptance_mode"), "Unity controller input frame field assist evidence missing");
   assert(controller.includes("RequiredDeviceCapabilities"), "Unity controller required capabilities missing");
   assert(controller.includes("RokidSdkBindingProbe.Detect().BoundaryCompiled"), "Unity controller SDK binding probe environment missing");
   assert(poseProvider.includes("interface IRokidInputStateSink"), "Unity input state sink interface missing");
@@ -217,8 +266,14 @@ async function assertUnityAdapterBoundary() {
   assert(editorInput.includes("IRokidInputStateSink"), "Editor input state sink implementation missing");
   assert(fallbackOverlay.includes("IRokidOverlayRenderer"), "Fallback overlay renderer missing");
   assert(uxrInput.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR input file must be fully guarded");
-  assert(uxrInput.includes("SDK input binding pending"), "Rokid UXR input stub message missing");
+  assert(uxrInput.includes("using Rokid.UXR.Module;"), "Rokid UXR input must bind the official SDK namespace");
+  assert(uxrInput.includes("RKNativeInput"), "Rokid UXR input must bind RKNativeInput");
+  assert(uxrInput.includes("rokid-uxr-rkinput-3dof"), "Rokid UXR input live adapter name missing");
+  assert(uxrInput.includes("public bool IsSdkBindingReady"), "Rokid UXR input SDK readiness flag missing");
+  assert(uxrInput.includes("KEY_OK") && uxrInput.includes("KEY_BACK") && uxrInput.includes("KEY_MOUSE_FIRST"), "Rokid UXR input key mapping missing");
   assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
+  assert(uxrOverlay.includes("rokid-uxr-worldspace-overlay"), "Rokid UXR overlay live adapter name missing");
+  assert(uxrOverlay.includes("public bool IsSdkBindingReady"), "Rokid UXR overlay SDK readiness flag missing");
   assert(presentationMode.includes("RokidSpatialEntryStates"), "Unity presentation strategy spatial entry states missing");
   assert(presentationMode.includes("RokidImageTargetLockStates"), "Unity presentation strategy image target lock states missing");
   assert(presentationMode.includes("RokidDiscoveryLayerStates"), "Unity presentation strategy discovery/radar states missing");
@@ -269,9 +324,13 @@ async function assertUnityAdapterBoundary() {
   assert(dtos.includes("public RokidSdkBindingManifestStatus sdk_binding_status;"), "Unity device manifest SDK binding status DTO missing");
   assert(dtos.includes("public RokidSdkClientReportContract client_report_contract;"), "Unity SDK binding report contract DTO missing");
   assert(dtos.includes("public sealed class DeviceHeartbeatResponse"), "Unity device heartbeat response DTO missing");
+  assert(dtos.includes("public DevicePairingState pairing;") && dtos.includes("public bool hardware_acceptance_eligible;"), "Unity heartbeat DTO must include pairing and hardware eligibility ack");
   assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration observation result DTO missing");
+  assert(dtos.includes("public bool hardware_observation_trusted;"), "Unity wall calibration acceptance trusted hardware flag DTO missing");
+  assert(dtos.includes("public WallCalibrationHardwareSession hardware_session;"), "Unity wall calibration hardware session proof DTO missing");
+  assert(dtos.includes("public sealed class WallCalibrationHardwareSession"), "Unity wall calibration hardware session DTO missing");
   assert(dtos.includes("public int hardware_calibrated_anchor_count"), "Unity wall calibration hardware-only count DTO missing");
   assert(dtos.includes("public string[] hardware_calibrated_anchor_ids"), "Unity wall calibration hardware-only IDs DTO missing");
   assert(dtos.includes("public bool rehearsal_ready"), "Unity wall calibration rehearsal readiness DTO missing");
@@ -293,9 +352,25 @@ async function assertUnityAdapterBoundary() {
   assert(dtos.includes("public FieldAcceptanceGate[] gates"), "Unity field acceptance gates DTO missing");
   assert(dtos.includes("public FieldAcceptanceBlockingItem[] blocking_items"), "Unity field acceptance blocking item DTO missing");
   assert(dtos.includes("public bool simulator_rehearsal_is_not_hardware_ready"), "Unity field acceptance simulator guard DTO missing");
+  assert(dtos.includes("public sealed class FieldOperatorPlanManifest"), "Unity field operator plan manifest DTO missing");
+  assert(dtos.includes("public FieldOperatorPlanPhase[] phases"), "Unity field operator plan phases DTO missing");
+  assert(dtos.includes("public FieldOperatorPlanPhaseRow[] phase_table"), "Unity field operator plan phase table DTO missing");
+  assert(dtos.includes("public FieldOperatorPlanReadiness readiness"), "Unity field operator plan readiness DTO missing");
+  assert(dtos.includes("public FieldOperatorPlanSanitizedSummary sanitized_summary"), "Unity field operator plan sanitized summary DTO missing");
+  assert(dtos.includes("public FieldOperatorPlanPrivacy privacy"), "Unity field operator plan privacy DTO missing");
+  assert(dtos.includes("public FieldOperatorPlanScopeGuard scope_guard"), "Unity field operator plan scope guard DTO missing");
+  assert(dtos.includes("public bool hardware_ready_claim_allowed;"), "Unity field operator plan hardware-ready claim guard DTO missing");
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request DTO missing");
   assert(payloads.includes("public string pairing_code;"), "Unity device register request pairing_code field missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request DTO missing");
+  assert(/public sealed class InteractionRequest[\s\S]*public string session_id;[\s\S]*public string device_id;[\s\S]*public string anchor_id;/.test(payloads), "Unity interaction request provenance fields missing");
+  assert(/public sealed class ServiceActionRequest[\s\S]*public string session_id;[\s\S]*public string device_id;/.test(payloads), "Unity service action request provenance fields missing");
+  assert(/public sealed class WriteBackRequest[\s\S]*public string session_id;[\s\S]*public string device_id;/.test(payloads), "Unity write-back request provenance fields missing");
+  assert(payloads.includes("public DeviceInputFramePayload input_frame;"), "Unity device heartbeat input_frame DTO missing");
+  assert(payloads.includes("public sealed class DeviceInputFramePayload"), "Unity device input frame payload DTO missing");
+  assert(payloads.includes("public DeviceVector3 ray_origin;") && payloads.includes("public DeviceVector3 ray_direction;"), "Unity device input frame ray DTO missing");
+  assert(payloads.includes("public bool pointable_ui_focus;"), "Unity device input frame PointableUI focus DTO missing");
+  assert(payloads.includes("public bool fallback_input_visible;") && payloads.includes("public bool operator_assist_input;") && payloads.includes("public string input_acceptance_mode;"), "Unity device input frame field assist DTO missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
   assert(payloads.includes("public sealed class DeviceNetworkStatus"), "Unity device network payload missing");
@@ -337,7 +412,7 @@ async function main() {
 
     const { body: nearby } = await fetchJson("/api/pins/nearby?radius=20");
     assert(nearby.space_id === spaceId, "nearby space_id check failed");
-    assert(Array.isArray(nearby.pins) && nearby.pins.length === health.anchor_count, "nearby pins check failed");
+    assert(Array.isArray(nearby.pins) && nearby.p0_anchor_count === health.anchor_count && nearby.semantic_preview_count === 1 && nearby.pins.length === health.anchor_count + 1, "nearby pins check failed");
 
     const { res: writeRes, body: write } = await fetchJson(`/api/spaces/${spaceId}/beacons`, {
       method: "POST",

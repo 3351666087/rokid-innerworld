@@ -13,6 +13,7 @@ import {
 const REQUIRED_ANCHOR_IDS = ["A1", "A2", "A3"];
 const REQUIRED_MARKER_IDS = ["A1:qr-entry", "A2:image-target", "A3:image-target"];
 const HARDWARE_TRACKING_MODES = ["qr", "image_tracking", "slam"];
+const FIELD_TARGET_READINESS_SCHEMA = "innerworld-field-target-readiness/v1";
 
 function list(value) {
   return Array.isArray(value) ? value : [];
@@ -155,7 +156,7 @@ function trustedHardwareSessionGate(summary) {
   });
 }
 
-function missionLoopGate(space, state) {
+function missionLoopGate(space, state, ledgerSummary, calibrationSummary = {}) {
   const runtimeState = state && typeof state === "object"
     ? {
         ...state,
@@ -170,9 +171,25 @@ function missionLoopGate(space, state) {
   const requiredStepIds = steps.map((step) => step.step_id);
   const missingSteps = requiredStepIds.filter((stepId) => !doneSet.has(stepId));
   const runtimeBeacons = beacons(runtimeState);
-  const complete = runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
+  const writeBackBeacons = runtimeBeacons.filter((item) => item?.layer === "time_capsule" || item?.anchor_id === "A3");
+  const activeUser = String(runtimeState.active_user || "").trim();
+  const userBReadbackReady = activeUser.toUpperCase() === "B"
+    && runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
+    && writeBackBeacons.length > 0;
+  const trustedAnchorIds = list(calibrationSummary?.trusted_hardware_calibrated_anchor_ids);
+  const missingTrustedAnchorIds = REQUIRED_ANCHOR_IDS.filter((anchorId) => !trustedAnchorIds.includes(anchorId));
+  const trustedA1A2A3Ready = calibrationSummary?.ready_for_hardware === true
+    && missingTrustedAnchorIds.length === 0;
+  const missionLedgerReady = runtimeState.mission_state === ACCEPTANCE_TARGETS.completed_state
     && missingSteps.length === 0
-    && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons;
+    && runtimeBeacons.length >= ACCEPTANCE_TARGETS.completed_beacons
+    && userBReadbackReady
+    && ledgerSummary?.trusted_mission_provenance?.ready === true;
+  const complete = missionLedgerReady && trustedA1A2A3Ready;
+  const trustedProvenance = ledgerSummary?.trusted_mission_provenance || {
+    ready: false,
+    missing: ["trusted_mission_provenance_missing"]
+  };
 
   return gate({
     id: "mission_loop",
@@ -180,15 +197,25 @@ function missionLoopGate(space, state) {
     status: complete ? "ready" : "pending",
     summary: complete
       ? "Read, service action, write-back, and User B readback loop are complete."
-      : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons.`,
+      : missionLedgerReady && !trustedA1A2A3Ready
+        ? `Mission ledger/User B/provenance is complete, but trusted A1/A2/A3 physical observations are missing: ${missingTrustedAnchorIds.join(", ") || "unknown"}.`
+        : `${done.length}/${requiredStepIds.length} mission steps complete; ${runtimeBeacons.length}/${ACCEPTANCE_TARGETS.completed_beacons} beacons; User B readback ${userBReadbackReady ? "ready" : "pending"}; trusted mission provenance ${trustedProvenance.ready === true ? "ready" : "pending"}.`,
     source: "/api/state",
-    required: requiredStepIds,
+    required: [...requiredStepIds, "user_b_readback"],
     evidence: {
       mission_state: runtimeState.mission_state || null,
+      active_user: activeUser || null,
+      required_active_user: "B",
       completed_steps: done,
       missing_steps: missingSteps,
       beacon_count: runtimeBeacons.length,
-      write_back_beacons: runtimeBeacons.filter((item) => item?.layer === "time_capsule" || item?.anchor_id === "A3").length
+      write_back_beacons: writeBackBeacons.length,
+      user_b_readback_ready: userBReadbackReady,
+      mission_ledger_ready: missionLedgerReady,
+      trusted_a1_a2_a3_ready: trustedA1A2A3Ready,
+      missing_trusted_anchor_ids: missingTrustedAnchorIds,
+      trusted_mission_provenance_ready: trustedProvenance.ready === true,
+      trusted_mission_provenance: trustedProvenance
     }
   });
 }
@@ -282,6 +309,125 @@ function acceptanceStatus(gates) {
   return "pending";
 }
 
+function gateById(gates, id) {
+  return list(gates).find((item) => item?.id === id) || null;
+}
+
+function gateReady(gates, id) {
+  return gateById(gates, id)?.status === "ready";
+}
+
+function missingAnchorIds(anchorIds) {
+  const ids = list(anchorIds);
+  return REQUIRED_ANCHOR_IDS.filter((anchorId) => !ids.includes(anchorId));
+}
+
+function missionEvidence(acceptance) {
+  return gateById(acceptance?.gates, "mission_loop")?.evidence || {};
+}
+
+function uniqueBlockers(values) {
+  return unique(values.map((value) => String(value || "").trim()).filter(Boolean));
+}
+
+export function buildFieldTargetReadiness({
+  baseUrl,
+  fieldAcceptance,
+  generatedAt = new Date().toISOString()
+}) {
+  const publicBaseUrl = cleanPublicBaseUrl(baseUrl);
+  const endpoints = buildEndpointMap(publicBaseUrl, fieldAcceptance?.space_id);
+  const gates = list(fieldAcceptance?.gates);
+  const hardwareGate = gateById(gates, "hardware_alignment");
+  const trustedGate = gateById(gates, "trusted_hardware_session");
+  const missionGate = gateById(gates, "mission_loop");
+  const hardwareEvidence = hardwareGate?.evidence || {};
+  const trustedEvidence = trustedGate?.evidence || {};
+  const mission = missionEvidence(fieldAcceptance);
+  const hardwareAnchorIds = list(hardwareEvidence.hardware_calibrated_anchor_ids);
+  const trustedAnchorIds = list(trustedEvidence.trusted_hardware_calibrated_anchor_ids);
+  const trustedSessionCount = Number(trustedEvidence.trusted_hardware_session_count) || 0;
+  const missionReady = missionGate?.status === "ready";
+  const physicalAcceptanceReady = fieldAcceptance?.ready === true
+    && fieldAcceptance?.status === "hardware_acceptance_ready";
+  const precheckOk = gateReady(gates, "print_kit")
+    && gateReady(gates, "hardware_kit");
+
+  const physicalBlockers = [];
+  if (precheckOk !== true) physicalBlockers.push("target_api_precheck_missing");
+  if (missingAnchorIds(hardwareAnchorIds).length) physicalBlockers.push("raw_a1_a2_a3_hardware_observations_missing");
+  if (missingAnchorIds(trustedAnchorIds).length) physicalBlockers.push("trusted_a1_a2_a3_observations_missing");
+  if (!missionReady) {
+    if (mission.mission_ledger_ready === true && list(mission.missing_trusted_anchor_ids).length) {
+      physicalBlockers.push("mission_loop_waiting_for_trusted_a1_a2_a3");
+    } else {
+      physicalBlockers.push("p0_mission_writeback_user_b_loop_missing");
+    }
+  }
+  if (!physicalAcceptanceReady) physicalBlockers.push("field_acceptance_not_ready");
+  for (const item of list(fieldAcceptance?.blocking_items)) {
+    if (item?.gate_id) physicalBlockers.push(`${item.gate_id}_pending`);
+  }
+
+  return {
+    ok: true,
+    schema: FIELD_TARGET_READINESS_SCHEMA,
+    generated_at: generatedAt,
+    endpoint: endpoints.field_target_readiness,
+    source_of_truth: {
+      field_acceptance: endpoints.field_acceptance,
+      wall_calibration: endpoints.wall_calibration,
+      mission_state: endpoints.state
+    },
+    precheck_ok: precheckOk,
+    physical_acceptance_ready: physicalAcceptanceReady,
+    hardware_ready_claim_allowed: physicalAcceptanceReady,
+    physical_blockers: uniqueBlockers(physicalBlockers),
+    target_summary: {
+      required_anchor_ids: REQUIRED_ANCHOR_IDS,
+      hardware_anchor_count: hardwareAnchorIds.length,
+      hardware_anchor_ids: hardwareAnchorIds,
+      missing_hardware_anchor_ids: missingAnchorIds(hardwareAnchorIds),
+      trusted_anchor_count: trustedAnchorIds.length,
+      trusted_anchor_ids: trustedAnchorIds,
+      missing_trusted_anchor_ids: missingAnchorIds(trustedAnchorIds),
+      trusted_hardware_session_count: trustedSessionCount,
+      hardware_tracking_modes: list(trustedEvidence.hardware_tracking_modes).length
+        ? list(trustedEvidence.hardware_tracking_modes)
+        : HARDWARE_TRACKING_MODES
+    },
+    mission_loop: {
+      ready: missionReady,
+      mission_state: mission.mission_state || null,
+      active_user: mission.active_user || null,
+      required_active_user: mission.required_active_user || "B",
+      completed_steps: list(mission.completed_steps),
+      missing_steps: list(mission.missing_steps),
+      beacon_count: Number(mission.beacon_count) || 0,
+      write_back_beacons: Number(mission.write_back_beacons) || 0,
+      user_b_readback_ready: mission.user_b_readback_ready === true,
+      mission_ledger_ready: mission.mission_ledger_ready === true,
+      trusted_a1_a2_a3_ready: mission.trusted_a1_a2_a3_ready === true,
+      missing_trusted_anchor_ids: list(mission.missing_trusted_anchor_ids)
+    },
+    field_acceptance: {
+      schema: fieldAcceptance?.schema || null,
+      status: fieldAcceptance?.status || "pending",
+      ready: fieldAcceptance?.ready === true,
+      generated_at: fieldAcceptance?.generated_at || null,
+      blocking_items: list(fieldAcceptance?.blocking_items)
+    },
+    privacy: {
+      raw_device_ids_included: false,
+      raw_session_ids_included: false,
+      raw_pairing_codes_included: false,
+      private_ips_included: false,
+      raw_logcat_included: false
+    },
+    operator_note: "Read-only field status. Run target-pass and A1/A2/A3 scanning from the terminal/runbook; this endpoint never creates simulator/manual observations and never mutates mission state."
+  };
+}
+
 export function buildFieldAcceptance({
   baseUrl,
   space,
@@ -300,7 +446,7 @@ export function buildFieldAcceptance({
     wallRehearsalGate(summary),
     hardwareAlignmentGate(summary),
     trustedHardwareSessionGate(summary),
-    missionLoopGate(space, state),
+    missionLoopGate(space, state, ledgerSummary, summary),
     ledgerGate(ledgerSummary),
     releaseGate(opsStatus),
     hardwareKitGate(opsStatus)

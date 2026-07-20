@@ -49,7 +49,7 @@ namespace InnerWorld.Rokid.Runtime
                 base_url = DefaultBaseUrl,
                 space_id = DefaultSpaceId,
                 device_profile = DefaultDeviceProfile,
-                presentation_mode = RokidPresentationModes.DesktopFallback,
+                presentation_mode = RokidPresentationModes.Auto,
                 nearby_radius_meters = DefaultNearbyRadiusMeters,
                 poll_interval_ms = DefaultPollIntervalMs,
                 health_interval_ms = DefaultHealthIntervalMs,

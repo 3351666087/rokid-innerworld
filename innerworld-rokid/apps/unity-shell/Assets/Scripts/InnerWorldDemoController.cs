@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using InnerWorld.Rokid.Concrete;
 using InnerWorld.Rokid.Protocol;
 using InnerWorld.Rokid.Runtime;
 using UnityEngine;
@@ -11,7 +12,7 @@ using UnityEngine.UI;
 
 namespace InnerWorld.Rokid
 {
-    public sealed class InnerWorldDemoController : MonoBehaviour
+    public sealed class InnerWorldDemoController : MonoBehaviour, ISceneHandoffReceiver
     {
         [Header("Localhost API")]
         public string baseUrl = "http://localhost:5177";
@@ -38,6 +39,7 @@ namespace InnerWorld.Rokid
         private Text keyHintText;
         private Text systemText;
         private Text radarText;
+        private Text fieldInputAssistText;
         private int localStepIndex;
         private bool usingFallback;
         private Font uiFont;
@@ -51,6 +53,7 @@ namespace InnerWorld.Rokid
         private WallCalibrationManifest wallCalibrationManifest;
         private FieldMarkerManifest fieldMarkerManifest;
         private FieldAcceptanceManifest fieldAcceptanceManifest;
+        private FieldOperatorPlanManifest fieldOperatorPlan;
         private RokidPresentationStrategy presentationStrategy;
         private RokidAdapterBoundaryStatus rokidAdapterStatus;
         private EditorRokidInputSource editorRokidInputSource;
@@ -63,14 +66,21 @@ namespace InnerWorld.Rokid
         private string deviceId = string.Empty;
         private string deviceRuntimeLine = "device session pending";
         private string deviceManifestLine = "device manifest pending";
+        private string sceneHandoffLine = "shiyao handoff pending";
+        private string sceneActionExecutionLine = "scene action targets pending | no local hardware claim";
+        private string missionProvenanceLine = "mission provenance: rehearsal until trusted hardware evidence";
         private string devicePairingLine = "pairing required-for-hardware";
         private string wallCalibrationLine = "wall calibration pending";
         private string fieldMarkerLine = "field markers pending";
         private string fieldAcceptanceLine = "field acceptance pending";
+        private string fieldOperatorPlanLine = "operator plan pending";
         private WallCalibrationObservationResult lastWallCalibrationObservationResult;
         private WallCalibrationObservation lastWallCalibrationObservation;
         private string wallCalibrationObservationLine = "calibration observation pending";
+        private string trustedHardwareMissionAssistLine = "trusted target mission assist pending";
         private string calibrationRehearsalSessionId = string.Empty;
+        private readonly Dictionary<string, float> trustedHardwareObservationPostedAt = new Dictionary<string, float>();
+        private readonly Dictionary<string, PendingTrustedTargetObservation> pendingTrustedTargetObservations = new Dictionary<string, PendingTrustedTargetObservation>();
         private float heartbeatClockSeconds;
         private bool heartbeatInFlight;
         private bool wallCalibrationObservationInFlight;
@@ -78,6 +88,8 @@ namespace InnerWorld.Rokid
         private string currentGazeAnchorLabel = string.Empty;
         private bool currentGazeSelecting;
         private string selectedAnchorId = string.Empty;
+        private string lastFieldAssistActionLine = "field input assist idle";
+        private float lastFieldAssistActionAtSeconds = -10f;
         private bool a1SpatialEntryLocked;
         private bool a1SpatialEntryConfirmed;
         private string a1EntryLockState = RokidA1SpatialEntryStates.WaitingForA1;
@@ -96,9 +108,26 @@ namespace InnerWorld.Rokid
         private const float A1EntryConfirmMinDistanceMeters = 0.4f;
         private const float A1EntryConfirmMaxDistanceMeters = 0.5f;
         private const float A1EntryConfirmationFallbackDistanceMeters = 0.45f;
+        private const float TrustedHardwareObservationMinIntervalSeconds = 4f;
+        private const float FieldAssistInputDebounceSeconds = 0.16f;
+        private const string FieldAssistInputMode = "operator_assist_rehearsal_not_hardware_ready";
+        private const string FieldAssistBlockerId = "visible_but_no_remote_or_hand";
         private const string UnityClientVersion = "unity-runtime-0.2.0";
         private const string OperatorPairingCodeEnv = "INNERWORLD_OPERATOR_PAIRING_CODE";
         private const string OperatorPairingCodeArg = "--innerworld-pairing-code";
+        private const string OperatorPairingCodeIntentExtra = "innerworld_pairing_code";
+        private const string OperatorPairingCodeIntentExtraQualified = "com.innerworld.rokid.OPERATOR_PAIRING_CODE";
+
+        private sealed class PendingTrustedTargetObservation
+        {
+            public string anchorId;
+            public int imageIndex;
+            public Pose pose;
+            public Vector2 size;
+            public string eventType;
+            public string gateReason;
+            public float queuedAtSeconds;
+        }
 
         private void Awake()
         {
@@ -125,12 +154,33 @@ namespace InnerWorld.Rokid
             TickDeviceHeartbeat();
             TickPremiumSpatialSurfaces();
 
-            if (Input.GetKeyDown(KeyCode.R)) StartCoroutine(BootstrapAndLoadSpace());
-            if (!IsRokidInputActive() && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) ConfirmEntryOrCompleteNextStep();
-            if (Input.GetKeyDown(KeyCode.S)) StartCoroutine(PostServiceAction());
-            if (Input.GetKeyDown(KeyCode.W)) StartCoroutine(PostWriteBack());
-            if (Input.GetKeyDown(KeyCode.B)) StartCoroutine(SwitchUserB());
-            if (Input.GetKeyDown(KeyCode.C)) StartCoroutine(SubmitWallCalibrationObservation("manual"));
+            HandleFieldAssistKeyboard();
+        }
+
+        private void HandleFieldAssistKeyboard()
+        {
+            if (Input.GetKeyDown(KeyCode.R)) RunFieldAssistAction("reload", () => StartCoroutine(BootstrapAndLoadSpace()));
+            if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) RunFieldAssistAction("select A1", () => SelectAnchor("A1"));
+            if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) RunFieldAssistAction("select A2", () => SelectAnchor("A2"));
+            if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) RunFieldAssistAction("select A3", () => SelectAnchor("A3"));
+            if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return)) RunFieldAssistAction("confirm", () => ConfirmEntryOrCompleteNextStep("operator_assist_confirm"));
+            if (Input.GetKeyDown(KeyCode.S)) RunFieldAssistAction("service", () => StartCoroutine(PostServiceAction()));
+            if (Input.GetKeyDown(KeyCode.W)) RunFieldAssistAction("write", () => StartCoroutine(PostWriteBack()));
+            if (Input.GetKeyDown(KeyCode.B)) RunFieldAssistAction("user B", () => StartCoroutine(SwitchUserB()));
+            if (Input.GetKeyDown(KeyCode.C)) RunFieldAssistAction("calibrate", () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
+        }
+
+        private void RunFieldAssistAction(string label, Action action)
+        {
+            if (Time.time - lastFieldAssistActionAtSeconds < FieldAssistInputDebounceSeconds)
+            {
+                return;
+            }
+
+            lastFieldAssistActionAtSeconds = Time.time;
+            lastFieldAssistActionLine = FieldAssistInputMode + " | " + label + " | " + FieldAssistBlockerId;
+            if (action != null) action.Invoke();
+            RefreshFieldInputAssistHud();
         }
 
         private IEnumerator BootstrapAndLoadSpace()
@@ -263,7 +313,10 @@ namespace InnerWorld.Rokid
             if (TryGetAnchorHit(gaze, out target, out hit))
             {
                 AnchorData anchor = FindAnchor(target.anchorId);
-                string label = anchor != null ? anchor.label : target.anchorId;
+                SceneActionData sceneAction = FindSceneAction(target.sceneActionId);
+                string label = sceneAction != null && sceneAction.task_target != null && !string.IsNullOrWhiteSpace(sceneAction.task_target.display_label)
+                    ? sceneAction.task_target.display_label
+                    : (anchor != null ? anchor.label : target.anchorId);
                 if (rokidInputStateSink != null)
                 {
                     rokidInputStateSink.SetGazeAnchorHit(target.anchorId, label, hit.point, hit.distance);
@@ -283,7 +336,7 @@ namespace InnerWorld.Rokid
         {
             if (frame.Command == RokidInputCommand.Confirm)
             {
-                CompleteNextStep();
+                ConfirmEntryOrCompleteNextStep();
             }
             else if (frame.Command == RokidInputCommand.Back)
             {
@@ -296,8 +349,49 @@ namespace InnerWorld.Rokid
                 if (target.IsValid)
                 {
                     SelectAnchor(target.AnchorId);
+                    AnchorClickTarget clickTarget = CurrentGazeClickTarget();
+                    if (clickTarget != null && clickTarget.executeSceneAction && !string.IsNullOrWhiteSpace(clickTarget.sceneActionId))
+                    {
+                        ExecuteSceneActionTarget(clickTarget.sceneActionId, "rokid_gaze_select");
+                    }
                 }
             }
+        }
+
+        public void EnterConcreteScene(SceneHandoffData data)
+        {
+            bool fallback = data.fallback || string.IsNullOrWhiteSpace(data.handoff_version) || data.handoff_version != "innerworld-shiyao-handoff/v1";
+            string sceneAnchor = SafeLabel(data.scene_id, "A1");
+            if (sceneAnchor != "A1" && sceneAnchor != "A2" && sceneAnchor != "A3")
+            {
+                sceneAnchor = "A1";
+                fallback = true;
+            }
+
+            if (float.IsNaN(data.anchor_position.x) || float.IsNaN(data.anchor_position.y) || float.IsNaN(data.anchor_position.z) || float.IsInfinity(data.anchor_position.x) || float.IsInfinity(data.anchor_position.y) || float.IsInfinity(data.anchor_position.z))
+            {
+                fallback = true;
+                data = SceneHandoffData.Fallback(sceneAnchor);
+            }
+
+            if (!fallback && data.anchor_position.sqrMagnitude <= 0.001f)
+            {
+                fallback = true;
+                data = SceneHandoffData.Fallback(sceneAnchor);
+            }
+
+            if (!fallback)
+            {
+                wallCenter = data.anchor_position + new Vector3(0f, 0f, 0.8f);
+            }
+
+            sceneHandoffLine = "shiyao handoff " + SafeLabel(data.handoff_version, "missing")
+                + " | scene " + sceneAnchor
+                + " | origin " + SafeLabel(data.origin_mode, fallback ? "fallback" : "anchor_relative")
+                + " | fallback " + BoolLabel(fallback)
+                + " | no local hardware claim";
+            SelectAnchor(sceneAnchor);
+            RenderAnchors();
         }
 
         public void SelectAnchor(string anchorId)
@@ -324,11 +418,11 @@ namespace InnerWorld.Rokid
             RefreshTargetHud();
         }
 
-        private void ConfirmEntryOrCompleteNextStep()
+        private void ConfirmEntryOrCompleteNextStep(string source = "keyboard_confirm")
         {
             if (ShouldConfirmA1SpatialEntry())
             {
-                ConfirmA1SpatialEntryExperience("keyboard_confirm");
+                ConfirmA1SpatialEntryExperience(source);
                 return;
             }
 
@@ -363,7 +457,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.LockCandidate;
             entryConfirmationStatus = "entry_confirmation_ready";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerStandby;
-            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 开启空间层.";
+            spatialLayerTransitionLabel = "A1 lock candidate; confirm at " + A1EntryConfirmationWindowLabel() + " to 瀵偓閸氼垳鈹栭梻鏉戠湴.";
             ApplyLocalA1SpatialEntryToMissionState();
         }
 
@@ -376,7 +470,7 @@ namespace InnerWorld.Rokid
             a1EntryLockState = RokidA1SpatialEntryStates.DeliberateConfirmed;
             entryConfirmationStatus = "entry_confirmation_confirmed";
             spatialLayerTransitionState = RokidA1SpatialEntryStates.SpatialLayerOpening;
-            spatialLayerTransitionLabel = "开启空间层 transition armed from A1 deliberate confirmation.";
+            spatialLayerTransitionLabel = "瀵偓閸氼垳鈹栭梻鏉戠湴 transition armed from A1 deliberate confirmation.";
             a1EntryConfirmationDistanceMeters = A1EntryConfirmationFallbackDistanceMeters;
 
             if (missionState != null)
@@ -384,7 +478,7 @@ namespace InnerWorld.Rokid
                 missionState.SelectAnchor(A1EntryAnchorId, anchor != null ? anchor.label : "Entry Poster", anchor != null ? anchor.kind : "entry");
             }
             ApplyLocalA1SpatialEntryToMissionState();
-            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation · 开启空间层 · fallback is not hardware ready");
+            SetStatus("A1 spatial entry confirmed", "0.45m deliberate confirmation 璺?瀵偓閸氼垳鈹栭梻鏉戠湴 璺?fallback is not hardware ready");
             RefreshAnchorVisualStates();
             RefreshHud();
         }
@@ -466,30 +560,195 @@ namespace InnerWorld.Rokid
             }
         }
 
+        public void ExecuteSceneActionTarget(string actionId, string source = "scene_action_confirm")
+        {
+            if (string.IsNullOrWhiteSpace(actionId))
+            {
+                sceneActionExecutionLine = "scene action target missing | no local hardware claim";
+                return;
+            }
+
+            RunFieldAssistAction("scene target " + actionId, () => StartCoroutine(ExecuteSceneActionTargetCoroutine(actionId.Trim(), source)));
+        }
+
+        private IEnumerator ExecuteSceneActionTargetCoroutine(string actionId, string source)
+        {
+            SceneActionData action = FindSceneAction(actionId);
+            if (action == null)
+            {
+                sceneActionExecutionLine = "scene action target not found " + SafeLabel(actionId, "unknown") + " | no local hardware claim";
+                yield break;
+            }
+
+            SelectAnchor(action.anchor_id);
+            sceneActionExecutionLine = "scene action executing " + SafeLabel(action.task_target != null ? action.task_target.target_id : action.action_id, action.action_id) + " | " + SafeLabel(source, "confirm") + " | fallback allowed, no local hardware claim";
+
+            SceneActionEndpointData[] sequence = action.task_target != null ? action.task_target.endpoint_sequence : null;
+            if (sequence == null || sequence.Length == 0)
+            {
+                sceneActionExecutionLine = "scene action target missing endpoint_sequence " + SafeLabel(action.action_id, "unknown") + " | no local hardware claim";
+                yield break;
+            }
+
+            int executed = 0;
+            foreach (SceneActionEndpointData endpoint in sequence)
+            {
+                if (endpoint == null || string.IsNullOrWhiteSpace(endpoint.endpoint_key)) continue;
+                yield return ExecuteSceneActionEndpoint(action, endpoint);
+                executed += 1;
+            }
+
+            sceneActionExecutionLine = "scene action target executed " + executed + " endpoint(s) from endpoint_sequence | rehearsal complete allowed, hardware ready false";
+        }
+
+        private IEnumerator ExecuteSceneActionEndpoint(SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            string endpointKey = SafeLabel(endpoint.endpoint_key, "unknown");
+            if (string.Equals(endpointKey, "local_unity", StringComparison.Ordinal))
+            {
+                ConfirmA1SpatialEntryExperience("scene_action_endpoint_sequence");
+                sceneActionExecutionLine = "local_unity endpoint confirmed " + SafeLabel(action.action_id, "scene") + " | requires shiyao trusted scan for field evidence";
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "interactions", StringComparison.Ordinal))
+            {
+                yield return PostInteraction(
+                    SafeLabel(endpoint.step_id, action.mission_step_id),
+                    SafeLabel(endpoint.mission_state, InnerWorldMissionStates.Doing),
+                    SafeLabel(endpoint.anchor_id, action.anchor_id),
+                    SafeLabel(endpoint.user_id, CurrentUserId()),
+                    action,
+                    endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "service_actions", StringComparison.Ordinal))
+            {
+                yield return PostServiceAction(SafeLabel(endpoint.anchor_id, action.anchor_id), SafeLabel(endpoint.action_id, "JOIN_EVENT_1430"), action, endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "write_back", StringComparison.Ordinal))
+            {
+                string title = SafeLabel(endpoint.title, "Rokid TimeMark");
+                string text = title + " from endpoint_sequence " + DateTime.Now.ToString("HH:mm:ss");
+                yield return PostWriteBack(text, SafeLabel(endpoint.anchor_id, action.anchor_id), title, action, endpoint);
+                yield break;
+            }
+
+            if (string.Equals(endpointKey, "state", StringComparison.Ordinal))
+            {
+                yield return SwitchUserB(SafeLabel(endpoint.step_id, "user_b_readback"), SafeLabel(endpoint.anchor_id, action.anchor_id), SafeLabel(endpoint.user_id, "B"), SafeLabel(endpoint.mission_state, InnerWorldMissionStates.Complete), action, endpoint);
+                yield break;
+            }
+
+            sceneActionExecutionLine = "scene action endpoint unsupported " + endpointKey + " | no local hardware claim";
+        }
+
+        private SceneActionData FindSceneAction(string actionId)
+        {
+            if (space == null || space.scene_actions == null || string.IsNullOrWhiteSpace(actionId)) return null;
+            string clean = actionId.Trim();
+            foreach (SceneActionData action in space.scene_actions)
+            {
+                if (action != null && string.Equals(action.action_id, clean, StringComparison.Ordinal)) return action;
+            }
+            return null;
+        }
+
+        private void ApplySceneActionProvenance(InteractionRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
+        private void ApplySceneActionProvenance(ServiceActionRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
+        private void ApplySceneActionProvenance(WriteBackRequest request, SceneActionData action, SceneActionEndpointData endpoint)
+        {
+            if (request == null) return;
+            request.scene_action_id = action != null ? SafeLabel(action.action_id, string.Empty) : string.Empty;
+            request.target_id = action != null && action.task_target != null ? SafeLabel(action.task_target.target_id, string.Empty) : string.Empty;
+            request.endpoint_key = endpoint != null ? SafeLabel(endpoint.endpoint_key, string.Empty) : string.Empty;
+            request.state_provenance_status = "rehearsal";
+            request.fallback_no_hardware_claim = true;
+            request.trusted_hardware_session = false;
+            request.hardware_ready_claim_allowed = false;
+        }
+
         private IEnumerator PostInteraction(string stepId)
+        {
+            yield return PostInteraction(stepId, "doing");
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue)
+        {
+            yield return PostInteraction(stepId, missionStateValue, CurrentActiveAnchorId());
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId)
+        {
+            yield return PostInteraction(stepId, missionStateValue, anchorId, CurrentUserId(), null, null);
+        }
+
+        private IEnumerator PostInteraction(string stepId, string missionStateValue, string anchorId, string userId, SceneActionData sceneAction, SceneActionEndpointData endpoint)
         {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
-                user_id = CurrentUserId(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
+                user_id = SafeLabel(userId, CurrentUserId()),
                 step_id = stepId,
-                mission_state = "doing"
+                mission_state = string.IsNullOrWhiteSpace(missionStateValue) ? "doing" : missionStateValue.Trim()
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Interaction posted");
             yield return LoadSpace();
         }
 
         private IEnumerator PostServiceAction()
         {
+            yield return PostServiceAction(CurrentActiveAnchorId());
+        }
+
+        private IEnumerator PostServiceAction(string anchorId)
+        {
+            yield return PostServiceAction(anchorId, "JOIN_EVENT_1430", null, null);
+        }
+
+        private IEnumerator PostServiceAction(string anchorId, string actionId, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             ServiceActionRequest request = new ServiceActionRequest
             {
                 source = RequestSourceName(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
-                action_id = "JOIN_EVENT_1430",
+                action_id = SafeLabel(actionId, "JOIN_EVENT_1430"),
                 label = "Join 14:30 demo",
-                anchor_id = CurrentActiveAnchorId(),
+                anchor_id = SafeLabel(anchorId, CurrentActiveAnchorId()),
                 step_id = "service_action"
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.ServiceActionsUrl, JsonUtility.ToJson(request), "Service action posted");
             yield return LoadSpace();
         }
@@ -705,6 +964,55 @@ namespace InnerWorld.Rokid
             }
         }
 
+        private IEnumerator LoadFieldOperatorPlanManifest()
+        {
+            EnsureApiClient();
+            fieldOperatorPlan = null;
+            fieldOperatorPlanLine = "operator plan loading";
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.field_operator_plan : null, apiClient.FieldOperatorPlanUrl);
+
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        fieldOperatorPlan = JsonUtility.FromJson<FieldOperatorPlanManifest>(request.downloadHandler.text);
+                        if (fieldOperatorPlan == null || string.IsNullOrWhiteSpace(fieldOperatorPlan.schema))
+                        {
+                            fieldOperatorPlan = null;
+                            fieldOperatorPlanLine = "operator phase unknown";
+                            Debug.LogWarning(fieldOperatorPlanLine + ": missing schema | " + url);
+                        }
+                        else
+                        {
+                            fieldOperatorPlanLine = BuildFieldOperatorPlanStatusLine();
+                            Debug.Log("Field operator plan loaded: " + fieldOperatorPlanLine + " | " + url);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        fieldOperatorPlan = null;
+                        fieldOperatorPlanLine = "operator phase unknown";
+                        Debug.LogWarning("Field operator plan parse failed: " + error.Message + " | " + url);
+                    }
+                }
+                else
+                {
+                    fieldOperatorPlanLine = "operator phase unknown";
+                    Debug.LogWarning("Field operator plan unavailable: " + request.error + " | " + url);
+                }
+            }
+
+            if (space != null)
+            {
+                RefreshHud();
+            }
+        }
+
         private IEnumerator SubmitWallCalibrationObservation(string trackingMode)
         {
             EnsureApiClient();
@@ -796,10 +1104,165 @@ namespace InnerWorld.Rokid
 
             wallCalibrationObservationInFlight = false;
             yield return LoadFieldAcceptanceManifest();
+            yield return LoadFieldOperatorPlanManifest();
             if (space != null)
             {
                 RefreshHud();
             }
+        }
+
+        public void SubmitRokidTrackedImageObservation(int imageIndex, Pose pose, Vector2 size, string eventType)
+        {
+            string anchorId = AnchorIdForRokidTrackedImageIndex(imageIndex);
+            if (string.IsNullOrWhiteSpace(anchorId))
+            {
+                wallCalibrationObservationLine = "trusted image observation ignored | unknown image index " + imageIndex;
+                Debug.LogWarning("IW_TARGET_IGNORED_UNKNOWN_INDEX image_index=" + imageIndex
+                    + " event=" + SafeLabel(eventType, "event"));
+                RefreshHud();
+                return;
+            }
+
+            string trustedGateReason = TrustedRokidHardwareObservationGateReason();
+            SelectAnchor(anchorId);
+            if (IsA1EntryAnchor(anchorId))
+            {
+                PrimeA1SpatialEntryLock("rokid_tracked_image");
+            }
+
+            if (!string.IsNullOrEmpty(trustedGateReason))
+            {
+                QueuePendingTrustedTargetObservation(anchorId, imageIndex, pose, size, eventType, trustedGateReason);
+                wallCalibrationObservationLine = "trusted image observation pending | live paired session required | anchor " + anchorId;
+                Debug.Log("IW_TARGET_GATE_LIVE_PAIRING_REQUIRED anchor=" + SafeLabel(anchorId, "unknown")
+                    + " image_index=" + imageIndex
+                    + " event=" + SafeLabel(eventType, "event")
+                    + " reason=" + trustedGateReason
+                    + " queued=true");
+                RefreshHud();
+                return;
+            }
+
+            if (!ShouldPostTrustedHardwareObservation(anchorId, eventType))
+            {
+                return;
+            }
+
+            StartCoroutine(SubmitRokidTrackedImageObservation(anchorId, imageIndex, pose, size, eventType));
+        }
+
+        private IEnumerator SubmitRokidTrackedImageObservation(string anchorId, int imageIndex, Pose pose, Vector2 size, string eventType)
+        {
+            EnsureApiClient();
+            if (wallCalibrationObservationInFlight)
+            {
+                yield break;
+            }
+
+            WallCalibrationAnchor anchor = FindWallCalibrationAnchor(anchorId);
+            string mode = TrustedTrackingModeForAnchor(anchorId);
+            WallCalibrationObservationPayload payload = BuildRokidTrackedImageObservationPayload(anchor, anchorId, imageIndex, pose, size, mode, eventType);
+            string json = JsonUtility.ToJson(payload);
+            string url = ResolveEndpointUrl(bootstrap != null && bootstrap.endpoints != null ? bootstrap.endpoints.wall_calibration_observations : null, apiClient.WallCalibrationObservationsUrl);
+            bool shouldAdvanceTrustedMission = false;
+            wallCalibrationObservationInFlight = true;
+            wallCalibrationObservationLine = "trusted " + mode + " observation posting | anchor " + anchorId + " | image " + imageIndex;
+            Debug.Log("IW_TARGET_POST_START anchor=" + SafeLabel(anchorId, "unknown")
+                + " image_index=" + imageIndex
+                + " mode=" + SafeLabel(mode, "unknown")
+                + " event=" + SafeLabel(eventType, "event"));
+            SetRokidConnection(RokidConnectionStatus.Connecting, wallCalibrationObservationLine);
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                byte[] body = Encoding.UTF8.GetBytes(json);
+                request.uploadHandler = new UploadHandlerRaw(body);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json; charset=utf-8");
+                request.timeout = RequestTimeoutSeconds();
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        lastWallCalibrationObservationResult = JsonUtility.FromJson<WallCalibrationObservationResult>(request.downloadHandler.text);
+                        lastWallCalibrationObservation = lastWallCalibrationObservationResult != null
+                            ? lastWallCalibrationObservationResult.observation
+                            : null;
+                        if (lastWallCalibrationObservationResult != null && wallCalibrationManifest != null)
+                        {
+                            if (wallCalibrationManifest.runtime == null)
+                            {
+                                wallCalibrationManifest.runtime = new WallCalibrationRuntime();
+                            }
+                            if (lastWallCalibrationObservationResult.summary != null)
+                            {
+                                wallCalibrationManifest.runtime.summary = lastWallCalibrationObservationResult.summary;
+                            }
+                            if (lastWallCalibrationObservation != null)
+                            {
+                                WallCalibrationAnchor resolvedAnchor = anchor ?? FindWallCalibrationAnchor(anchorId);
+                                if (resolvedAnchor != null)
+                                {
+                                    resolvedAnchor.latest_observation = lastWallCalibrationObservation;
+                                }
+                                UpdateFieldMarkerObservation(anchorId, lastWallCalibrationObservation, lastWallCalibrationObservationResult.summary);
+                            }
+                        }
+
+                        wallCalibrationObservationLine = BuildWallCalibrationObservationLine();
+                        wallCalibrationLine = BuildWallCalibrationStatusLine();
+                        fieldMarkerLine = BuildFieldMarkerStatusLine();
+                        Debug.Log("Trusted Rokid image observation posted: " + wallCalibrationObservationLine + " | " + url);
+                        SetStatus("Trusted image observation posted", wallCalibrationObservationLine);
+                        SetRokidConnection(RokidConnectionStatus.Connected, wallCalibrationObservationLine);
+                        shouldAdvanceTrustedMission = IsTrustedAcceptedHardwareObservation(lastWallCalibrationObservation);
+                        Debug.Log("IW_TARGET_POST_RESULT anchor=" + SafeLabel(anchorId, "unknown")
+                            + " status=" + SafeLabel(lastWallCalibrationObservation != null ? lastWallCalibrationObservation.status : null, "missing")
+                            + " trusted=" + BoolLabel(lastWallCalibrationObservation != null
+                                && lastWallCalibrationObservation.acceptance != null
+                                && lastWallCalibrationObservation.acceptance.hardware_observation_trusted)
+                            + " mission_assist_candidate=" + BoolLabel(shouldAdvanceTrustedMission));
+                    }
+                    catch (Exception error)
+                    {
+                        lastWallCalibrationObservationResult = null;
+                        lastWallCalibrationObservation = null;
+                        wallCalibrationObservationLine = "trusted image observation parse failed | anchor " + anchorId;
+                        Debug.LogWarning("IW_TARGET_POST_FAIL anchor=" + SafeLabel(anchorId, "unknown")
+                            + " stage=parse"
+                            + " error=" + SafeLabel(error.GetType().Name, "parse_error"));
+                        Debug.LogWarning(wallCalibrationObservationLine + ": " + error.Message + " | " + url);
+                        SetStatus("Trusted image observation failed", error.Message);
+                        SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                    }
+                }
+                else
+                {
+                    wallCalibrationObservationLine = "trusted image observation failed | anchor " + anchorId + " | http " + request.responseCode;
+                    Debug.LogWarning("IW_TARGET_POST_FAIL anchor=" + SafeLabel(anchorId, "unknown")
+                        + " stage=http"
+                        + " status_code=" + request.responseCode);
+                    Debug.LogWarning(wallCalibrationObservationLine + ": " + request.error + " | " + url);
+                    SetStatus("Trusted image observation failed", request.error + " " + url);
+                    SetRokidConnection(RokidConnectionStatus.Error, wallCalibrationObservationLine);
+                }
+            }
+
+            wallCalibrationObservationInFlight = false;
+            if (shouldAdvanceTrustedMission)
+            {
+                yield return AdvanceMissionFromTrustedImageObservation(anchorId, lastWallCalibrationObservation);
+            }
+            yield return LoadFieldAcceptanceManifest();
+            yield return LoadFieldOperatorPlanManifest();
+            if (space != null)
+            {
+                RefreshHud();
+            }
+
+            TryFlushPendingTrustedTargetObservations("post_complete");
         }
 
         private void TickDeviceHeartbeat()
@@ -853,6 +1316,7 @@ namespace InnerWorld.Rokid
                         : CurrentActiveAnchorId();
                     deviceRuntimeLine = "device heartbeat " + severity + " | " + activeAnchor + " | " + ShortId(deviceSessionId);
                     SetRokidConnection(RokidConnectionStatus.Connected, deviceRuntimeLine);
+                    TryFlushPendingTrustedTargetObservations("heartbeat_ack");
                 }
                 else
                 {
@@ -868,25 +1332,54 @@ namespace InnerWorld.Rokid
         private IEnumerator PostWriteBack()
         {
             string text = "Unity shell writeback " + DateTime.Now.ToString("HH:mm:ss");
+            yield return PostWriteBack(text);
+        }
+
+        private IEnumerator PostWriteBack(string text)
+        {
+            yield return PostWriteBack(text, "A3", "Unity shell", null, null);
+        }
+
+        private IEnumerator PostWriteBack(string text, string anchorId, string title, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             WriteBackRequest request = new WriteBackRequest
             {
+                source = RequestSourceName(),
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
                 user_id = CurrentUserId(),
-                anchor_id = "A3",
-                title = "Unity shell",
-                text = text
+                anchor_id = SafeLabel(anchorId, "A3"),
+                title = SafeLabel(title, "Unity shell"),
+                text = string.IsNullOrWhiteSpace(text) ? "Unity shell writeback" : text.Trim()
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.WriteBackUrl, JsonUtility.ToJson(request), "Writeback posted");
             yield return LoadSpace();
         }
 
         private IEnumerator SwitchUserB()
         {
+            yield return SwitchUserB(string.Empty);
+        }
+
+        private IEnumerator SwitchUserB(string stepId)
+        {
+            yield return SwitchUserB(stepId, "A3", "B", InnerWorldMissionStates.Complete, null, null);
+        }
+
+        private IEnumerator SwitchUserB(string stepId, string anchorId, string userId, string missionStateValue, SceneActionData sceneAction, SceneActionEndpointData endpoint)
+        {
             InteractionRequest request = new InteractionRequest
             {
                 source = RequestSourceName(),
-                user_id = "B",
-                mission_state = "complete"
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = SafeLabel(anchorId, "A3"),
+                user_id = SafeLabel(userId, "B"),
+                step_id = string.IsNullOrWhiteSpace(stepId) ? null : stepId.Trim(),
+                mission_state = SafeLabel(missionStateValue, InnerWorldMissionStates.Complete)
             };
+            ApplySceneActionProvenance(request, sceneAction, endpoint);
             yield return PostJson(apiClient.InteractionsUrl, JsonUtility.ToJson(request), "Switched to User B");
             yield return LoadSpace();
         }
@@ -942,6 +1435,75 @@ namespace InnerWorld.Rokid
             StartCoroutine(PostInteraction(step.step_id));
         }
 
+        private IEnumerator AdvanceMissionFromTrustedImageObservation(string anchorId, WallCalibrationObservation observation)
+        {
+            string cleanAnchorId = SafeLabel(anchorId, string.Empty);
+            if (!IsTrustedAcceptedHardwareObservation(observation))
+            {
+                trustedHardwareMissionAssistLine = "trusted target mission assist gated | anchor " + SafeLabel(cleanAnchorId, "unknown");
+                LogTargetMissionAssist(cleanAnchorId, "gated_untrusted_observation");
+                yield break;
+            }
+
+            if (IsA1EntryAnchor(cleanAnchorId))
+            {
+                trustedHardwareMissionAssistLine = "trusted A1 target locked | deliberate entry confirmation still required";
+                LogTargetMissionAssist(cleanAnchorId, "a1_deliberate_confirmation_required");
+                yield break;
+            }
+
+            if (string.Equals(cleanAnchorId, "A2", StringComparison.OrdinalIgnoreCase))
+            {
+                bool postedRead = false;
+                if (MissionHasStep("read") && !IsMissionStepComplete("read"))
+                {
+                    yield return PostInteraction("read", InnerWorldMissionStates.Reading, "A2");
+                    postedRead = true;
+                }
+                if (MissionHasStep("find_year") && !IsMissionStepComplete("find_year"))
+                {
+                    yield return PostInteraction("find_year", InnerWorldMissionStates.Doing, "A2");
+                    postedRead = true;
+                }
+
+                trustedHardwareMissionAssistLine = postedRead
+                    ? "trusted A2 mission assist posted read/find_year"
+                    : "trusted A2 mission assist already complete";
+                LogTargetMissionAssist(cleanAnchorId, postedRead ? "a2_read_find_year_posted" : "a2_read_find_year_already_complete");
+                yield break;
+            }
+
+            if (string.Equals(cleanAnchorId, "A3", StringComparison.OrdinalIgnoreCase))
+            {
+                bool serviceReady = IsMissionStepComplete("service_action")
+                    || MissionStateIs(InnerWorldMissionStates.ServiceReady);
+                if (!serviceReady)
+                {
+                    trustedHardwareMissionAssistLine = "trusted A3 target locked | service action required before TimeMark";
+                    LogTargetMissionAssist(cleanAnchorId, "a3_service_action_required");
+                    yield break;
+                }
+
+                if (MissionHasStep("write_back") && !IsMissionStepComplete("write_back"))
+                {
+                    string text = "Rokid trusted TimeMark " + DateTime.Now.ToString("HH:mm:ss");
+                    yield return PostWriteBack(text);
+                    trustedHardwareMissionAssistLine = "trusted A3 mission assist posted TimeMark write-back";
+                    LogTargetMissionAssist(cleanAnchorId, "a3_timemark_write_back_posted");
+                    yield break;
+                }
+
+                trustedHardwareMissionAssistLine = "trusted A3 mission assist write-back already complete";
+                LogTargetMissionAssist(cleanAnchorId, "a3_timemark_write_back_already_complete");
+            }
+        }
+
+        private void LogTargetMissionAssist(string anchorId, string action)
+        {
+            Debug.Log("IW_TARGET_MISSION_ASSIST anchor=" + SafeLabel(anchorId, "unknown")
+                + " action=" + SafeLabel(action, "unknown"));
+        }
+
         private void RefreshHud()
         {
             if (space == null)
@@ -958,7 +1520,8 @@ namespace InnerWorld.Rokid
             RefreshInputStatusLine();
             RefreshTargetHud();
             RefreshRadarHud();
-            if (keyHintText != null) keyHintText.text = "R reload | Space/Enter confirm | C calibrate | S service | W write | B user";
+            RefreshFieldInputAssistHud();
+            if (keyHintText != null) keyHintText.text = "1/2/3 anchors | Space/Enter confirm | S service | W write | B user | R reload";
         }
 
         private string GetMissionLine()
@@ -988,8 +1551,27 @@ namespace InnerWorld.Rokid
                 + "\nAdapter " + BuildAdapterReadinessStatusLine()
                 + "\nWall " + WallCalibrationHudBadge() + " | " + BuildFieldMarkerReadinessLine()
                 + "\nSite " + FieldAcceptanceHudBadge() + " | blockers " + FieldAcceptanceBlockingCount()
+                + "\nOperator " + BuildFieldOperatorPlanHudLine()
+                + "\nInput " + BuildFieldInputAssistStatusLine()
+                + "\nScene target " + sceneActionExecutionLine
                 + "\nShell " + ArShellStatusCompactLabel()
+                + "\nPreview " + ControlledSemanticPinHudLine()
                 + "\nTarget " + ActiveAnchorSummaryLabel();
+        }
+
+        private string ControlledSemanticPinHudLine()
+        {
+            int count = 0;
+            if (space != null && space.semantic_pins != null)
+            {
+                foreach (NearbyPin pin in space.semantic_pins)
+                {
+                    if (IsControlledSemanticPreview(pin)) count++;
+                }
+            }
+
+            if (count == 0) return "SkyPin none";
+            return "SkyPin " + count + " controlled preview | not P0 evidence";
         }
 
         private string MissionProgressLabel()
@@ -1161,7 +1743,39 @@ namespace InnerWorld.Rokid
             x += 78f;
             CreateButton("Calib", radarPanel.transform, x, -52f, 58f, () => StartCoroutine(SubmitWallCalibrationObservation("manual")));
 
+            GameObject assistPanel = CreateHudPanel(
+                "Field Input Assist Rail",
+                canvasObject.transform,
+                new Vector2(0.5f, 0f),
+                new Vector2(0.5f, 0f),
+                new Vector2(0f, 132f),
+                new Vector2(900f, 92f),
+                new Color(0.035f, 0.034f, 0.026f, 0.86f));
+            CreateAccentBar("Field Input Assist Accent", assistPanel.transform, new Color(1f, 0.7f, 0.24f, 0.92f), 2f, false);
+
+            fieldInputAssistText = CreateText("Field Input Assist", assistPanel.transform, 12, FontStyle.Bold);
+            fieldInputAssistText.color = new Color(1f, 0.86f, 0.48f);
+            SetRect(fieldInputAssistText.rectTransform, 18f, -12f, 860f, 24f);
+
+            float assistX = 18f;
+            CreateButton("A1", assistPanel.transform, assistX, -46f, 54f, () => RunFieldAssistAction("select A1", () => SelectAnchor("A1")));
+            assistX += 60f;
+            CreateButton("A2", assistPanel.transform, assistX, -46f, 54f, () => RunFieldAssistAction("select A2", () => SelectAnchor("A2")));
+            assistX += 60f;
+            CreateButton("A3", assistPanel.transform, assistX, -46f, 54f, () => RunFieldAssistAction("select A3", () => SelectAnchor("A3")));
+            assistX += 70f;
+            CreateButton("Confirm", assistPanel.transform, assistX, -46f, 82f, () => RunFieldAssistAction("confirm", () => ConfirmEntryOrCompleteNextStep("operator_assist_confirm")));
+            assistX += 88f;
+            CreateButton("Service", assistPanel.transform, assistX, -46f, 78f, () => RunFieldAssistAction("service", () => StartCoroutine(PostServiceAction())));
+            assistX += 84f;
+            CreateButton("Write", assistPanel.transform, assistX, -46f, 66f, () => RunFieldAssistAction("write", () => StartCoroutine(PostWriteBack())));
+            assistX += 72f;
+            CreateButton("User B", assistPanel.transform, assistX, -46f, 76f, () => RunFieldAssistAction("user B", () => StartCoroutine(SwitchUserB())));
+            assistX += 82f;
+            CreateButton("Reload", assistPanel.transform, assistX, -46f, 76f, () => RunFieldAssistAction("reload", () => StartCoroutine(BootstrapAndLoadSpace())));
+
             RefreshTargetHud();
+            RefreshFieldInputAssistHud();
         }
 
         private void RenderAnchors()
@@ -1214,6 +1828,8 @@ namespace InnerWorld.Rokid
             }
 
             BuildSpatialRouteLine();
+            RenderSceneActionTasks();
+            RenderControlledSemanticPins();
 
             if (!string.IsNullOrEmpty(selectedAnchorId) && !anchorVisuals.ContainsKey(selectedAnchorId))
             {
@@ -1227,6 +1843,7 @@ namespace InnerWorld.Rokid
         {
             float x = source.x;
             float y = source.y;
+            float depth = DepthLayerOffset(anchor);
             if (anchor != null)
             {
                 if (anchor.anchor_id == "A1")
@@ -1246,7 +1863,16 @@ namespace InnerWorld.Rokid
                 }
             }
 
-            return new Vector3(x, y, wallCenter.z - 0.24f);
+            return new Vector3(x, y, wallCenter.z + depth);
+        }
+
+        private float DepthLayerOffset(AnchorData anchor)
+        {
+            if (anchor == null) return -0.24f;
+            if (anchor.anchor_id == "A1") return -0.34f;
+            if (anchor.anchor_id == "A2") return -0.58f;
+            if (anchor.anchor_id == "A3") return -0.30f;
+            return -0.24f;
         }
 
         private Vector3 AnchorBaseScale(AnchorData anchor)
@@ -1303,23 +1929,294 @@ namespace InnerWorld.Rokid
                 return;
             }
 
-            GameObject route = new GameObject("A1 A2 A3 Spatial Route");
+            GameObject route = new GameObject("A1 A2 A3 Spatial Memory Depth Ribbon");
             LineRenderer line = route.AddComponent<LineRenderer>();
             line.useWorldSpace = true;
-            line.positionCount = 3;
+            line.positionCount = 5;
             line.numCapVertices = 6;
             line.numCornerVertices = 8;
-            line.startWidth = 0.012f;
-            line.endWidth = 0.012f;
+            line.startWidth = 0.014f;
+            line.endWidth = 0.01f;
             Color color = new Color(0.42f, 1f, 0.84f, 0.72f);
             line.startColor = color;
             line.endColor = color;
             Material material = CreateLineMaterial(color, 0.5f);
             if (material != null) line.material = material;
-            line.SetPosition(0, anchorVisuals["A1"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
-            line.SetPosition(1, anchorVisuals["A2"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
-            line.SetPosition(2, anchorVisuals["A3"].MarkerTransform.position + new Vector3(0f, 0f, -0.045f));
+            Vector3 a1 = anchorVisuals["A1"].MarkerTransform.position + new Vector3(0f, 0f, -0.055f);
+            Vector3 a2 = anchorVisuals["A2"].MarkerTransform.position + new Vector3(0f, 0f, -0.12f);
+            Vector3 a3 = anchorVisuals["A3"].MarkerTransform.position + new Vector3(0f, 0f, -0.055f);
+            line.SetPosition(0, a1);
+            line.SetPosition(1, Vector3.Lerp(a1, a2, 0.5f) + new Vector3(0f, 0.12f, -0.09f));
+            line.SetPosition(2, a2);
+            line.SetPosition(3, Vector3.Lerp(a2, a3, 0.5f) + new Vector3(0f, 0.12f, -0.09f));
+            line.SetPosition(4, a3);
             spawnedObjects.Add(route);
+        }
+
+        private void RenderControlledSemanticPins()
+        {
+            if (space == null || space.semantic_pins == null || space.semantic_pins.Length == 0)
+            {
+                return;
+            }
+
+            foreach (NearbyPin pin in space.semantic_pins)
+            {
+                if (!IsControlledSemanticPreview(pin))
+                {
+                    continue;
+                }
+
+                Vector3 position = SemanticPinDisplayPosition(pin);
+                Color color = new Color(0.52f, 0.86f, 1f, 0.78f);
+                GameObject root = new GameObject("Controlled Whale Cloud Sky Pin");
+                root.transform.position = position;
+                spawnedObjects.Add(root);
+
+                CreateSemanticCloudLobe(root.transform, "Whale Cloud Core", Vector3.zero, new Vector3(0.26f, 0.12f, 0.1f), color);
+                CreateSemanticCloudLobe(root.transform, "Whale Cloud Left", new Vector3(-0.18f, -0.02f, 0.02f), new Vector3(0.18f, 0.09f, 0.08f), color * 0.9f);
+                CreateSemanticCloudLobe(root.transform, "Whale Cloud Right", new Vector3(0.18f, -0.02f, 0.015f), new Vector3(0.2f, 0.095f, 0.08f), color * 0.95f);
+
+                LineRenderer halo = CreateSemanticPinHalo(pin, position, color);
+                if (halo != null) spawnedObjects.Add(halo.gameObject);
+
+                CreateSemanticPinStem(pin, position, color);
+                CreateSemanticPinLabel(pin, position);
+            }
+        }
+
+        private void RenderSceneActionTasks()
+        {
+            if (space == null || space.scene_actions == null || space.scene_actions.Length == 0)
+            {
+                return;
+            }
+
+            foreach (SceneActionData action in space.scene_actions)
+            {
+                if (action == null || string.IsNullOrWhiteSpace(action.anchor_id))
+                {
+                    continue;
+                }
+
+                Vector3 basePosition = SceneActionDisplayPosition(action);
+                Color color = ColorForSceneAction(action);
+                GameObject node = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                node.name = "Scene Action Task " + SafeLabel(action.action_id, action.anchor_id);
+                node.transform.position = basePosition;
+                node.transform.rotation = Quaternion.LookRotation((cameraPosition - basePosition).normalized, Vector3.up);
+                node.transform.localScale = new Vector3(0.18f, 0.08f, 0.015f);
+                ApplyMaterial(node.GetComponent<Renderer>(), color);
+                AnchorClickTarget clickTarget = node.AddComponent<AnchorClickTarget>();
+                clickTarget.anchorId = action.anchor_id;
+                clickTarget.sceneActionId = action.action_id;
+                clickTarget.executeSceneAction = true;
+                clickTarget.controller = this;
+                spawnedObjects.Add(node);
+
+                CreateSceneActionLine(action, basePosition, color);
+                CreateSceneActionGrowthBeats(action, basePosition, color);
+                CreateSceneActionLabel(action, basePosition, color);
+            }
+        }
+
+        private Vector3 SceneActionDisplayPosition(SceneActionData action)
+        {
+            if (action != null && action.spatial_binding != null && action.spatial_binding.pose != null)
+            {
+                SpacePose pose = action.spatial_binding.pose;
+                return new Vector3(Mathf.Clamp(pose.x, -1.55f, 1.55f), Mathf.Clamp(pose.y, 0.8f, 2.25f), Mathf.Lerp(wallCenter.z, pose.z, 0.5f));
+            }
+
+            if (action != null && anchorVisuals.ContainsKey(action.anchor_id))
+            {
+                return anchorVisuals[action.anchor_id].MarkerTransform.position + new Vector3(0f, -0.28f, -0.08f);
+            }
+
+            return wallCenter + new Vector3(0f, -0.35f, -0.18f);
+        }
+
+        private Color ColorForSceneAction(SceneActionData action)
+        {
+            if (action == null) return new Color(0.48f, 0.86f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A1", StringComparison.Ordinal)) return new Color(0.38f, 0.92f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A2", StringComparison.Ordinal)) return new Color(0.76f, 0.58f, 1f, 0.72f);
+            if (string.Equals(action.anchor_id, "A3", StringComparison.Ordinal)) return new Color(1f, 0.72f, 0.38f, 0.72f);
+            return new Color(0.48f, 0.86f, 1f, 0.72f);
+        }
+
+        private void CreateSceneActionLine(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null || !anchorVisuals.ContainsKey(action.anchor_id)) return;
+            Vector3 anchorPosition = anchorVisuals[action.anchor_id].MarkerTransform.position;
+            GameObject lineObject = new GameObject("Scene Action Spatial Binding " + SafeLabel(action.action_id, action.anchor_id));
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 3;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.003f;
+            line.startColor = new Color(color.r, color.g, color.b, 0.42f);
+            line.endColor = new Color(color.r, color.g, color.b, 0.16f);
+            Material material = CreateLineMaterial(color, 0.34f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, anchorPosition + new Vector3(0f, -0.08f, -0.02f));
+            line.SetPosition(1, Vector3.Lerp(anchorPosition, taskPosition, 0.55f) + new Vector3(0f, 0.06f, -0.08f));
+            line.SetPosition(2, taskPosition);
+            spawnedObjects.Add(lineObject);
+        }
+
+        private void CreateSceneActionLabel(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null) return;
+            GameObject label = new GameObject("Scene Action Label " + SafeLabel(action.action_id, action.anchor_id));
+            label.transform.position = taskPosition + new Vector3(-0.24f, 0.11f, -0.02f);
+            label.transform.rotation = Quaternion.LookRotation((label.transform.position - cameraPosition).normalized, Vector3.up);
+            TextMesh mesh = label.AddComponent<TextMesh>();
+            string title = SafeLabel(action.title, SafeLabel(action.action_id, "scene task"));
+            string task = SafeLabel(action.user_task, "Do the wall task at this anchor.");
+            string cue = SafeLabel(action.physical_cue, "real wall marker");
+            string placement = action.spatial_binding != null ? SafeLabel(action.spatial_binding.placement, "wall bound") : "wall bound";
+            mesh.text = action.anchor_id + " TASK  " + title + "\n" + task + "\nPhysical cue: " + cue + "\n3D placement: " + placement;
+            mesh.font = uiFont;
+            mesh.fontSize = 28;
+            mesh.characterSize = 0.012f;
+            mesh.anchor = TextAnchor.MiddleLeft;
+            mesh.color = new Color(color.r, color.g, color.b, 0.92f);
+            MeshRenderer meshRenderer = label.GetComponent<MeshRenderer>();
+            if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
+            spawnedObjects.Add(label);
+        }
+
+        private void CreateSceneActionGrowthBeats(SceneActionData action, Vector3 taskPosition, Color color)
+        {
+            if (action == null || action.spatial_choreography == null || action.spatial_choreography.growth_beats == null)
+            {
+                return;
+            }
+
+            SceneActionGrowthBeatData[] beats = action.spatial_choreography.growth_beats;
+            Vector3 previous = taskPosition;
+            for (int i = 0; i < beats.Length; i++)
+            {
+                SceneActionGrowthBeatData beat = beats[i];
+                if (beat == null) continue;
+                Vector3 offset = beat.offset != null ? new Vector3(beat.offset.x, beat.offset.y, beat.offset.z) : new Vector3(0.08f * i, 0.03f * i, -0.08f * i);
+                Vector3 beatPosition = taskPosition + offset;
+                float scale = Mathf.Clamp(beat.scale > 0f ? beat.scale : 0.045f, 0.025f, 0.12f);
+
+                GameObject bead = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bead.name = "Scene Action Growth Beat " + SafeLabel(beat.beat_id, action.action_id);
+                bead.transform.position = beatPosition;
+                bead.transform.localScale = new Vector3(scale, scale, scale);
+                ApplyMaterial(bead.GetComponent<Renderer>(), new Color(color.r, color.g, color.b, 0.66f));
+                spawnedObjects.Add(bead);
+
+                GameObject trailObject = new GameObject("Scene Action Depth Time Trail " + SafeLabel(beat.beat_id, action.action_id));
+                LineRenderer trail = trailObject.AddComponent<LineRenderer>();
+                trail.useWorldSpace = true;
+                trail.positionCount = 2;
+                trail.numCapVertices = 3;
+                trail.startWidth = 0.0035f;
+                trail.endWidth = 0.002f;
+                trail.startColor = new Color(color.r, color.g, color.b, 0.28f);
+                trail.endColor = new Color(color.r, color.g, color.b, 0.1f);
+                Material trailMaterial = CreateLineMaterial(color, 0.22f);
+                if (trailMaterial != null) trail.material = trailMaterial;
+                trail.SetPosition(0, previous);
+                trail.SetPosition(1, beatPosition);
+                spawnedObjects.Add(trailObject);
+                previous = beatPosition;
+            }
+        }
+
+        private bool IsControlledSemanticPreview(NearbyPin pin)
+        {
+            if (pin == null) return false;
+            return pin.pin_type == "semantic"
+                && pin.controlled_demo
+                && !pin.open_ugc_allowed
+                && !pin.hardware_acceptance_evidence
+                && !pin.p0_required;
+        }
+
+        private Vector3 SemanticPinDisplayPosition(NearbyPin pin)
+        {
+            SpacePose pose = pin != null ? pin.pose : null;
+            Vector3 source = pose != null ? new Vector3(pose.x, pose.y, pose.z) : new Vector3(0f, 4.8f, 11f);
+            float z = Mathf.Lerp(wallCenter.z, source.z, 0.32f);
+            return new Vector3(Mathf.Clamp(source.x, -1.4f, 1.4f), Mathf.Clamp(source.y, 2.45f, 3.25f), z);
+        }
+
+        private void CreateSemanticCloudLobe(Transform parent, string name, Vector3 localPosition, Vector3 scale, Color color)
+        {
+            GameObject lobe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            lobe.name = name;
+            lobe.transform.SetParent(parent, false);
+            lobe.transform.localPosition = localPosition;
+            lobe.transform.localScale = scale;
+            Collider collider = lobe.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            ApplyMaterial(lobe.GetComponent<Renderer>(), color);
+        }
+
+        private LineRenderer CreateSemanticPinHalo(NearbyPin pin, Vector3 position, Color color)
+        {
+            GameObject halo = new GameObject("Controlled Sky Pin Halo " + SafeLabel(pin.pin_id, "semantic"));
+            halo.transform.position = position + new Vector3(0f, 0f, -0.02f);
+            halo.transform.rotation = Quaternion.LookRotation((cameraPosition - position).normalized, Vector3.up);
+            LineRenderer line = halo.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.loop = true;
+            line.positionCount = 96;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.006f;
+            line.startColor = color;
+            line.endColor = color;
+            Material material = CreateLineMaterial(color, 0.45f);
+            if (material != null) line.material = material;
+            SetCircleLine(line, 0.34f);
+            return line;
+        }
+
+        private void CreateSemanticPinStem(NearbyPin pin, Vector3 position, Color color)
+        {
+            Vector3 origin = anchorVisuals.ContainsKey("A2") ? anchorVisuals["A2"].MarkerTransform.position : wallCenter;
+            GameObject stem = new GameObject("Controlled Sky Pin Preview Stem " + SafeLabel(pin.pin_id, "semantic"));
+            LineRenderer line = stem.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 3;
+            line.numCapVertices = 4;
+            line.startWidth = 0.006f;
+            line.endWidth = 0.003f;
+            line.startColor = new Color(color.r, color.g, color.b, 0.22f);
+            line.endColor = new Color(color.r, color.g, color.b, 0.72f);
+            Material material = CreateLineMaterial(color, 0.25f);
+            if (material != null) line.material = material;
+            line.SetPosition(0, origin + new Vector3(0f, 0.08f, -0.12f));
+            line.SetPosition(1, Vector3.Lerp(origin, position, 0.55f) + new Vector3(0f, 0.45f, -0.08f));
+            line.SetPosition(2, position + new Vector3(0f, -0.18f, 0f));
+            spawnedObjects.Add(stem);
+        }
+
+        private void CreateSemanticPinLabel(NearbyPin pin, Vector3 position)
+        {
+            GameObject label = new GameObject("Controlled Sky Pin Label " + SafeLabel(pin.pin_id, "semantic"));
+            label.transform.position = position + new Vector3(0.34f, 0.13f, -0.02f);
+            label.transform.rotation = Quaternion.LookRotation((label.transform.position - cameraPosition).normalized, Vector3.up);
+            TextMesh mesh = label.AddComponent<TextMesh>();
+            string title = pin.media != null && !string.IsNullOrWhiteSpace(pin.media.title) ? pin.media.title : SafeLabel(pin.label, "Sky Pin");
+            string subtitle = pin.media != null && !string.IsNullOrWhiteSpace(pin.media.subtitle) ? pin.media.subtitle : "Controlled 3D Pin preview";
+            mesh.text = title + "\n" + subtitle + "\nnot UGC | not P0 evidence";
+            mesh.font = uiFont;
+            mesh.fontSize = 32;
+            mesh.characterSize = 0.016f;
+            mesh.anchor = TextAnchor.MiddleLeft;
+            mesh.color = new Color(0.86f, 0.96f, 1f);
+            MeshRenderer meshRenderer = label.GetComponent<MeshRenderer>();
+            if (meshRenderer != null && uiFont != null) meshRenderer.material = uiFont.material;
+            spawnedObjects.Add(label);
         }
 
         private string AnchorBeaconLine(string anchorId)
@@ -1451,6 +2348,16 @@ namespace InnerWorld.Rokid
 
             target = collider.GetComponent<AnchorClickTarget>();
             return target != null;
+        }
+
+        private AnchorClickTarget CurrentGazeClickTarget()
+        {
+            if (rokidInputSource == null || !rokidInputSource.IsPoseValid) return null;
+            RokidGazeState gaze;
+            if (!rokidInputSource.TryGetGaze(out gaze)) return null;
+            RaycastHit hit;
+            AnchorClickTarget target;
+            return TryGetAnchorHit(gaze, out target, out hit) ? target : null;
         }
 
         private void SetGazeVisualTarget(string anchorId, string label, Vector3 hitPoint, bool isSelecting)
@@ -1628,7 +2535,7 @@ namespace InnerWorld.Rokid
         {
             if (targetText == null) return;
 
-            string debugLine = BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine();
+            string debugLine = BuildWallCalibrationObservationLine() + " | " + BuildFieldMarkerActiveLine() + "\n" + BuildFieldAcceptanceDebugLine() + "\n" + BuildFieldOperatorPlanDebugLine();
             targetText.text = BuildPremiumTargetCardLine(debugLine);
             if (systemText != null) systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel();
             RefreshRadarHud();
@@ -1642,7 +2549,8 @@ namespace InnerWorld.Rokid
                 + "\n" + FieldMarkerTargetSummary(marker)
                 + "\n" + ImageTargetAssetCardLine(marker)
                 + "\n" + CalibrationCompactLine()
-                + "\n" + AcceptanceCompactLine();
+                + "\n" + AcceptanceCompactLine()
+                + "\n" + BuildFieldOperatorPlanTargetLine();
         }
 
         private string SpatialFocusLine()
@@ -2019,11 +2927,25 @@ namespace InnerWorld.Rokid
             sourceText.text = "INPUT " + CurrentInputSourceName() + " | " + mode + " | " + AdapterBoundaryLabel() + " | " + connection.Status
                 + "\nSERVER " + (apiClient != null ? apiClient.BaseUrl : baseUrl) + " | " + CurrentDeviceProfile() + " | " + acceptanceStatus
                 + "\nENTRY " + BuildA1SpatialEntryHudLine()
+                + "\nASSIST " + BuildFieldInputAssistStatusLine()
                 + "\nADAPTER " + adapterReadiness;
             if (systemText != null)
             {
                 systemText.text = "ACTIVE TARGET | " + SpatialLockQualityLabel() + " | " + A1SpatialEntryReadinessStatus() + " | " + ArShellStatusCompactLabel() + " | " + fieldReadiness + " | " + observation + " | " + adapterReadiness;
             }
+        }
+
+        private void RefreshFieldInputAssistHud()
+        {
+            if (fieldInputAssistText == null) return;
+            fieldInputAssistText.text = BuildFieldInputAssistStatusLine()
+                + " | fallback_hardware_ready false | blocker " + FieldAssistBlockerId
+                + " | " + lastFieldAssistActionLine;
+        }
+
+        private string BuildFieldInputAssistStatusLine()
+        {
+            return "field input assist visible | P0 A1/A2/A3/User B | " + FieldAssistInputMode;
         }
 
         private RokidConnectionInfo CurrentConnectionInfo()
@@ -2110,7 +3032,51 @@ namespace InnerWorld.Rokid
             }
 
             string fromArgs;
-            return TryReadRuntimeArg(Environment.GetCommandLineArgs(), OperatorPairingCodeArg, out fromArgs) ? fromArgs : string.Empty;
+            if (TryReadRuntimeArg(Environment.GetCommandLineArgs(), OperatorPairingCodeArg, out fromArgs))
+            {
+                return fromArgs;
+            }
+
+            return ReadAndroidIntentOperatorPairingCode();
+        }
+
+        private static string ReadAndroidIntentOperatorPairingCode()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (AndroidJavaObject activity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
+                {
+                    if (activity == null) return string.Empty;
+
+                    using (AndroidJavaObject intent = activity.Call<AndroidJavaObject>("getIntent"))
+                    {
+                        if (intent == null) return string.Empty;
+
+                        string[] keys =
+                        {
+                            OperatorPairingCodeIntentExtra,
+                            OperatorPairingCodeIntentExtraQualified,
+                            OperatorPairingCodeArg
+                        };
+                        foreach (string key in keys)
+                        {
+                            string value = intent.Call<string>("getStringExtra", key);
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                return value.Trim();
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return string.Empty;
+            }
+#endif
+            return string.Empty;
         }
 
         private static bool TryReadRuntimeArg(string[] args, string name, out string value)
@@ -2208,6 +3174,7 @@ namespace InnerWorld.Rokid
             int stepIndex = runtime != null ? runtime.current_step_index : localStepIndex;
             string[] completedSteps = runtime != null ? runtime.completed_steps : null;
             string userId = runtime != null ? runtime.active_user : (runtimeConfig != null ? runtimeConfig.active_user : InnerWorldRuntimeConfig.DefaultActiveUser);
+            missionProvenanceLine = BuildMissionProvenanceLine(runtime != null ? runtime.mission_provenance : null);
             missionState.ApplyRuntime(state, stepIndex, completedSteps, userId);
             ApplyPresentationStrategyToMissionState();
             localStepIndex = missionState.current_step_index;
@@ -2251,6 +3218,7 @@ namespace InnerWorld.Rokid
             yield return LoadEvidenceChain();
             yield return LoadSessionPlan();
             yield return LoadFieldAcceptanceManifest();
+            yield return LoadFieldOperatorPlanManifest();
             RefreshHud();
         }
 
@@ -2306,7 +3274,16 @@ namespace InnerWorld.Rokid
             string evidence = evidenceChain != null ? (evidenceChain.IsReady ? "evidence ready" : "evidence pending") : "evidence unknown";
             string session = sessionPlan != null && sessionPlan.IsSchemaCompatible ? "session plan" : "session unknown";
             string device = bootstrap != null && bootstrap.runtime != null ? "device beacons " + bootstrap.runtime.beacon_count : "device runtime unknown";
-            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+            return evidence + " | " + session + " | " + device + "\n" + BuildA1SpatialEntryHudLine() + "\n" + sceneHandoffLine + "\n" + sceneActionExecutionLine + "\n" + missionProvenanceLine + "\n" + BuildAdapterReadinessStatusLine() + "\n" + BuildWallCalibrationStatusLine() + "\n" + BuildFieldMarkerStatusLine() + "\n" + BuildFieldAcceptanceStatusLine() + "\n" + BuildFieldOperatorPlanStatusLine() + "\n" + trustedHardwareMissionAssistLine + "\n" + deviceRuntimeLine + " | " + devicePairingLine + " | " + AdapterBoundaryLabel();
+        }
+
+        private string BuildMissionProvenanceLine(MissionProvenanceData provenance)
+        {
+            if (provenance == null) return "mission provenance: rehearsal/no trusted hardware mutation";
+            string status = SafeLabel(provenance.state_provenance_status, "rehearsal");
+            string source = SafeLabel(provenance.last_mutation_source_status, "none");
+            string ready = provenance.hardware_ready_claim_allowed ? "hardware-ready claim allowed" : "hardware-ready claim blocked";
+            return "mission provenance: " + status + " / " + source + " / " + ready;
         }
 
         private WallCalibrationObservationPayload BuildWallCalibrationObservationPayload(WallCalibrationAnchor anchor, string trackingMode)
@@ -2322,6 +3299,59 @@ namespace InnerWorld.Rokid
                 confidence = confidence,
                 notes = "Unity " + trackingMode + " calibration rehearsal; observed_pose copied from manifest expected_pose for current anchor.",
                 client_time = DateTime.UtcNow.ToString("o")
+            };
+        }
+
+        private WallCalibrationObservationPayload BuildRokidTrackedImageObservationPayload(
+            WallCalibrationAnchor anchor,
+            string anchorId,
+            int imageIndex,
+            Pose pose,
+            Vector2 size,
+            string trackingMode,
+            string eventType)
+        {
+            float confidence = string.Equals(eventType, "updated", StringComparison.OrdinalIgnoreCase) ? 0.96f : 0.94f;
+            return new WallCalibrationObservationPayload
+            {
+                session_id = CurrentCalibrationSessionId(),
+                device_id = string.IsNullOrWhiteSpace(deviceId) ? CurrentDeviceId() : deviceId.Trim(),
+                anchor_id = !string.IsNullOrWhiteSpace(anchorId) ? anchorId.Trim() : (anchor != null ? anchor.anchor_id : CurrentActiveAnchorId()),
+                tracking_mode = trackingMode,
+                observed_pose = BuildObservedPoseFromUnityPose(pose, confidence),
+                confidence = confidence,
+                notes = "Rokid UXR tracked image " + SafeLabel(eventType, "event")
+                    + " | image_index " + imageIndex
+                    + " | size_m " + size.x.ToString("0.000") + "x" + size.y.ToString("0.000")
+                    + " | operator-paired live session required.",
+                client_time = DateTime.UtcNow.ToString("o")
+            };
+        }
+
+        private DevicePosePayload BuildObservedPoseFromUnityPose(Pose pose, float confidence)
+        {
+            Quaternion rotation = pose.rotation;
+            if (rotation.x == 0f && rotation.y == 0f && rotation.z == 0f && rotation.w == 0f)
+            {
+                rotation = Quaternion.identity;
+            }
+
+            return new DevicePosePayload
+            {
+                confidence = confidence,
+                position = new DeviceVector3
+                {
+                    x = pose.position.x,
+                    y = pose.position.y,
+                    z = pose.position.z
+                },
+                rotation = new DeviceQuaternion
+                {
+                    x = rotation.x,
+                    y = rotation.y,
+                    z = rotation.z,
+                    w = rotation.w
+                }
             };
         }
 
@@ -2351,6 +3381,215 @@ namespace InnerWorld.Rokid
                     w = rotation.w == 0f ? 1f : rotation.w
                 }
             };
+        }
+
+        private bool CanSubmitTrustedRokidHardwareObservation()
+        {
+            return string.IsNullOrEmpty(TrustedRokidHardwareObservationGateReason());
+        }
+
+        private string TrustedRokidHardwareObservationGateReason()
+        {
+            if (deviceSession == null || !deviceSession.ok || string.IsNullOrWhiteSpace(deviceSessionId))
+            {
+                return "device_session_missing";
+            }
+            if (!deviceSession.hardware_acceptance_eligible)
+            {
+                return "hardware_acceptance_not_eligible";
+            }
+            if (deviceSession.pairing == null || !deviceSession.pairing.paired)
+            {
+                return "operator_pairing_missing";
+            }
+
+            RokidSdkBindingReport report = CurrentSdkBindingReport();
+            if (!report.InputBindingReady)
+            {
+                return "input_binding_not_ready";
+            }
+            if (!report.OverlayBindingReady)
+            {
+                return "overlay_binding_not_ready";
+            }
+            if (!report.LiveBindingReady)
+            {
+                return "live_binding_not_ready";
+            }
+            if (!ServerAckedLiveBindingReady())
+            {
+                return "server_live_binding_heartbeat_ack_missing";
+            }
+
+            return string.Empty;
+        }
+
+        private bool ServerAckedLiveBindingReady()
+        {
+            if (lastDeviceHeartbeat == null || !lastDeviceHeartbeat.ok || string.IsNullOrWhiteSpace(deviceSessionId))
+            {
+                return false;
+            }
+            if (!string.Equals(lastDeviceHeartbeat.session_id, deviceSessionId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (!lastDeviceHeartbeat.hardware_acceptance_eligible
+                || lastDeviceHeartbeat.pairing == null
+                || !lastDeviceHeartbeat.pairing.paired)
+            {
+                return false;
+            }
+
+            RokidSdkBindingStatusPayload sdk = lastDeviceHeartbeat.sdk_binding_status;
+            return sdk != null
+                && sdk.input_binding_ready
+                && sdk.overlay_binding_ready
+                && sdk.live_binding_ready;
+        }
+
+        private void QueuePendingTrustedTargetObservation(string anchorId, int imageIndex, Pose pose, Vector2 size, string eventType, string gateReason)
+        {
+            string cleanAnchorId = SafeLabel(anchorId, string.Empty);
+            if (string.IsNullOrEmpty(cleanAnchorId))
+            {
+                return;
+            }
+
+            pendingTrustedTargetObservations[cleanAnchorId] = new PendingTrustedTargetObservation
+            {
+                anchorId = cleanAnchorId,
+                imageIndex = imageIndex,
+                pose = pose,
+                size = size,
+                eventType = SafeLabel(eventType, "event"),
+                gateReason = SafeLabel(gateReason, "pending"),
+                queuedAtSeconds = Time.realtimeSinceStartup
+            };
+            trustedHardwareMissionAssistLine = "trusted target queued | " + cleanAnchorId + " | waiting " + SafeLabel(gateReason, "pending");
+        }
+
+        private void TryFlushPendingTrustedTargetObservations(string source)
+        {
+            if (pendingTrustedTargetObservations.Count == 0 || wallCalibrationObservationInFlight)
+            {
+                return;
+            }
+
+            string trustedGateReason = TrustedRokidHardwareObservationGateReason();
+            if (!string.IsNullOrEmpty(trustedGateReason))
+            {
+                trustedHardwareMissionAssistLine = "trusted target queue waiting | " + SafeLabel(trustedGateReason, "pending");
+                return;
+            }
+
+            PendingTrustedTargetObservation pending = null;
+            foreach (PendingTrustedTargetObservation item in pendingTrustedTargetObservations.Values)
+            {
+                if (pending == null || item.queuedAtSeconds < pending.queuedAtSeconds)
+                {
+                    pending = item;
+                }
+            }
+
+            if (pending == null)
+            {
+                return;
+            }
+
+            pendingTrustedTargetObservations.Remove(pending.anchorId);
+            trustedHardwareMissionAssistLine = "trusted target queue flush | " + pending.anchorId + " | " + SafeLabel(source, "heartbeat_ack");
+            SelectAnchor(pending.anchorId);
+            if (IsA1EntryAnchor(pending.anchorId))
+            {
+                PrimeA1SpatialEntryLock("rokid_tracked_image_queue");
+            }
+            StartCoroutine(SubmitRokidTrackedImageObservation(
+                pending.anchorId,
+                pending.imageIndex,
+                pending.pose,
+                pending.size,
+                pending.eventType));
+        }
+
+        private bool IsTrustedAcceptedHardwareObservation(WallCalibrationObservation observation)
+        {
+            if (observation == null || observation.acceptance == null)
+            {
+                return false;
+            }
+
+            bool accepted = string.Equals(observation.status, "accepted", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(observation.status, "warning", StringComparison.OrdinalIgnoreCase);
+            return accepted && observation.acceptance.hardware_observation_trusted;
+        }
+
+        private bool MissionHasStep(string stepId)
+        {
+            string cleanStepId = SafeLabel(stepId, string.Empty);
+            if (string.IsNullOrEmpty(cleanStepId) || space == null || space.mission == null || space.mission.steps == null)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < space.mission.steps.Length; index++)
+            {
+                MissionStepData step = space.mission.steps[index];
+                if (step != null && string.Equals(step.step_id, cleanStepId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsMissionStepComplete(string stepId)
+        {
+            return missionState != null && missionState.IsStepComplete(stepId);
+        }
+
+        private bool MissionStateIs(string state)
+        {
+            return missionState != null
+                && string.Equals(missionState.mission_state, state, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool ShouldPostTrustedHardwareObservation(string anchorId, string eventType)
+        {
+            string cleanAnchorId = SafeLabel(anchorId, string.Empty);
+            if (string.IsNullOrEmpty(cleanAnchorId))
+            {
+                return false;
+            }
+
+            string key = cleanAnchorId + ":" + SafeLabel(eventType, "event");
+            float now = Time.realtimeSinceStartup;
+            float lastPostedAt;
+            if (trustedHardwareObservationPostedAt.TryGetValue(key, out lastPostedAt)
+                && now - lastPostedAt < TrustedHardwareObservationMinIntervalSeconds)
+            {
+                Debug.Log("IW_TARGET_THROTTLED anchor=" + cleanAnchorId
+                    + " event=" + SafeLabel(eventType, "event")
+                    + " min_interval_sec=" + TrustedHardwareObservationMinIntervalSeconds.ToString("0.0"));
+                return false;
+            }
+
+            trustedHardwareObservationPostedAt[key] = now;
+            return true;
+        }
+
+        private string AnchorIdForRokidTrackedImageIndex(int imageIndex)
+        {
+            if (imageIndex == 1) return "A1";
+            if (imageIndex == 2) return "A2";
+            if (imageIndex == 3) return "A3";
+            return string.Empty;
+        }
+
+        private string TrustedTrackingModeForAnchor(string anchorId)
+        {
+            return IsA1EntryAnchor(anchorId) ? "qr" : "image_tracking";
         }
 
         private DeviceRegisterRequest BuildDeviceRegisterRequest()
@@ -2431,6 +3670,7 @@ namespace InnerWorld.Rokid
                 battery = BuildDeviceBatteryStatus(),
                 network = BuildDeviceNetworkStatus(),
                 pose = BuildDevicePosePayload(),
+                input_frame = BuildDeviceInputFramePayload(),
                 active_anchor = CurrentActiveAnchorId(),
                 current_user = CurrentUserId(),
                 sdk_binding_status = BuildSdkBindingStatusPayload("unity_heartbeat")
@@ -2496,6 +3736,102 @@ namespace InnerWorld.Rokid
             };
         }
 
+        private DeviceInputFramePayload BuildDeviceInputFramePayload()
+        {
+            RokidPose fallbackPose = CurrentRokidPose();
+            RokidInputFrame frame;
+            if (rokidInputSource == null || !rokidInputSource.TryReadFrame(out frame))
+            {
+                frame = new RokidInputFrame(
+                    0,
+                    Time.time,
+                    Mathf.Max(0f, Time.deltaTime),
+                    fallbackPose,
+                    RokidGazeState.FromPose(fallbackPose, false),
+                    RokidInputButtons.None,
+                    RokidInputButtons.None,
+                    RokidInputCommand.None,
+                    RokidVoiceText.Empty,
+                    RokidAnchorTarget.None,
+                    RokidConnectionInfo.Disconnected(apiClient != null ? apiClient.BaseUrl : baseUrl));
+            }
+
+            RokidGazeState gaze = frame.Gaze;
+            Ray ray = gaze.Ray;
+            string focusedAnchorId = gaze.HasAnchorHit
+                ? gaze.AnchorId
+                : !string.IsNullOrWhiteSpace(currentGazeAnchorId)
+                    ? currentGazeAnchorId
+                    : frame.AnchorTarget.AnchorId;
+            string focusedAnchorLabel = gaze.HasAnchorHit
+                ? gaze.AnchorLabel
+                : !string.IsNullOrWhiteSpace(currentGazeAnchorLabel)
+                    ? currentGazeAnchorLabel
+                    : frame.AnchorTarget.Label;
+            bool anchorHit = gaze.HasAnchorHit || !string.IsNullOrWhiteSpace(focusedAnchorId);
+            Vector3 hitPoint = gaze.HasAnchorHit
+                ? gaze.HitPoint
+                : frame.AnchorTarget.HasWorldPosition
+                    ? frame.AnchorTarget.WorldPosition
+                    : Vector3.zero;
+
+            return new DeviceInputFramePayload
+            {
+                schema = "innerworld-rokid-input-frame/v1",
+                source = rokidInputSource != null ? rokidInputSource.SourceName : "unity-no-input-source",
+                sequence = frame.Sequence,
+                timestamp_seconds = frame.TimestampSeconds,
+                delta_time_seconds = frame.DeltaTimeSeconds,
+                command = InputCommandLabel(frame.Command),
+                gaze_select_down = IsButtonDown(frame, RokidInputButtons.GazeSelect),
+                gaze_select_held = IsButtonHeld(frame, RokidInputButtons.GazeSelect),
+                confirm_down = IsButtonDown(frame, RokidInputButtons.Confirm),
+                confirm_held = IsButtonHeld(frame, RokidInputButtons.Confirm),
+                back_down = IsButtonDown(frame, RokidInputButtons.Back),
+                back_held = IsButtonHeld(frame, RokidInputButtons.Back),
+                anchor_hit = anchorHit,
+                focused_anchor_id = SafeLabel(focusedAnchorId, string.Empty),
+                focused_anchor_label = SafeLabel(focusedAnchorLabel, string.Empty),
+                hit_distance_meters = gaze.HasAnchorHit ? gaze.HitDistanceMeters : 0f,
+                hit_point = VectorPayload(hitPoint),
+                ray_origin = VectorPayload(ray.origin),
+                ray_direction = VectorPayload(ray.direction),
+                pointable_ui_focus = anchorHit,
+                fallback_input_visible = true,
+                operator_assist_input = true,
+                input_blocker = FieldAssistBlockerId,
+                input_acceptance_mode = FieldAssistInputMode,
+                voice_text_present = frame.HasVoiceText
+            };
+        }
+
+        private static bool IsButtonDown(RokidInputFrame frame, RokidInputButtons button)
+        {
+            return (frame.ButtonsDown & button) == button;
+        }
+
+        private static bool IsButtonHeld(RokidInputFrame frame, RokidInputButtons button)
+        {
+            return (frame.ButtonsHeld & button) == button;
+        }
+
+        private static string InputCommandLabel(RokidInputCommand command)
+        {
+            if (command == RokidInputCommand.Confirm) return "confirm";
+            if (command == RokidInputCommand.Back) return "back";
+            return "none";
+        }
+
+        private static DeviceVector3 VectorPayload(Vector3 value)
+        {
+            return new DeviceVector3
+            {
+                x = value.x,
+                y = value.y,
+                z = value.z
+            };
+        }
+
         private RokidPose CurrentRokidPose()
         {
             if (rokidInputSource != null && rokidInputSource.IsPoseValid)
@@ -2514,7 +3850,7 @@ namespace InnerWorld.Rokid
 
         private RokidSdkBindingStatusPayload BuildSdkBindingStatusPayload(string source)
         {
-            RokidSdkBindingReport report = rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            RokidSdkBindingReport report = BuildCurrentSdkBindingReport();
             return new RokidSdkBindingStatusPayload
             {
                 schema = RokidSdkBindingReport.Schema,
@@ -2538,27 +3874,32 @@ namespace InnerWorld.Rokid
             RokidSdkBindingReport binding = report ?? RokidSdkBindingProbe.Detect();
             bool compiledAndPackaged = binding.BoundaryCompiled && binding.PackageDetected;
             bool liveBinding = compiledAndPackaged && binding.LiveBindingReady;
+            bool uxrInputReady = IsRokidUxrInputBindingReady();
+            bool uxrOverlayReady = IsRokidUxrOverlayBindingReady();
+            bool pointableUiReady = compiledAndPackaged && HasPackageResource("Prefabs/UI/PointableUI/PointableUI");
+            bool pointableUiCurveReady = compiledAndPackaged && HasPackageResource("Prefabs/UI/PointableUI/PointableUI_Curve");
+            bool imageTrackingReady = compiledAndPackaged && HasRuntimeType("Rokid.UXR.Module.ARTrackedImageManager");
 
             return new RokidLiveAdapterChecklistReport
             {
                 boundary_compiled = binding.BoundaryCompiled,
                 package_detected = binding.PackageDetected,
-                rk_camera_rig_ready = false,
-                camera_rig_ready = false,
-                rk_input_3dof_ray_ready = false,
-                input_ray_ready = false,
-                pointable_ui_ready = false,
-                pointable_ui_curve_ready = false,
+                rk_camera_rig_ready = liveBinding && Camera.main != null,
+                camera_rig_ready = liveBinding && Camera.main != null,
+                rk_input_3dof_ray_ready = uxrInputReady,
+                input_ray_ready = uxrInputReady,
+                pointable_ui_ready = pointableUiReady,
+                pointable_ui_curve_ready = pointableUiCurveReady,
                 a1_entry_lock_ready = IsA1EntryLockReady(),
                 entry_lock_ready = IsA1EntryLockReady(),
-                qr_entry_lock_ready = false,
-                image_tracking_ready = false,
-                image_target_library_ready = false,
-                a2_a3_image_tracking_ready = false,
-                slam_head_tracking_ready = false,
-                slam_status_ready = false,
+                qr_entry_lock_ready = imageTrackingReady,
+                image_tracking_ready = imageTrackingReady,
+                image_target_library_ready = imageTrackingReady,
+                a2_a3_image_tracking_ready = imageTrackingReady,
+                slam_head_tracking_ready = liveBinding && binding.InputBindingReady,
+                slam_status_ready = liveBinding && binding.InputBindingReady,
                 head_tracking_heartbeat_ready = liveBinding && binding.InputBindingReady,
-                uxr_overlay_renderer_ready = liveBinding && binding.OverlayBindingReady,
+                uxr_overlay_renderer_ready = uxrOverlayReady,
                 overlay_binding_ready = binding.OverlayBindingReady,
                 trusted_hardware_proof_ready = false,
                 hardware_proof_ready = false,
@@ -2566,6 +3907,85 @@ namespace InnerWorld.Rokid
                 fps_target_ready = false,
                 spatial_panels_readable = a1SpatialEntryConfirmed
             };
+        }
+
+        private RokidSdkBindingReport BuildCurrentSdkBindingReport()
+        {
+            RokidSdkBindingReport report = rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            bool inputReady = IsRokidUxrInputBindingReady();
+            bool overlayReady = IsRokidUxrOverlayBindingReady();
+
+            if (report.BoundaryCompiled && report.PackageDetected && (inputReady || overlayReady))
+            {
+                return report.WithLiveBinding(
+                    inputReady,
+                    overlayReady,
+                    "ROKID_UXR live adapter instantiated; RKCameraRig/Camera pose, RKInput 3DoF controls, and worldspace overlay are bound. Field acceptance still requires operator pairing and trusted A1/A2/A3 observations.");
+            }
+
+            return report;
+        }
+
+        private bool IsRokidUxrInputBindingReady()
+        {
+#if ROKID_UXR
+            RokidUxrInputSource input = rokidInputSource as RokidUxrInputSource;
+            return input != null && input.IsSdkBindingReady;
+#else
+            return false;
+#endif
+        }
+
+        private bool IsRokidUxrOverlayBindingReady()
+        {
+#if ROKID_UXR
+            RokidUxrOverlayRenderer renderer = rokidOverlayRenderer as RokidUxrOverlayRenderer;
+            return renderer != null && renderer.IsSdkBindingReady;
+#else
+            return false;
+#endif
+        }
+
+        private bool HasPackageResource(string resourcePath)
+        {
+            if (string.IsNullOrWhiteSpace(resourcePath))
+            {
+                return false;
+            }
+
+            return Resources.Load<GameObject>(resourcePath.Trim()) != null;
+        }
+
+        private bool HasRuntimeType(string typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                return false;
+            }
+
+            Type type = Type.GetType(typeName.Trim());
+            if (type != null)
+            {
+                return true;
+            }
+
+            System.Reflection.Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            for (int index = 0; index < assemblies.Length; index++)
+            {
+                try
+                {
+                    type = assemblies[index].GetType(typeName.Trim(), false);
+                    if (type != null)
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
         }
 
         private string BuildWallCalibrationHeartbeatMessage(string sdkMessage)
@@ -2721,7 +4141,7 @@ namespace InnerWorld.Rokid
 
         private RokidSdkBindingReport CurrentSdkBindingReport()
         {
-            return rokidAdapterStatus.SdkBinding ?? RokidSdkBindingProbe.Detect();
+            return BuildCurrentSdkBindingReport();
         }
 
         private string BuildWallCalibrationHeartbeatLine()
@@ -3045,6 +4465,256 @@ namespace InnerWorld.Rokid
             if (string.IsNullOrWhiteSpace(value)) return "sha pending";
             string clean = value.Trim();
             return clean.Length <= 12 ? clean : clean.Substring(0, 12);
+        }
+
+        private string BuildFieldOperatorPlanHudLine()
+        {
+            return FieldOperatorPlanHudBadge()
+                + " | hw-claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed())
+                + " | " + BuildFieldOperatorPlanNextActionLine();
+        }
+
+        private string BuildFieldOperatorPlanTargetLine()
+        {
+            return "Operator " + BuildFieldOperatorPlanHudLine()
+                + " | block " + ShortHudText(FieldOperatorPlanFirstBlocker(), 44);
+        }
+
+        private string BuildFieldOperatorPlanDebugLine()
+        {
+            return "Operator: " + FieldOperatorPlanPhaseProgress()
+                + " " + FieldOperatorPlanPhaseLabel()
+                + " | hw-claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed())
+                + " | next_actions " + FieldOperatorPlanNextActionCount()
+                + " | blockers " + FieldOperatorPlanBlockerCount()
+                + " | scope " + FieldOperatorPlanScopeGuardLabel();
+        }
+
+        private string BuildFieldOperatorPlanStatusLine()
+        {
+            if (fieldOperatorPlan == null)
+            {
+                string state = string.IsNullOrWhiteSpace(fieldOperatorPlanLine) ? "operator plan pending" : fieldOperatorPlanLine.Trim();
+                return "field operator plan " + state
+                    + " | " + FieldOperatorPlanPhaseProgress()
+                    + " " + FieldOperatorPlanPhaseLabel()
+                    + " | hw_claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed());
+            }
+
+            return "field operator plan schema " + FieldOperatorPlanSchemaLabel()
+                + " | " + FieldOperatorPlanPhaseProgress()
+                + " " + FieldOperatorPlanPhaseLabel()
+                + " | hw_claim " + BoolLabel(FieldOperatorPlanHardwareReadyClaimAllowed())
+                + " | next " + ShortHudText(FieldOperatorPlanFirstNextAction(), 64)
+                + " | block " + ShortHudText(FieldOperatorPlanFirstBlocker(), 64)
+                + " | " + FieldOperatorPlanScopeGuardLabel();
+        }
+
+        private string BuildFieldOperatorPlanNextActionLine()
+        {
+            return "next " + ShortHudText(FieldOperatorPlanFirstNextAction(), 54);
+        }
+
+        private string FieldOperatorPlanHudBadge()
+        {
+            return FieldOperatorPlanPhaseProgress() + " " + FieldOperatorPlanPhaseLabel();
+        }
+
+        private string FieldOperatorPlanSchemaLabel()
+        {
+            return fieldOperatorPlan != null && !string.IsNullOrWhiteSpace(fieldOperatorPlan.schema)
+                ? fieldOperatorPlan.schema.Trim()
+                : "schema unknown";
+        }
+
+        private string FieldOperatorPlanPhaseProgress()
+        {
+            if (fieldOperatorPlan == null)
+            {
+                return "phase ?/?";
+            }
+
+            int total = fieldOperatorPlan.total_phases > 0
+                ? fieldOperatorPlan.total_phases
+                : Mathf.Max(fieldOperatorPlan.phases != null ? fieldOperatorPlan.phases.Length : 0, fieldOperatorPlan.phase_table != null ? fieldOperatorPlan.phase_table.Length : 0);
+            int index = fieldOperatorPlan.phase_index > 0 ? fieldOperatorPlan.phase_index : 0;
+            return "phase " + (index > 0 ? index.ToString() : "?") + "/" + (total > 0 ? total.ToString() : "?");
+        }
+
+        private string FieldOperatorPlanPhaseLabel()
+        {
+            if (fieldOperatorPlan == null)
+            {
+                return "unknown";
+            }
+
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            if (phase != null)
+            {
+                if (!string.IsNullOrWhiteSpace(phase.id)) return phase.id.Trim();
+                if (!string.IsNullOrWhiteSpace(phase.label)) return phase.label.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(fieldOperatorPlan.current_phase)) return fieldOperatorPlan.current_phase.Trim();
+            return "unknown";
+        }
+
+        private bool FieldOperatorPlanHardwareReadyClaimAllowed()
+        {
+            return fieldOperatorPlan != null
+                && ((fieldOperatorPlan.readiness != null && fieldOperatorPlan.readiness.hardware_ready_claim_allowed)
+                    || fieldOperatorPlan.hardware_ready_claim_allowed);
+        }
+
+        private int FieldOperatorPlanNextActionCount()
+        {
+            return fieldOperatorPlan != null && fieldOperatorPlan.next_actions != null
+                ? fieldOperatorPlan.next_actions.Length
+                : 0;
+        }
+
+        private int FieldOperatorPlanBlockerCount()
+        {
+            if (fieldOperatorPlan == null) return 0;
+            int count = fieldOperatorPlan.blockers != null ? fieldOperatorPlan.blockers.Length : 0;
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            if (phase != null && phase.blockers != null) count += phase.blockers.Length;
+            return count;
+        }
+
+        private string FieldOperatorPlanFirstNextAction()
+        {
+            string action = FirstNonEmpty(fieldOperatorPlan != null ? fieldOperatorPlan.next_actions : null);
+            if (!string.IsNullOrWhiteSpace(action)) return action;
+
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            action = FirstNonEmpty(phase != null ? phase.operator_actions : null);
+            return string.IsNullOrWhiteSpace(action) ? "pending" : action;
+        }
+
+        private string FieldOperatorPlanFirstBlocker()
+        {
+            string blocker = FirstNonEmpty(fieldOperatorPlan != null ? fieldOperatorPlan.blockers : null);
+            if (!string.IsNullOrWhiteSpace(blocker)) return blocker;
+
+            FieldOperatorPlanPhase phase = CurrentFieldOperatorPlanPhase();
+            blocker = FirstNonEmpty(phase != null ? phase.blockers : null);
+            if (!string.IsNullOrWhiteSpace(blocker)) return blocker;
+
+            FieldOperatorPlanPhaseRow row = CurrentFieldOperatorPlanPhaseRow();
+            blocker = FirstNonEmpty(row != null ? row.blockers : null);
+            return string.IsNullOrWhiteSpace(blocker) ? "none" : blocker;
+        }
+
+        private FieldOperatorPlanPhase CurrentFieldOperatorPlanPhase()
+        {
+            if (fieldOperatorPlan == null || fieldOperatorPlan.phases == null || fieldOperatorPlan.phases.Length == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fieldOperatorPlan.current_phase))
+            {
+                string current = fieldOperatorPlan.current_phase.Trim();
+                foreach (FieldOperatorPlanPhase phase in fieldOperatorPlan.phases)
+                {
+                    if (phase != null && !string.IsNullOrWhiteSpace(phase.id) && string.Equals(phase.id.Trim(), current, StringComparison.Ordinal))
+                    {
+                        return phase;
+                    }
+                }
+            }
+
+            int index = fieldOperatorPlan.phase_index - 1;
+            if (index >= 0 && index < fieldOperatorPlan.phases.Length)
+            {
+                return fieldOperatorPlan.phases[index];
+            }
+
+            return null;
+        }
+
+        private FieldOperatorPlanPhaseRow CurrentFieldOperatorPlanPhaseRow()
+        {
+            if (fieldOperatorPlan == null || fieldOperatorPlan.phase_table == null || fieldOperatorPlan.phase_table.Length == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fieldOperatorPlan.current_phase))
+            {
+                string current = fieldOperatorPlan.current_phase.Trim();
+                foreach (FieldOperatorPlanPhaseRow row in fieldOperatorPlan.phase_table)
+                {
+                    if (row != null && !string.IsNullOrWhiteSpace(row.id) && string.Equals(row.id.Trim(), current, StringComparison.Ordinal))
+                    {
+                        return row;
+                    }
+                }
+            }
+
+            int index = fieldOperatorPlan.phase_index - 1;
+            if (index >= 0 && index < fieldOperatorPlan.phase_table.Length)
+            {
+                return fieldOperatorPlan.phase_table[index];
+            }
+
+            return null;
+        }
+
+        private string FieldOperatorPlanScopeGuardLabel()
+        {
+            FieldOperatorPlanScopeGuard guard = fieldOperatorPlan != null ? fieldOperatorPlan.scope_guard : null;
+            if (guard == null)
+            {
+                return "P0 A1/A2/A3/User B";
+            }
+
+            bool p0Only = (guard.p0_only || guard.campus_wall_only) && guard.a1_a2_a3_user_b_only;
+            bool noExpansion = !guard.guide_app_or_ppt && !guard.phone_page && !guard.open_ugc && !guard.backend_expansion && !guard.broad_route;
+            return p0Only && noExpansion ? "P0 A1/A2/A3/User B" : "scope guard warn";
+        }
+
+        private string FirstNonEmpty(string[] values)
+        {
+            if (values == null || values.Length == 0) return string.Empty;
+            foreach (string value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+            }
+
+            return string.Empty;
+        }
+
+        private string ShortHudText(string value, int maxChars)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "pending";
+            int limit = Mathf.Max(8, maxChars);
+            StringBuilder builder = new StringBuilder();
+            bool lastWasSpace = false;
+            string clean = value.Trim();
+            for (int index = 0; index < clean.Length; index++)
+            {
+                char ch = clean[index];
+                if (char.IsWhiteSpace(ch))
+                {
+                    if (!lastWasSpace && builder.Length > 0)
+                    {
+                        builder.Append(' ');
+                        lastWasSpace = true;
+                    }
+                }
+                else
+                {
+                    builder.Append(ch);
+                    lastWasSpace = false;
+                }
+
+                if (builder.Length >= limit) break;
+            }
+
+            string result = builder.ToString().Trim();
+            return clean.Length > result.Length ? result.TrimEnd('.') + "..." : result;
         }
 
         private string BuildFieldAcceptanceHeartbeatLine()
@@ -3684,11 +5354,19 @@ namespace InnerWorld.Rokid
     public sealed class AnchorClickTarget : MonoBehaviour
     {
         public string anchorId;
+        public string sceneActionId;
+        public bool executeSceneAction;
         public InnerWorldDemoController controller;
 
         private void OnMouseDown()
         {
-            if (controller != null) controller.SelectAnchor(anchorId);
+            if (controller == null) return;
+            if (executeSceneAction && !string.IsNullOrWhiteSpace(sceneActionId))
+            {
+                controller.ExecuteSceneActionTarget(sceneActionId, "mouse_click");
+                return;
+            }
+            controller.SelectAnchor(anchorId);
         }
     }
 
@@ -3699,6 +5377,8 @@ namespace InnerWorld.Rokid
         public string name;
         public AnchorData[] anchors;
         public BeaconData[] beacons;
+        public NearbyPin[] semantic_pins;
+        public SceneActionData[] scene_actions;
         public MissionData mission;
         public RuntimeData runtime;
         public ServiceActionData[] service_actions;
@@ -3761,6 +5441,27 @@ namespace InnerWorld.Rokid
         public string mission_state;
         public int current_step_index;
         public string[] completed_steps;
+        public MissionProvenanceData mission_provenance;
+    }
+
+    [Serializable]
+    public sealed class MissionProvenanceData
+    {
+        public string schema;
+        public string state_provenance_status;
+        public string last_mutation_source_status;
+        public string last_action_type;
+        public string last_anchor_id;
+        public string last_source;
+        public bool trusted_hardware_session;
+        public bool trusted_mission_provenance;
+        public bool rehearsal_complete_allowed;
+        public bool hardware_ready_claim_allowed;
+        public bool fallback_no_hardware_claim;
+        public int mutation_count;
+        public int trusted_mutation_count;
+        public int rehearsal_mutation_count;
+        public string[] blockers;
     }
 
     [Serializable]
@@ -3769,6 +5470,78 @@ namespace InnerWorld.Rokid
         public string action_id;
         public string label;
         public string status;
+    }
+
+    [Serializable]
+    public sealed class SceneActionData
+    {
+        public string action_id;
+        public string anchor_id;
+        public string scene_id;
+        public string title;
+        public string user_task;
+        public string physical_cue;
+        public SceneActionSpatialBinding spatial_binding;
+        public string interaction;
+        public bool writes_evidence;
+        public string p0_role;
+        public string mission_step_id;
+        public bool handoff_to_shiyao_scan_scene;
+        public SceneActionChoreographyData spatial_choreography;
+        public SceneActionTaskTargetData task_target;
+    }
+
+    [Serializable]
+    public sealed class SceneActionTaskTargetData
+    {
+        public string target_id;
+        public string display_label;
+        public string confirm_mode;
+        public bool requires_trusted_shiyao_scan;
+        public bool fallback_no_hardware_claim;
+        public SceneActionEndpointData[] endpoint_sequence;
+    }
+
+    [Serializable]
+    public sealed class SceneActionEndpointData
+    {
+        public string endpoint_key;
+        public string method;
+        public string step_id;
+        public string action_id;
+        public string mission_state;
+        public string anchor_id;
+        public string user_id;
+        public string title;
+    }
+
+    [Serializable]
+    public sealed class SceneActionChoreographyData
+    {
+        public string time_layer;
+        public float depth_meters;
+        public string wall_seed_rule;
+        public string gesture_affordance;
+        public string spatial_sound;
+        public SceneActionGrowthBeatData[] growth_beats;
+    }
+
+    [Serializable]
+    public sealed class SceneActionGrowthBeatData
+    {
+        public string beat_id;
+        public string label;
+        public SpacePose offset;
+        public float scale;
+    }
+
+    [Serializable]
+    public sealed class SceneActionSpatialBinding
+    {
+        public string placement;
+        public SpacePose pose;
+        public string projection;
+        public string depth_layer;
     }
 
 }

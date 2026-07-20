@@ -6,7 +6,21 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/InnerWorldScanAnchorDemo.unity
+    guid: 7f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c
+  - enabled: 1
     path: Assets/Scenes/InnerWorldDemo.unity
     guid: 939591cd00c6a914d8b727a3e4e3f706
-  m_configObjects: {}
-  m_UseUCBPForAssetBundles: 0
+  - enabled: 1
+    path: Assets/Scenes/InnerWorldSceneA1.unity
+    guid: 23a9490a5af33416894add2b788bd995
+  - enabled: 1
+    path: Assets/Scenes/InnerWorldSceneA2.unity
+    guid: ff8f3f031d07f4d41adaf94f4e6e550c
+  - enabled: 1
+    path: Assets/Scenes/InnerWorldSceneA3.unity
+    guid: cdbd2fedbffe845c08a164f5e682ea2b
+  m_configObjects:
+    com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: ddb8906b20be741f2acd8ba0c9837aba, type: 2}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: b15f20756f65ce74dab7245472c213f7, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: af2153fd7f2793f41b73ba42e1be7285, type: 2}

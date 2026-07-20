@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, "../..");
 const args = new Set(process.argv.slice(2));
 const requireAdbDevice = args.has("--require-adb-device");
 const skipProbe = args.has("--skip-probe");
+const probeTimeoutMs = 90_000;
 
 const outputRoot = path.join(root, "output", "device-probe");
 const latestJsonPath = path.join(outputRoot, "device-probe-latest.json");
@@ -31,8 +32,16 @@ function runProbe() {
   const result = spawnSync("powershell", probeArgs, {
     cwd: root,
     encoding: "utf8",
+    timeout: probeTimeoutMs,
     windowsHide: true
   });
+
+  if (result.error?.code === "ETIMEDOUT") {
+    throw new Error(`device probe timed out after ${Math.round(probeTimeoutMs / 1000)}s`);
+  }
+  if (result.error) {
+    throw result.error;
+  }
 
   if (result.status !== 0) {
     const output = `${result.stdout || ""}\n${result.stderr || ""}`.trim();
@@ -57,8 +66,10 @@ function assertArray(value, label) {
 }
 
 function assertDeviceRedaction(devices) {
+  const ignoredAdbNoiseStates = new Set(["daemon", "started"]);
   for (const device of devices) {
     assert(!("serial" in device), "ADB device entry must not expose serial");
+    assert(!ignoredAdbNoiseStates.has(device.state), "ADB daemon output must not be parsed as a device");
     assert(typeof device.id_hash_prefix === "string" && /^[0-9a-f]{8,16}$/i.test(device.id_hash_prefix), "ADB device hash prefix missing");
     assert(typeof device.id_redacted === "string" && device.id_redacted.includes("redacted"), "ADB device redacted id missing");
     assert(["device", "offline", "unauthorized", "recovery", "sideload", "no permissions"].includes(device.state) || typeof device.state === "string", "ADB device state missing");
@@ -90,6 +101,11 @@ async function main() {
   assert(report.schema === "innerworld-device-probe/v1", "device probe schema mismatch");
   assert(typeof report.generated_at === "string", "generated_at missing");
   assert(typeof report.ok === "boolean", "ok flag missing");
+  assert(report.timeouts && typeof report.timeouts === "object", "timeouts section missing");
+  assert(typeof report.timeouts.command_seconds === "number", "command timeout missing");
+  assert(typeof report.timeouts.pnp_seconds === "number", "pnp timeout missing");
+  assert(typeof report.timeouts.adb_timed_out === "boolean", "adb timeout flag missing");
+  assert(typeof report.timeouts.pnp_timed_out === "boolean", "pnp timeout flag missing");
   assert(report.adb && typeof report.adb === "object", "ADB section missing");
   assert(report.android_sdk && typeof report.android_sdk === "object", "Android SDK section missing");
   assert(report.unity && typeof report.unity === "object", "Unity section missing");

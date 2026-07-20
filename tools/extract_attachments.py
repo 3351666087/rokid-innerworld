@@ -22,12 +22,30 @@ MEDIA_DIR = CHAT_DIR / "media"
 EXTRACT_DIR = ANALYSIS_DIR / "extracted_attachments"
 MEDIA_EXTRACT_DIR = ANALYSIS_DIR / "media_index"
 TMP_RENDER_DIR = ROOT / "tmp" / "pdfs"
-POPPLER_BIN = Path(os.environ.get(
-    "CODEX_POPPLER_BIN",
-    r"C:\Users\33516\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin",
+CODEX_DEPS = Path(os.environ.get(
+    "CODEX_RUNTIME_DEPS",
+    Path.home() / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies",
 ))
-PDFINFO = POPPLER_BIN / "pdfinfo.cmd"
-PDFTOPPM = POPPLER_BIN / "pdftoppm.cmd"
+POPPLER_BIN = Path(os.environ.get("CODEX_POPPLER_BIN", CODEX_DEPS / "bin"))
+
+
+def find_poppler_tool(name):
+    candidates = [
+        CODEX_DEPS / "native" / "poppler" / "Library" / "bin" / f"{name}.exe",
+        POPPLER_BIN / f"{name}.exe",
+        POPPLER_BIN / "Library" / "bin" / f"{name}.exe",
+        POPPLER_BIN / f"{name}.cmd",
+        CODEX_DEPS / "native" / "poppler" / "bin" / f"{name}.cmd",
+        CODEX_DEPS / "bin" / f"{name}.cmd",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+PDFINFO = find_poppler_tool("pdfinfo")
+PDFTOPPM = find_poppler_tool("pdftoppm")
 
 
 def read_json(name):
@@ -94,7 +112,7 @@ def run_text_command(args, timeout=60):
 
 
 def pdf_page_count(path):
-    info = run_text_command([PDFINFO, path], timeout=30) if PDFINFO.exists() else None
+    info = run_text_command([PDFINFO, path], timeout=30) if PDFINFO else None
     if info and info["ok"]:
         match = re.search(r"^Pages:\s+(\d+)", info["stdout"], re.MULTILINE)
         if match:
@@ -255,7 +273,7 @@ def extract_md(path, out_dir):
 
 
 def render_pdf_samples(path, item):
-    if not PDFTOPPM.exists():
+    if not PDFTOPPM:
         return []
     page_count = item.get("extraction", {}).get("pageCount") or item.get("pageCount") or 0
     if not page_count:
@@ -391,6 +409,12 @@ def extract_all():
                 if page_count is not None:
                     extraction["pdfInfoPageCount"] = page_count
                 if pdfinfo:
+                    extraction["pdfInfoTool"] = {
+                        "ok": pdfinfo["ok"],
+                        "returncode": pdfinfo["returncode"],
+                        "tool": str(PDFINFO) if PDFINFO else None,
+                    }
+                if pdfinfo and pdfinfo["ok"]:
                     (out_dir / "pdfinfo.txt").write_text(pdfinfo["stdout"] + "\n" + pdfinfo["stderr"], encoding="utf-8")
                 extraction["renderedSamples"] = render_pdf_samples(path, {"extraction": extraction})
             elif ext == ".docx":

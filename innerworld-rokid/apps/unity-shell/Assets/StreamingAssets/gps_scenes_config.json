@@ -1,0 +1,31 @@
+{
+  "scenes": [
+    {
+      "scene_id": "campus_memory_wall",
+      "gps_latitude": 31.27584,
+      "gps_longitude": 120.73812,
+      "active_radius_meters": 50.0,
+      "marker_image_index": 1,
+      "scene_unity_name": "InnerWorldSceneA1",
+      "display_name": "A1 入口 (Campus Wall)"
+    },
+    {
+      "scene_id": "whale_cloud",
+      "gps_latitude": 31.27589,
+      "gps_longitude": 120.73820,
+      "active_radius_meters": 50.0,
+      "marker_image_index": 2,
+      "scene_unity_name": "InnerWorldSceneA2",
+      "display_name": "A2 UGC 情感层 (Whale Cloud)"
+    },
+    {
+      "scene_id": "task_board",
+      "gps_latitude": 31.27575,
+      "gps_longitude": 120.73805,
+      "active_radius_meters": 50.0,
+      "marker_image_index": 3,
+      "scene_unity_name": "InnerWorldSceneA3",
+      "display_name": "A3 官方任务层 (Task Board)"
+    }
+  ]
+}

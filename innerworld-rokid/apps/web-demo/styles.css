@@ -413,6 +413,95 @@ textarea:focus {
   z-index: 4;
 }
 
+.scene-action-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  perspective: 900px;
+}
+
+.scene-action-stem {
+  position: absolute;
+  left: var(--stem-left);
+  top: var(--stem-top);
+  width: clamp(82px, 16vw, 190px);
+  height: 2px;
+  transform-origin: 0 50%;
+  transform: translate3d(0, 0, 0) rotate(18deg);
+  background: linear-gradient(90deg, rgba(84, 214, 255, 0.64), rgba(255, 255, 255, 0));
+  filter: drop-shadow(0 0 16px rgba(84, 214, 255, 0.38));
+  opacity: 0.68;
+}
+
+.scene-action-card {
+  --action-tone: var(--cyan);
+  position: absolute;
+  left: clamp(14px, var(--action-left), calc(100% - 255px));
+  top: clamp(34%, var(--action-top), calc(100% - 142px));
+  width: clamp(190px, 24%, 255px);
+  min-height: 124px;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--action-tone), transparent 45%);
+  border-radius: 12px;
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(8, 12, 17, 0.86), rgba(15, 22, 30, 0.7));
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.38), inset 0 0 0 1px rgba(255, 255, 255, 0.045), 0 0 28px color-mix(in srgb, var(--action-tone), transparent 78%);
+  backdrop-filter: blur(18px);
+  transform: translateZ(34px) rotateX(2deg);
+  pointer-events: auto;
+  animation: actionGrow 720ms var(--panel-ease) both;
+}
+
+.scene-action-card::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: -9px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--action-tone), transparent);
+  box-shadow: 0 0 18px var(--action-tone);
+}
+
+.scene-action-a2 { --action-tone: var(--violet); }
+.scene-action-a3 { --action-tone: var(--amber); }
+.scene-action-card.evidence-write { --action-tone: var(--green); }
+
+.scene-action-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scene-action-card strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.scene-action-card p,
+.scene-action-card small {
+  display: block;
+  margin: 7px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.scene-action-card small {
+  color: var(--muted);
+}
+
+@keyframes actionGrow {
+  from { opacity: 0; transform: translateY(12px) translateZ(0) scale(0.86) rotateX(8deg); }
+  to { opacity: 1; transform: translateY(0) translateZ(34px) scale(1) rotateX(2deg); }
+}
+
 .anchor {
   --tone: var(--cyan);
   --anchor-card-width: clamp(136px, 18%, 206px);
@@ -1184,6 +1273,10 @@ textarea:focus {
   border-left: 3px solid var(--green);
 }
 
+.field-pass-card.good {
+  border-left: 3px solid var(--green);
+}
+
 .acceptance-card.good {
   border-left: 3px solid var(--green);
 }
@@ -1202,6 +1295,10 @@ textarea:focus {
   border-left: 3px solid var(--amber);
 }
 
+.field-pass-card.warn {
+  border-left: 3px solid var(--amber);
+}
+
 .acceptance-card.warn {
   border-left: 3px solid var(--amber);
 }
@@ -1217,6 +1314,10 @@ textarea:focus {
 }
 
 .hardware-card.bad {
+  border-left: 3px solid var(--rose);
+}
+
+.field-pass-card.bad {
   border-left: 3px solid var(--rose);
 }
 
@@ -1323,6 +1424,114 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
   gap: 8px;
+}
+
+.field-pass-actions,
+.field-pass-phase-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.field-pass-actions {
+  border: 1px solid rgba(84, 214, 255, 0.24);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: rgba(84, 214, 255, 0.058);
+}
+
+.field-pass-actions strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.field-pass-actions p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.field-pass-phase {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(74px, auto);
+  align-items: center;
+  gap: 9px;
+  min-height: 66px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.046);
+}
+
+.field-pass-phase.ready {
+  border-left: 3px solid var(--green);
+}
+
+.field-pass-phase.active {
+  border-left: 3px solid var(--cyan);
+  border-color: rgba(84, 214, 255, 0.5);
+  background: rgba(84, 214, 255, 0.07);
+}
+
+.field-pass-phase.blocked {
+  border-left: 3px solid var(--rose);
+}
+
+.field-pass-phase.pending {
+  border-left: 3px solid var(--amber);
+}
+
+.field-pass-phase-badge {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #061014;
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.field-pass-phase.blocked .field-pass-phase-badge {
+  background: linear-gradient(135deg, var(--rose), rgba(255, 255, 255, 0.68));
+}
+
+.field-pass-phase.pending .field-pass-phase-badge {
+  background: linear-gradient(135deg, var(--amber), rgba(255, 255, 255, 0.68));
+}
+
+.field-pass-phase strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.field-pass-phase p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.field-pass-phase-status {
+  justify-self: end;
+  max-width: 112px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1.2;
+  text-align: right;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .field-marker-list,
@@ -2089,4 +2298,49 @@ pre {
   .anchor-kind-write_back {
     left: calc(100% - 164px) !important;
   }
+}
+
+.scene-action-card[data-time-layer] {
+  transform: translate3d(calc(var(--action-depth, 0.24) * -18px), calc(var(--action-depth, 0.24) * -10px), 0) rotateX(2deg);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38), 0 0 calc(var(--action-depth, 0.24) * 90px) color-mix(in srgb, var(--action-tone) 42%, transparent);
+}
+
+.scene-action-card[data-time-layer]::after {
+  content: attr(data-time-layer);
+  position: absolute;
+  right: 10px;
+  top: -13px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--action-tone) 55%, transparent);
+  background: rgba(4, 11, 18, 0.82);
+  color: var(--action-tone);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scene-action-beats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.scene-action-beats span {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--action-tone) 68%, transparent);
+  background: radial-gradient(circle, color-mix(in srgb, var(--action-tone) 42%, transparent), rgba(255, 255, 255, 0.04));
+  color: white;
+  font-size: 0.62rem;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--action-tone) 44%, transparent);
+}
+
+.scene-action-beats span + span::before {
+  content: "";
+  position: absolute;
 }

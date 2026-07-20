@@ -41,6 +41,30 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function packageScriptMatches(packageJson, scriptName, commandPattern) {
+  const escapedName = scriptName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`"${escapedName}"\\s*:\\s*"${commandPattern}"`).test(packageJson);
+}
+
+function assertSceneTargetSmokeScript(scriptText, packageJson) {
+  assert(packageScriptMatches(packageJson, "check:scene-targets", "node server/space-server/check-scene-targets\\.js"), "check:scene-targets npm script missing");
+  for (const token of [
+    "scene-targets",
+    "scene_actions",
+    "task_target",
+    "endpoint_sequence",
+    "fallback_no_hardware_claim",
+    "requires_trusted_shiyao_scan",
+    "hardware_ready_claim_allowed: false",
+    "trusted_hardware_session: false",
+    "/api/field/target-readiness",
+    "/api/field/acceptance",
+    "/api/ledger/summary"
+  ]) {
+    assert(scriptText.includes(token), `check-scene-targets.js token missing: ${token}`);
+  }
+}
+
 async function readJson(relativePath) {
   const raw = await readFile(path.join(root, relativePath), "utf8");
   return JSON.parse(raw.replace(/^\uFEFF/, ""));
@@ -65,6 +89,8 @@ function assertEndpointMap(endpoints) {
     wall_calibration_observations: ["POST", "/api/calibration/observations"],
     field_markers: ["GET", "/api/field/markers"],
     field_acceptance: ["GET", "/api/field/acceptance"],
+    field_target_readiness: ["GET", "/api/field/target-readiness"],
+    field_operator_plan: ["GET", "/api/field/operator-plan"],
     device_bootstrap: ["GET", "/api/device/bootstrap"],
     device_manifest: ["GET", "/api/device/manifest"],
     device_adapter_checklist: ["GET", "/api/device/adapter-checklist"],
@@ -129,10 +155,79 @@ function assertSpaceContract(space) {
   assert(Array.isArray(space.anchors) && space.anchors.length === 3, "expected 3 anchors");
   assert(space.anchors.map((anchor) => anchor.anchor_id).join(",") === "A1,A2,A3", "anchor ids mismatch");
   assert(space.anchors.some((anchor) => anchor.anchor_id === "A3" && anchor.default_state === "locked"), "A3 locked default missing");
+  const semanticPins = Array.isArray(space.semantic_pins) ? space.semantic_pins : [];
+  const whaleCloud = semanticPins.find((pin) => pin.pin_id === "SKY_WHALE_CLOUD_001");
+  assert(whaleCloud?.label === "Whale Cloud Sky Pin", "controlled Whale Cloud Sky Pin missing");
+  assert(whaleCloud.kind === "sky_pin" && whaleCloud.demo_role === "controlled_extension_preview", "Whale Cloud demo role mismatch");
+  assert(whaleCloud.controlled_demo === true && whaleCloud.open_ugc_allowed === false, "Whale Cloud open UGC guard mismatch");
+  assert(whaleCloud.hardware_acceptance_evidence === false && whaleCloud.p0_required === false, "Whale Cloud must not become P0 hardware evidence");
+  assert(whaleCloud.safety?.user_generated === false && whaleCloud.safety?.merchant_or_marketplace === false && whaleCloud.safety?.broad_route === false, "Whale Cloud safety guard mismatch");
+  assertSceneActionsContract(space.scene_actions || []);
   assert(Array.isArray(space.mission?.steps), "mission steps missing");
   assert(space.mission.steps.map((step) => step.step_id).join(",") === MISSION_STEP_IDS.join(","), "mission step ids mismatch");
   assertStoryGraphContract(space.mission?.story_graph, "space mission story graph");
   assert(space.service_actions?.some((action) => action.action_id === "JOIN_EVENT_1430"), "service action JOIN_EVENT_1430 missing");
+}
+
+function assertSceneActionChoreography(action, actionId) {
+  const choreography = action?.spatial_choreography;
+  assert(choreography && typeof choreography === "object", `scene action ${actionId} spatial choreography missing`);
+  assert(typeof choreography.time_layer === "string" && choreography.time_layer.length > 4, `scene action ${actionId} time layer missing`);
+  assert(Number.isFinite(choreography.depth_meters) && choreography.depth_meters >= 0.16 && choreography.depth_meters <= 0.75, `scene action ${actionId} depth meters out of range`);
+  assert(typeof choreography.wall_seed_rule === "string" && choreography.wall_seed_rule.toLowerCase().includes("wall"), `scene action ${actionId} wall seed rule missing`);
+  assert(typeof choreography.gesture_affordance === "string" && choreography.gesture_affordance.length > 12, `scene action ${actionId} gesture affordance missing`);
+  assert(typeof choreography.spatial_sound === "string" && choreography.spatial_sound.length > 8, `scene action ${actionId} spatial sound missing`);
+  assert(Array.isArray(choreography.growth_beats) && choreography.growth_beats.length >= 3, `scene action ${actionId} growth beats too weak`);
+  choreography.growth_beats.forEach((beat, index) => {
+    assert(typeof beat?.beat_id === "string" && beat.beat_id.length > 2, `scene action ${actionId} growth beat ${index} id missing`);
+    assert(typeof beat?.label === "string" && beat.label.length > 2, `scene action ${actionId} growth beat ${index} label missing`);
+    assert(beat?.offset && Number.isFinite(beat.offset.x) && Number.isFinite(beat.offset.y) && Number.isFinite(beat.offset.z), `scene action ${actionId} growth beat ${index} offset missing`);
+    assert(Number.isFinite(beat.scale) && beat.scale > 0 && beat.scale <= 0.15, `scene action ${actionId} growth beat ${index} scale invalid`);
+  });
+}
+
+function assertSceneActionTaskTarget(action, actionId) {
+  const target = action?.task_target;
+  assert(target && typeof target === "object", `scene action ${actionId} task target missing`);
+  assert(typeof target.target_id === "string" && target.target_id.startsWith("TARGET_"), `scene action ${actionId} target id missing`);
+  assert(typeof target.display_label === "string" && target.display_label.length > 8, `scene action ${actionId} display label missing`);
+  assert(typeof target.confirm_mode === "string" && target.confirm_mode.length > 4, `scene action ${actionId} confirm mode missing`);
+  assert(target.requires_trusted_shiyao_scan === true, `scene action ${actionId} must require shiyao trusted scan for field evidence`);
+  assert(target.fallback_no_hardware_claim === true, `scene action ${actionId} fallback no-hardware guard missing`);
+  assert(Array.isArray(target.endpoint_sequence) && target.endpoint_sequence.length >= 1, `scene action ${actionId} endpoint sequence missing`);
+  const endpointKeys = target.endpoint_sequence.map((item) => item?.endpoint_key).filter(Boolean);
+  if (actionId === "A1_CHECK_IN_STAMP") assert(endpointKeys.includes("local_unity"), "A1 target must use local Unity confirm");
+  if (actionId === "A2_MEMORY_VIEW_AND_COLLECT") assert(endpointKeys.filter((key) => key === "interactions").length >= 2, "A2 target must post read/find_year interactions");
+  if (actionId === "A3_TIMEMARK_WRITE_BACK") assert(endpointKeys.includes("service_actions") && endpointKeys.includes("write_back"), "A3 target must post service action and write-back");
+  if (actionId === "USER_B_READBACK_PASS") assert(endpointKeys.includes("state"), "User B target must post state/readback interaction");
+}
+
+function assertSceneActionsContract(sceneActions) {
+  assert(Array.isArray(sceneActions), "scene_actions missing");
+  const expected = [
+    ["A1_CHECK_IN_STAMP", "A1", "spatial_entry"],
+    ["A2_MEMORY_VIEW_AND_COLLECT", "A2", "memory_read"],
+    ["A3_TIMEMARK_WRITE_BACK", "A3", "timemark_writeback"],
+    ["USER_B_READBACK_PASS", "A3", "user_b_readback"]
+  ];
+  assert(sceneActions.length === expected.length, "scene_actions must contain exactly A1/A2/A3/User B tasks");
+  for (const [actionId, anchorId, p0Role] of expected) {
+    const action = sceneActions.find((item) => item?.action_id === actionId);
+    assert(action, `scene action missing: ${actionId}`);
+    assert(action.anchor_id === anchorId, `scene action ${actionId} anchor mismatch`);
+    assert(action.p0_role === p0Role, `scene action ${actionId} P0 role mismatch`);
+    assert(typeof action.title === "string" && action.title.length > 4, `scene action ${actionId} title missing`);
+    assert(typeof action.user_task === "string" && action.user_task.length > 20, `scene action ${actionId} user task too weak`);
+    assert(typeof action.physical_cue === "string" && action.physical_cue.toLowerCase().includes("wall"), `scene action ${actionId} must bind to physical wall cue`);
+    assert(action.spatial_binding?.pose && Number.isFinite(action.spatial_binding.pose.x) && Number.isFinite(action.spatial_binding.pose.y) && Number.isFinite(action.spatial_binding.pose.z), `scene action ${actionId} spatial pose missing`);
+    assert(typeof action.spatial_binding?.projection === "string" && action.spatial_binding.projection.length > 8, `scene action ${actionId} projection missing`);
+    assert(typeof action.spatial_binding?.depth_layer === "string" && action.spatial_binding.depth_layer.length > 4, `scene action ${actionId} depth layer missing`);
+    assert(typeof action.interaction === "string" && action.interaction.length > 8, `scene action ${actionId} interaction missing`);
+    assertSceneActionChoreography(action, actionId);
+    assertSceneActionTaskTarget(action, actionId);
+  }
+  assert(sceneActions.find((item) => item.action_id === "A1_CHECK_IN_STAMP")?.handoff_to_shiyao_scan_scene === true, "A1 scene action must document shiyao scan handoff");
+  assert(sceneActions.filter((item) => item.writes_evidence === true).map((item) => item.action_id).join(",") === "A3_TIMEMARK_WRITE_BACK,USER_B_READBACK_PASS", "only A3 write-back and User B readback scene actions may write P0 evidence");
 }
 
 function assertAiContract(aiSchema) {
@@ -150,6 +245,39 @@ function assertHardwareManifest(manifest) {
   const devices = Array.isArray(manifest.applied_hardware) ? manifest.applied_hardware : [];
   assert(devices.some((device) => device.product_name === "Rokid Max Pro" && device.model === "RA202" && device.quantity === 1), "Rokid Max Pro RA202 missing");
   assert(devices.some((device) => device.product_name === "Rokid Station Pro" && device.model === "RAS201" && device.quantity === 1), "Rokid Station Pro RAS201 missing");
+}
+
+function assertShiyaoHandoffContract(mergeMap, handoffDoc) {
+  assert(mergeMap?.schema === "innerworld-shiyao-merge-map/v1", "shiyao merge map schema mismatch");
+  assert(mergeMap.handoff_version === "innerworld-shiyao-handoff/v1", "shiyao handoff version mismatch");
+  assert(String(mergeMap.handoff_receiver || "").includes("EnterConcreteScene"), "shiyao handoff receiver missing");
+  assert(mergeMap.conflict_rules?.do_not_edit_shiyao_scenes === true, "shiyao scene conflict guard missing");
+  assert(mergeMap.conflict_rules?.do_not_merge_hardware_claims_without_field_acceptance === true, "shiyao hardware claim guard missing");
+  assert(String(mergeMap.unity_bridge?.file || "").includes("ShiyaoConcreteSceneHandoffBridge.cs"), "shiyao bridge file missing from merge map");
+  assert(String(mergeMap.unity_bridge?.claim_guard || "").includes("no local hardware claim"), "shiyao bridge claim guard missing");
+  assert(handoffDoc.includes("ISceneHandoffReceiver.EnterConcreteScene") && handoffDoc.includes("innerworld-shiyao-handoff/v1"), "shiyao handoff doc seam missing");
+  assert(handoffDoc.includes("ShiyaoConcreteSceneHandoffBridge"), "shiyao handoff bridge doc missing");
+  assert(handoffDoc.includes("real Rokid hardware is with teammate `shiyao`") && handoffDoc.includes("must not claim live hardware-ready"), "shiyao hardware possession boundary missing");
+}
+
+async function assertWebSceneActionFallback() {
+  const [html, app, css, bridge] = await Promise.all([
+    readText("apps/web-demo/index.html"),
+    readText("apps/web-demo/app.js"),
+    readText("apps/web-demo/styles.css"),
+    readText("apps/unity-shell/Assets/Scripts/Concrete/ShiyaoConcreteSceneHandoffBridge.cs")
+  ]);
+  assert(html.includes("sceneActionLayer") && html.includes('data-fallback="web"') && html.includes('data-hardware-ready="false"'), "web scene action fallback/no-hardware layer missing");
+  assert(app.includes("sceneActions()") && app.includes("renderSceneActions") && app.includes("shiyao scan"), "web scene action renderer missing");
+  assert(app.includes("spatial_choreography") && app.includes("growth_beats") && app.includes("gesture_affordance"), "web scene action choreography renderer missing");
+  assert(app.includes("executeSceneActionTarget") && app.includes("task_target") && app.includes("no local hardware claim"), "web executable scene action target missing");
+  assert(app.includes("executeSceneActionEndpoint") && app.includes("sceneActionRehearsalPayload") && app.includes("endpoint_sequence"), "web scene action must execute task_target endpoint_sequence");
+  assert(app.includes("state_provenance_status: \"rehearsal\"") && app.includes("trusted_hardware_session: false") && app.includes("hardware_ready_claim_allowed: false"), "web scene action provenance split missing");
+  assert(!app.includes('action.action_id === "A2_MEMORY_VIEW_AND_COLLECT"') && !app.includes('action.action_id === "A3_TIMEMARK_WRITE_BACK"'), "web scene action must not hard-code A2/A3 action branches");
+  assert(app.includes("Depth") || app.includes("depth_layer"), "web scene action depth layer token missing");
+  assert(css.includes(".scene-action-layer") && css.includes(".scene-action-card") && css.includes("actionGrow") && css.includes(".scene-action-beats"), "web scene action spatial CSS missing");
+  assert(bridge.includes("ShiyaoConcreteSceneHandoffBridge") && bridge.includes("innerworld-shiyao-handoff/v1") && bridge.includes("no local hardware claim"), "shiyao concrete scene bridge missing");
+  return "verified";
 }
 
 function buildContractOpsStatus(hardwareManifest) {
@@ -233,7 +361,7 @@ function assertAiHudGenerator(space, aiSchema) {
     aiSchema,
     body: {
       anchor_id: "A3",
-      write_back_text: "愿后来的人在这里先看见彼此，再看见答案。"
+      write_back_text: "Later visitors should see each other here before seeing the answer."
     }
   });
   assertAiHudOutput(writeBackOutput, aiSchema);
@@ -430,6 +558,28 @@ function assertDeviceRuntimeContract(space, aiSchema) {
         position: { x: 0, y: 1.5, z: 3 },
         rotation: { x: 0, y: 0, z: 0, w: 1 }
       },
+      input_frame: {
+        schema: "innerworld-rokid-input-frame/v1",
+        source: "rokid-uxr-rkinput-3dof",
+        sequence: 12,
+        timestamp_seconds: 3.25,
+        delta_time_seconds: 0.016,
+        command: "confirm",
+        gaze_select_down: true,
+        gaze_select_held: true,
+        confirm_down: true,
+        confirm_held: false,
+        back_down: false,
+        back_held: false,
+        anchor_hit: true,
+        focused_anchor_id: "A2",
+        focused_anchor_label: "A2 private-contract-wifi real-contract-token 10.0.0.18",
+        hit_distance_meters: 1.7,
+        ray_origin: { x: 0.1, y: 1.6, z: 0.2 },
+        ray_direction: { x: 0, y: 0, z: 1 },
+        pointable_ui_focus: true,
+        voice_text_present: true
+      },
       active_anchor: "A2",
       current_user: "A"
     },
@@ -447,6 +597,13 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(Array.isArray(heartbeat.pending_actions), "device heartbeat pending actions missing");
   assert(heartbeat.pending_actions.some((action) => action.action_id === "render_next_mission_step"), "device heartbeat mission action missing");
   assert(heartbeat.health.severity === "ok", "device heartbeat health severity mismatch");
+  assert(heartbeat.health.input_frame_status === "received", "device heartbeat input frame status mismatch");
+  assert(heartbeat.health.input_frame?.reported === true, "device heartbeat input frame summary missing");
+  assert(heartbeat.health.input_frame?.source === "rokid-uxr-rkinput-3dof", "device heartbeat input frame source mismatch");
+  assert(heartbeat.health.input_frame?.focused_anchor_id === "A2", "device heartbeat input frame focus mismatch");
+  assert(heartbeat.health.input_frame?.ray_reported === true, "device heartbeat input frame ray summary mismatch");
+  assert(heartbeat.health.input_frame?.pointable_ui_focus === true, "device heartbeat input frame PointableUI focus mismatch");
+  assert(heartbeat.health.input_frame?.confirm_down === true, "device heartbeat input frame button summary mismatch");
   assert(heartbeat.sdk_binding_status?.stage === "package_detected", "device heartbeat SDK binding stage mismatch");
   assert(heartbeat.pairing?.status === "operator_paired", "device heartbeat pairing mismatch");
   assert(heartbeat.hardware_acceptance_eligible === true, "device heartbeat hardware eligibility mismatch");
@@ -459,6 +616,8 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(JSON.stringify(heartbeat).includes("SN-CONTRACT-SECRET") === false, "device heartbeat leaked serial");
   assert(JSON.stringify(heartbeat).includes("private-contract-wifi") === false, "device heartbeat leaked SSID");
   assert(JSON.stringify(heartbeat).includes("00:11:22:33:44:55") === false, "device heartbeat leaked MAC");
+  assert(JSON.stringify(heartbeat).includes("ray_origin") === false, "device heartbeat leaked raw ray origin");
+  assert(JSON.stringify(heartbeat).includes("ray_direction") === false, "device heartbeat leaked raw ray direction");
 
   const sessions = runtime.sessionsSummary();
   assert(sessions.ok === true, "device sessions ok mismatch");
@@ -472,11 +631,17 @@ function assertDeviceRuntimeContract(space, aiSchema) {
   assert(sessions.sdk_binding?.package_detected_sessions === 1, "device sessions SDK package summary mismatch");
   assert(sessions.sdk_binding?.live_bound_sessions === 0, "device sessions SDK live summary mismatch");
   assert(sessions.sessions[0].sdk_binding_status?.stage === "package_detected", "device sessions SDK binding status mismatch");
+  assert(sessions.sessions[0].input_frame?.reported === true, "device sessions input frame summary missing");
+  assert(sessions.sessions[0].input_frame?.focused_anchor_id === "A2", "device sessions input frame focus mismatch");
+  assert(sessions.sessions[0].input_frame?.ray_reported === true, "device sessions input frame ray summary mismatch");
+  assert(sessions.sessions[0].input_frame?.pointable_ui_focus === true, "device sessions input frame PointableUI focus mismatch");
   assert(JSON.stringify(sessions).includes("10.0.0.18") === false, "device sessions leaked IP");
   assert(JSON.stringify(sessions).includes("real-contract-token") === false, "device sessions leaked token");
   assert(JSON.stringify(sessions).includes("SN-CONTRACT-SECRET") === false, "device sessions leaked serial");
   assert(JSON.stringify(sessions).includes("private-contract-wifi") === false, "device sessions leaked SSID");
   assert(JSON.stringify(sessions).includes("00:11:22:33:44:55") === false, "device sessions leaked MAC");
+  assert(JSON.stringify(sessions).includes("ray_origin") === false, "device sessions leaked raw ray origin");
+  assert(JSON.stringify(sessions).includes("ray_direction") === false, "device sessions leaked raw ray direction");
 
   const unknownHeartbeat = runtime.heartbeat({
     body: {
@@ -520,8 +685,13 @@ function assertEvidenceChainContract(space, aiSchema, hardwareManifest) {
   assert(evidence.hardware.devices.length === 2, "evidence chain hardware devices mismatch");
   assert(evidence.release.status === "dry_run_verified", "evidence chain release status mismatch");
   assert(evidence.release.packages.server_package.file === "innerworld-space-server.zip", "evidence chain package filename mismatch");
+  assert(evidence.controlled_previews.status === "preview_only" && evidence.controlled_previews.count === 1, "evidence chain controlled preview summary mismatch");
+  assert(evidence.controlled_previews.hardware_acceptance_evidence === false && evidence.controlled_previews.contributes_to_p0_acceptance === false, "evidence chain controlled preview must not count as P0 evidence");
+  assert(evidence.controlled_previews.pins.some((pin) => pin.pin_id === "SKY_WHALE_CLOUD_001" && pin.user_generated === false && pin.merchant_or_marketplace === false && pin.broad_route === false), "evidence chain Whale Cloud safety summary missing");
   assert(Array.isArray(evidence.evidence_items) && evidence.evidence_items.length >= 6, "evidence chain items missing");
   assert(evidence.evidence_items.some((item) => item.id === "writeback_loop"), "evidence chain writeback item missing");
+  assert(evidence.evidence_items.some((item) => item.id === "controlled_sky_pin_preview" && item.status === "preview" && item.contributes_to_p0_acceptance === false), "evidence chain controlled Sky Pin preview item missing");
+  assert(evidence.evidence_replay_judge_mode.source_evidence.some((item) => item.id === "controlled_preview" && item.status === "preview" && item.hardware_acceptance_evidence === false), "evidence replay controlled preview guard missing");
   assert(JSON.stringify(evidence.hardware).includes(hardwareManifest.source?.path) === false, "evidence chain leaked source path");
 }
 
@@ -761,10 +931,23 @@ async function assertUnityProtocolSkeleton() {
   assert(controller.includes("apiClient.InteractionsUrl"), "Unity controller interactions URL not using client");
   assert(controller.includes("apiClient.ServiceActionsUrl"), "Unity controller service URL not using client");
   assert(controller.includes("apiClient.WriteBackUrl"), "Unity controller write-back URL not using client");
+  assert(controller.includes("RenderControlledSemanticPins") && controller.includes("Controlled Whale Cloud Sky Pin"), "Unity controlled Sky Pin spatial renderer missing");
+  assert(controller.includes("RenderSceneActionTasks") && controller.includes("Scene Action Spatial Binding"), "Unity scene action spatial task renderer missing");
+  assert(controller.includes("ExecuteSceneActionTarget") && controller.includes("SceneActionTaskTargetData") && controller.includes("no local hardware claim"), "Unity executable scene action target missing");
+  assert(controller.includes("ExecuteSceneActionEndpoint") && controller.includes("endpoint_sequence") && controller.includes("ApplySceneActionProvenance"), "Unity scene action must execute task_target endpoint_sequence");
+  assert(controller.includes("state_provenance_status = \"rehearsal\"") && controller.includes("trusted_hardware_session = false") && controller.includes("hardware_ready_claim_allowed = false"), "Unity scene action provenance split missing");
+  assert(!controller.includes('action.action_id, "A2_MEMORY_VIEW_AND_COLLECT"') && !controller.includes('action.action_id, "A3_TIMEMARK_WRITE_BACK"'), "Unity scene action must not hard-code A2/A3 action branches");
+  assert(controller.includes("public SceneActionData[] scene_actions;"), "Unity SpaceResponse scene_actions DTO missing");
+  assert(controller.includes("handoff_to_shiyao_scan_scene"), "Unity scene action shiyao handoff DTO missing");
+  assert(controller.includes("ControlledSemanticPinHudLine") && controller.includes("not P0 evidence"), "Unity controlled Sky Pin HUD guard missing");
+  assert(controller.includes("public NearbyPin[] semantic_pins;"), "Unity SpaceResponse semantic_pins DTO missing");
   assert(controller.includes("apiClient.DeviceRegisterUrl"), "Unity controller device register URL not using client");
   assert(controller.includes("apiClient.DeviceHeartbeatUrl"), "Unity controller device heartbeat URL not using client");
   assert(controller.includes("RegisterDeviceSession"), "Unity controller device register coroutine missing");
   assert(controller.includes("PostDeviceHeartbeat"), "Unity controller device heartbeat coroutine missing");
+  assert(controller.includes("pendingTrustedTargetObservations") && controller.includes("QueuePendingTrustedTargetObservation") && controller.includes("TryFlushPendingTrustedTargetObservations"), "Unity trusted target rescan queue missing");
+  assert(controller.includes("ServerAckedLiveBindingReady") && controller.includes("server_live_binding_heartbeat_ack_missing") && controller.includes("lastDeviceHeartbeat.session_id"), "Unity trusted target gate must require same-session live heartbeat ack");
+  assert(controller.includes("lastDeviceHeartbeat.hardware_acceptance_eligible") && controller.includes("lastDeviceHeartbeat.pairing.paired"), "Unity trusted target gate must require heartbeat pairing/hardware eligibility ack");
   assert(/\[NonSerialized\]\s+public string operatorPairingCode/.test(controller), "Unity controller pairing code must be non-serialized runtime memory");
   assert(controller.includes("INNERWORLD_OPERATOR_PAIRING_CODE") && controller.includes("--innerworld-pairing-code"), "Unity controller pairing runtime injection missing");
   assert(/private DeviceRegisterRequest BuildDeviceRegisterRequest\(\)[\s\S]*pairing_code\s*=\s*CleanOperatorPairingCode\(\)/.test(controller), "Unity controller does not submit cleaned pairing_code");
@@ -787,6 +970,8 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("WallCalibrationObservationsUrl"), "Unity wall calibration observations URL property missing");
   assert(client.includes("BuildWallCalibrationUrl"), "Unity wall calibration URL builder missing");
   assert(client.includes("BuildWallCalibrationObservationsUrl"), "Unity wall calibration observations URL builder missing");
+  assert(client.includes("FieldOperatorPlanUrl"), "Unity field operator plan URL property missing");
+  assert(client.includes("BuildFieldOperatorPlanUrl"), "Unity field operator plan URL builder missing");
   assert(client.includes("BuildServiceActionAckUrl"), "Unity service action ack URL builder missing");
   assert(client.includes("AiHudUrl"), "Unity AI HUD URL property missing");
   assert(client.includes("/api/ai/hud"), "Unity AI HUD route missing");
@@ -804,21 +989,27 @@ async function assertUnityProtocolSkeleton() {
   assert(client.includes("device_pairing = Endpoint(cleanBaseUrl, \"POST\", \"/api/device/pairing\")"), "Unity device pairing endpoint mismatch");
   assert(client.includes("wall_calibration = Endpoint(cleanBaseUrl, \"GET\", \"/api/calibration/wall\")"), "Unity wall calibration endpoint mismatch");
   assert(client.includes("wall_calibration_observations = Endpoint(cleanBaseUrl, \"POST\", \"/api/calibration/observations\")"), "Unity wall calibration observations endpoint mismatch");
+  assert(client.includes("field_operator_plan = Endpoint(cleanBaseUrl, \"GET\", \"/api/field/operator-plan\")"), "Unity field operator plan endpoint mismatch");
   assert(client.includes("write_back = Endpoint(cleanBaseUrl, \"POST\", writeBackPath)"), "Unity write_back endpoint mismatch");
 
   assert(dtos.includes("public sealed class DeviceBootstrapResponse"), "Unity DeviceBootstrapResponse DTO missing");
   assert(dtos.includes("public sealed class DeviceRuntimeSessionResponse"), "Unity device register response DTO missing");
   assert(dtos.includes("public sealed class DeviceHeartbeatResponse"), "Unity device heartbeat response DTO missing");
+  assert(dtos.includes("public DevicePairingState pairing;") && dtos.includes("public bool hardware_acceptance_eligible;"), "Unity device heartbeat pairing/hardware eligibility DTO missing");
   assert(dtos.includes("public sealed class DeviceHealthStatus"), "Unity device health response DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationManifest"), "Unity wall calibration manifest DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationAnchor"), "Unity wall calibration anchor DTO missing");
   assert(dtos.includes("public sealed class WallCalibrationObservationResult"), "Unity wall calibration result DTO missing");
+  assert(dtos.includes("public bool hardware_observation_trusted;"), "Unity wall calibration trusted hardware observation DTO missing");
+  assert(dtos.includes("public WallCalibrationHardwareSession hardware_session;"), "Unity wall calibration hardware session DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint wall_calibration;"), "Unity wall calibration endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint wall_calibration_observations;"), "Unity wall calibration observations endpoint DTO missing");
   assert(dtos.includes("public SpaceEndpointMap endpoints;"), "Unity endpoint map DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ai_hud;"), "Unity AI HUD endpoint DTO missing");
+  assert(dtos.includes("public SpaceApiEndpoint field_operator_plan;"), "Unity field operator plan endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_events;"), "Unity ledger events endpoint DTO missing");
   assert(dtos.includes("public SpaceApiEndpoint ledger_summary;"), "Unity ledger summary endpoint DTO missing");
+  assert(dtos.includes("public sealed class NearbyPin") && dtos.includes("public string pin_type;") && dtos.includes("public bool controlled_demo;") && dtos.includes("public SemanticPinSafety safety;"), "Unity controlled semantic pin DTO missing");
   assert(dtos.includes("public sealed class LedgerEventsResponse"), "Unity ledger events response DTO missing");
   assert(dtos.includes("public sealed class LedgerSummaryResponse"), "Unity ledger summary response DTO missing");
   assert(dtos.includes("public ClientHints client_hints;"), "Unity client hints DTO missing");
@@ -831,6 +1022,13 @@ async function assertUnityProtocolSkeleton() {
   assert(payloads.includes("public sealed class DeviceRegisterRequest"), "Unity device register request missing");
   assert(payloads.includes("public string pairing_code;"), "Unity device register pairing_code missing");
   assert(payloads.includes("public sealed class DeviceHeartbeatRequest"), "Unity device heartbeat request missing");
+  assert(/public sealed class InteractionRequest[\s\S]*public string session_id;[\s\S]*public string device_id;[\s\S]*public string anchor_id;/.test(payloads), "Unity interaction trusted provenance fields missing");
+  assert(/public sealed class ServiceActionRequest[\s\S]*public string session_id;[\s\S]*public string device_id;/.test(payloads), "Unity service action trusted provenance fields missing");
+  assert(/public sealed class WriteBackRequest[\s\S]*public string session_id;[\s\S]*public string device_id;/.test(payloads), "Unity write-back trusted provenance fields missing");
+  assert(payloads.includes("public DeviceInputFramePayload input_frame;"), "Unity device heartbeat input_frame missing");
+  assert(payloads.includes("public sealed class DeviceInputFramePayload"), "Unity device input frame payload missing");
+  assert(payloads.includes("public DeviceVector3 ray_origin;") && payloads.includes("public DeviceVector3 ray_direction;"), "Unity device input frame ray payload missing");
+  assert(payloads.includes("public bool pointable_ui_focus;"), "Unity device input frame PointableUI focus payload missing");
   assert(payloads.includes("public sealed class WallCalibrationObservationPayload"), "Unity wall calibration observation payload missing");
   assert(payloads.includes("public sealed class RokidSdkBindingStatusPayload"), "Unity SDK binding status payload missing");
   return "verified";
@@ -888,14 +1086,20 @@ async function assertRokidSimulatorSkeleton() {
   assert(fallbackOverlay.includes("public sealed class FallbackRokidOverlayRenderer : IRokidOverlayRenderer"), "fallback overlay renderer missing");
   assert(uxrInput.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR input file must be fully guarded");
   assert(uxrInput.includes("public sealed class RokidUxrInputSource : IRokidInputSource, IRokidInputStateSink"), "Rokid UXR input state sink missing");
-  assert(uxrInput.includes("SDK input binding pending"), "Rokid UXR input pending message missing");
+  assert(uxrInput.includes("using Rokid.UXR.Module;"), "Rokid UXR input must bind the official SDK namespace");
+  assert(uxrInput.includes("RKNativeInput"), "Rokid UXR input must bind RKNativeInput");
+  assert(uxrInput.includes("rokid-uxr-rkinput-3dof"), "Rokid UXR input live adapter name missing");
+  assert(uxrInput.includes("public bool IsSdkBindingReady"), "Rokid UXR input SDK readiness flag missing");
+  assert(uxrInput.includes("KEY_OK") && uxrInput.includes("KEY_BACK") && uxrInput.includes("KEY_MOUSE_FIRST"), "Rokid UXR input key mapping missing");
   assert(uxrOverlay.trimStart().startsWith("#if ROKID_UXR"), "Rokid UXR overlay file must be fully guarded");
   assert(uxrOverlay.includes("public sealed class RokidUxrOverlayRenderer : IRokidOverlayRenderer"), "Rokid UXR overlay renderer missing");
+  assert(uxrOverlay.includes("rokid-uxr-worldspace-overlay"), "Rokid UXR overlay live adapter name missing");
+  assert(uxrOverlay.includes("public bool IsSdkBindingReady"), "Rokid UXR overlay SDK readiness flag missing");
   return "verified";
 }
 
 async function assertServerCoreSkeleton() {
-  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration] = await Promise.all([
+  const [index, apiRouter, response, staticFiles, opsStatus, deviceRuntime, sqliteStore, wallCalibration, fieldOperatorPlan, evidenceChain, readonlyCheck] = await Promise.all([
     readText("server/space-server/index.js"),
     readText("server/space-server/src/http/api-router.js"),
     readText("server/space-server/src/http/response.js"),
@@ -903,7 +1107,10 @@ async function assertServerCoreSkeleton() {
     readText("server/space-server/src/ops/status-service.js"),
     readText("server/space-server/src/domain/device-runtime.js"),
     readText("server/space-server/src/store/sqlite-store.js"),
-    readText("server/space-server/src/domain/wall-calibration.js")
+    readText("server/space-server/src/domain/wall-calibration.js"),
+    readText("server/space-server/src/domain/field-operator-plan.js"),
+    readText("server/space-server/src/domain/evidence-chain.js"),
+    readText("server/space-server/check-readonly.js")
   ]);
 
   assert(index.includes("createApiRouter"), "server index does not use api router module");
@@ -913,15 +1120,34 @@ async function assertServerCoreSkeleton() {
   assert(apiRouter.includes("/api/device/bootstrap"), "api router bootstrap route missing");
   assert(apiRouter.includes("/api/device/manifest"), "api router device manifest route missing");
   assert(apiRouter.includes("/api/device/adapter-checklist"), "api router device adapter checklist route missing");
+  assert(apiRouter.includes("/api/pins/nearby") && apiRouter.includes("semantic_preview_count") && apiRouter.includes("p0_anchor_count") && apiRouter.includes("pin_type"), "api router controlled semantic pin route summary missing");
+  assert(evidenceChain.includes("summarizeControlledPreviews") && evidenceChain.includes("controlled_sky_pin_preview") && evidenceChain.includes("contributes_to_p0_acceptance"), "evidence chain controlled preview guard missing");
+  assert(readonlyCheck.includes("nearby.p0_anchor_count !== 3") && readonlyCheck.includes("semantic_preview_count") && readonlyCheck.includes("nearby controlled preview acceptance guard failed"), "readonly check controlled semantic pin guard missing");
   assert(apiRouter.includes("/api/store/status"), "api router store status route missing");
   assert(apiRouter.includes("/api/datasets/catalog"), "api router dataset catalog route missing");
   assert(apiRouter.includes("/api/datasets/call"), "api router dataset call route missing");
   assert(apiRouter.includes("/api/ledger/summary"), "api router ledger summary route missing");
   assert(apiRouter.includes("/api/ledger/events"), "api router ledger events route missing");
+  assert(apiRouter.includes("/api/field/operator-plan"), "api router field operator plan route missing");
   assert(apiRouter.includes("/api/device/register"), "api router device register route missing");
+  assert(fieldOperatorPlan.includes("innerworld-field-operator-plan/v1"), "field operator plan schema missing");
+  assert(fieldOperatorPlan.includes("service_action") && fieldOperatorPlan.includes("User B Readback"), "field operator plan P0 phases missing");
+  assert(fieldOperatorPlan.includes("raw_logcat_or_dumpsys_included: false"), "field operator plan privacy guard missing");
   assert(deviceRuntime.includes("buildRokidLiveAdapterChecklist"), "device runtime adapter checklist builder missing");
   assert(deviceRuntime.includes("innerworld-rokid-live-adapter-checklist/v1"), "device runtime adapter checklist schema missing");
   assert(deviceRuntime.includes("a1_entry_lock") && deviceRuntime.includes("performance_gate"), "device runtime adapter checklist item coverage missing");
+  assert(deviceRuntime.includes("sanitizeInputFrame"), "device runtime input frame sanitizer missing");
+  assert(deviceRuntime.includes("summarizeInputFrame"), "device runtime input frame summary missing");
+  assert(deviceRuntime.includes("fallback_input_visible") && deviceRuntime.includes("operator_assist_input") && deviceRuntime.includes("input_acceptance_mode"), "device runtime input assist summary missing");
+  assert(deviceRuntime.includes("input_frame_ray_focus"), "device runtime RKInput ray/focus checklist check missing");
+  assert(deviceRuntime.includes("resolveTrustedMissionProvenance"), "device runtime trusted mission provenance proof missing");
+  assert(deviceRuntime.includes("innerworld-trusted-mission-provenance/v1"), "device runtime trusted mission provenance schema missing");
+  assert(deviceRuntime.includes("input_confirm_missing"), "device runtime trusted mission provenance must require confirm input evidence");
+  assert(apiRouter.includes("trustedMissionProvenance") && apiRouter.includes("trusted_mission_provenance"), "api router trusted mission provenance ledger wiring missing");
+  assert(apiRouter.includes("applyMissionProvenanceSummary") && apiRouter.includes("innerworld-mission-provenance/v1") && apiRouter.includes("state_provenance_status"), "api router mission provenance summary missing");
+  assert(apiRouter.includes("hardware_ready_claim_allowed: trusted") && apiRouter.includes("fallback_no_hardware_claim: !trusted"), "api router must split rehearsal complete from hardware-ready claims");
+  assert(sqliteStore.includes("trusted_mission_provenance") && sqliteStore.includes("has_trusted_mission_provenance"), "SQLite trusted mission provenance summary missing");
+  assert(sqliteStore.includes("\"device_id\"") && sqliteStore.includes("\"session_id\""), "SQLite ledger must treat raw session/device ids as sensitive");
   assert(apiRouter.includes("/api/device/heartbeat"), "api router device heartbeat route missing");
   assert(apiRouter.includes("authorizeDevicePairingIssue"), "api router device pairing operator gate missing");
   assert(apiRouter.includes("isLoopbackAddress"), "api router device pairing loopback gate missing");
@@ -974,6 +1200,8 @@ async function assertFieldAcceptanceCheckSkeleton() {
 
   assert(check.includes("innerworld-field-acceptance/v1"), "field acceptance schema check missing");
   assert(check.includes("/api/field/acceptance"), "field acceptance endpoint check missing");
+  assert(check.includes("innerworld-field-target-readiness/v1"), "field target readiness schema check missing");
+  assert(check.includes("/api/field/target-readiness"), "field target readiness endpoint check missing");
   assert(check.includes("print_kit"), "field acceptance print kit gate missing");
   assert(check.includes("simulator_rehearsal"), "field acceptance simulator rehearsal gate missing");
   assert(check.includes("hardware_alignment"), "field acceptance hardware alignment gate missing");
@@ -987,17 +1215,207 @@ async function assertFieldAcceptanceCheckSkeleton() {
   return "verified";
 }
 
+async function assertFieldLivePassCheckSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/field-live-pass.js"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"field:live-pass\""), "package field live pass script missing");
+  assert(packageJson.includes("\"check:field-live-pass\""), "package field live pass check script missing");
+  assert(tool.includes("innerworld-field-live-pass/v1"), "field live pass schema missing");
+  assert(tool.includes("/api/field/acceptance"), "field live pass acceptance endpoint missing");
+  assert(tool.includes("/api/state"), "field live pass state endpoint missing");
+  assert(tool.includes("user_b_readback_ready"), "field live pass User B readback evidence missing");
+  assert(tool.includes("mission_loop_ready: field.mission_loop_ready === true"), "field live pass mission loop must follow field acceptance gate");
+  assert(tool.includes("mission_ledger_ready"), "field live pass mission ledger evidence missing");
+  assert(tool.includes("Mission ledger ready") && tool.includes("Mission trusted A1/A2/A3 prerequisite ready"), "field live pass mission ledger/physical prerequisite markdown missing");
+  assert(tool.includes("mission_loop_waiting_for_trusted_a1_a2_a3"), "field live pass trusted A1/A2/A3 mission blocker missing");
+  assert(tool.includes("latest.field_acceptance.trusted_mission_provenance_ready !== true"), "field live pass mission loop must require trusted mission provenance");
+  assert(tool.includes("trusted_mission_provenance_missing"), "field live pass trusted mission provenance blocker missing");
+  assert(tool.includes("p0_mission_writeback_user_b_loop_missing"), "field live pass mission/User B blocker missing");
+  assert(tool.includes("missing_trusted_anchor_ids"), "field live pass missing trusted anchor evidence missing");
+  assert(tool.includes("missing_hardware_anchor_ids"), "field live pass missing hardware anchor evidence missing");
+  assert(tool.includes("missing_mission_step_ids"), "field live pass missing mission step evidence missing");
+  assert(tool.includes("next_required_actions"), "field live pass next required actions missing");
+  assert(tool.includes("trust_issues_by_anchor") && tool.includes("Untrusted Hardware Observations"), "field live pass per-anchor trust issue diagnostics missing");
+  assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("missing_item_labels"), "field live pass live adapter checklist diagnostics missing");
+  assert(tool.includes("Scan A1 QR entry") && tool.includes("Scan A2 image target") && tool.includes("Scan A3 image target"), "field live pass physical target action prompts missing");
+  assert(tool.includes("IW_TARGET_EVENT") && tool.includes("IW_TARGET_POST_RESULT") && tool.includes("IW_TARGET_MISSION_ASSIST"), "field live pass target logcat diagnostic tokens missing");
+  assert(tool.includes("Target Logcat Diagnostics") && tool.includes("Diagnostic counts only; raw logcat is not written."), "field live pass target logcat diagnostics boundary missing");
+  assert(tool.includes("raw_logcat_included: false") && tool.includes("raw_log_included: false"), "field live pass raw logcat privacy guards missing");
+  return "verified";
+}
+
+async function assertFieldAcceptanceSessionSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/field-acceptance-session.ps1"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"field:acceptance-session\""), "package field acceptance session script missing");
+  assert(packageJson.includes("\"field:acceptance-session:live\""), "package live field acceptance session script missing");
+  assert(packageJson.includes("\"field:acceptance-session:strict\""), "package strict field acceptance session script missing");
+  assert(packageJson.includes("\"field:acceptance-session:target\""), "package target field acceptance session script missing");
+  assert(packageJson.includes("\"field:acceptance-session:target-strict\""), "package strict target field acceptance session script missing");
+  assert(tool.includes("innerworld-field-acceptance-session/v1"), "field acceptance session schema missing");
+  assert(tool.includes("tools/field-operator-plan.js"), "field acceptance session operator plan invocation missing");
+  assert(tool.includes("/api/field/operator-plan"), "field acceptance session operator plan endpoint missing");
+  assert(tool.includes("operator_plan = [pscustomobject]"), "field acceptance session operator plan JSON summary missing");
+  assert(tool.includes("Operator Plan") && tool.includes("Operator Plan Phase Table"), "field acceptance session operator plan markdown missing");
+  assert(tool.includes("$operatorPlanNextActions") && tool.includes("$nextActionItems"), "field acceptance session must merge operator plan next actions");
+  assert(tool.includes("tools/station-pro-glasses-diagnostics.ps1"), "field acceptance session Station Pro glasses diagnostics invocation missing");
+  assert(tool.includes("station_glasses = [pscustomobject]"), "field acceptance session Station Pro glasses JSON summary missing");
+  assert(tool.includes("Station Pro Glasses Diagnostics") && tool.includes("Station Pro Glasses Blockers"), "field acceptance session Station Pro glasses markdown missing");
+  assert(tool.includes("$stationGlassesNextActions"), "field acceptance session must merge Station Pro glasses next actions");
+  assert(tool.includes("hardware_acceptance_evidence = $false"), "field acceptance session glasses diagnostics must not become hardware acceptance evidence");
+  assert(tool.includes("[switch]$SkipInputAssist") && tool.includes("[switch]$ApplyInputAssist"), "field acceptance session Station Pro input assist switches missing");
+  assert(tool.includes("tools/station-pro-field-input-assist.ps1") && tool.includes("station_input_assist = [pscustomobject]"), "field acceptance session Station Pro input assist summary missing");
+  assert(tool.includes("tools/field-input-readiness.js") && tool.includes("field_input_readiness = [pscustomobject]"), "field acceptance session real input readiness summary missing");
+  assert(tool.includes("Real Input Readiness") && tool.includes("field_input_readiness_hardware_acceptance_evidence = $false"), "field acceptance session real input readiness markdown/privacy guard missing");
+  assert(tool.includes("Station Pro Input Assist") && tool.includes("station_input_assist_hardware_acceptance_evidence = $false"), "field acceptance session input assist markdown/privacy guard missing");
+  assert(tool.includes("readback_state_ok") && tool.includes("readback_proves_hardware_input = $false"), "field acceptance session input assist readback summary missing");
+  assert(tool.includes("operator_assist_rehearsal_not_hardware_ready") && tool.includes("visible_but_no_remote_or_hand"), "field acceptance session input assist must remain rehearsal-only");
+  assert(tool.includes("tools/field-live-pass.js"), "field acceptance session live-pass invocation missing");
+  assert(tool.includes("tools/field-target-pass.js"), "field acceptance session target-pass invocation missing");
+  assert(tool.includes("[switch]$TargetPass"), "field acceptance session target pass switch missing");
+  assert(tool.includes("[switch]$ApplyMissionActions") && tool.includes("[switch]$ConfirmUserBReadback"), "field acceptance session explicit target mutation switches missing");
+  assert(tool.includes("tools/device-probe.ps1"), "field acceptance session device probe missing");
+  assert(tool.includes("tools/station-pro-apk-smoke.ps1"), "field acceptance session Station Pro smoke missing");
+  assert(tool.includes("simulator_or_manual_observations_created = $false"), "field acceptance session must not create rehearsal observations");
+  assert(tool.includes("mission_or_writeback_mutated = [bool]($targetAppliedActions.Count -gt 0)"), "field acceptance session must report actual mission/write-back mutation state");
+  assert(tool.includes("precheck_ok") && tool.includes("physical_acceptance_ready") && tool.includes("physical_blockers"), "field acceptance session target pass physical readiness summary missing");
+  assert(tool.includes("P0 Physical Blockers") && tool.includes("p0_physical_blocker_count") && tool.includes("p0_physical_blockers"), "field acceptance session P0 physical blocker rollup missing");
+  assert(tool.includes("Convert-ToBlockerIdArray") && tool.includes("-split '[,\\s]+'"), "field acceptance session P0 blocker rollup must flatten blocker ids");
+  assert(tool.includes("p0_physical_blocker_summary_hardware_acceptance_evidence = $false"), "field acceptance session P0 blocker rollup privacy/evidence guard missing");
+  assert(tool.includes("hardware_ready_claim_allowed"), "field acceptance session hardware-ready claim guard missing");
+  assert(tool.includes("livePassJson.ok -eq $false") && tool.includes("$livePassCommand.ok = $false"), "field acceptance session strict live-pass failure propagation missing");
+  assert(tool.includes("targetPassJson.ok -eq $false") && tool.includes("$targetPassCommand.ok = $false"), "field acceptance session strict target-pass failure propagation missing");
+  assert(tool.includes("raw_pairing_codes_included = $false"), "field acceptance session pairing-code privacy guard missing");
+  assert(tool.includes("raw_logcat_included = $false"), "field acceptance session raw logcat guard missing");
+  return "verified";
+}
+
+async function assertFieldTargetPassSkeleton() {
+  const [tool, packageJson, releasePackage] = await Promise.all([
+    readText("tools/field-target-pass.js"),
+    readText("package.json"),
+    readText("tools/package-server-release.ps1")
+  ]);
+
+  assert(packageJson.includes("\"field:target-pass\""), "package field target pass script missing");
+  assert(packageJson.includes("\"field:target-pass:watch\""), "package field target pass watch script missing");
+  assert(packageJson.includes("\"field:target-pass:apply\""), "package field target pass apply script missing");
+  assert(packageJson.includes("\"field:target-pass:strict\""), "package strict field target pass script missing");
+  assert(packageJson.includes("\"station:field-input-assist\"") && packageJson.includes("\"station:field-input-assist:apply\"") && packageJson.includes("\"station:field-input-assist:p0\""), "package Station Pro field input assist scripts missing");
+  assert(packageJson.includes("\"field:input-readiness\"") && packageJson.includes("\"check:field-input-readiness\""), "package field input readiness scripts missing");
+  assert(packageJson.includes("\"check:field-target-pass\""), "package field target pass check script missing");
+  const fieldInputReadiness = await readText("tools/field-input-readiness.js");
+  const stationFieldAssist = await readText("tools/station-pro-field-input-assist.ps1");
+  assert(stationFieldAssist.includes("innerworld-station-pro-field-input-assist/v1"), "Station Pro field input assist schema missing");
+  assert(stationFieldAssist.includes("operator_assist_rehearsal_not_hardware_ready") && stationFieldAssist.includes("visible_but_no_remote_or_hand"), "Station Pro field input assist must stay rehearsal-only for visible-but-no-input blocker");
+  assert(stationFieldAssist.includes("hardware_acceptance_evidence = $false") && stationFieldAssist.includes("hardware_ready_claim_allowed = $false"), "Station Pro field input assist must not claim hardware acceptance");
+  assert(stationFieldAssist.includes("Get-ReadbackSnapshot") && stationFieldAssist.includes("proves_hardware_input = $false") && stationFieldAssist.includes("raw_session_ids_included = $false"), "Station Pro field input assist Space API readback guard missing");
+  assert(stationFieldAssist.includes("raw_device_ids_included = $false") && stationFieldAssist.includes("selected_device_id_hash_prefix"), "Station Pro field input assist privacy guard missing");
+  assert(stationFieldAssist.includes("keyevent = 8") && stationFieldAssist.includes("keyevent = 9") && stationFieldAssist.includes("keyevent = 10") && stationFieldAssist.includes("keyevent = 66"), "Station Pro field input assist P0 keyevent mapping missing");
+  assert(fieldInputReadiness.includes("innerworld-field-input-readiness/v1") && fieldInputReadiness.includes("real_rkinput_pointable_confirm_missing"), "field input readiness schema/blocker missing");
+  assert(fieldInputReadiness.includes("operator_assist_rehearsal_not_hardware_ready") && fieldInputReadiness.includes("hardware_acceptance_evidence: false"), "field input readiness hardware-ready guard missing");
+  assert(fieldInputReadiness.includes("raw_session_ids_included: false") && fieldInputReadiness.includes("raw_device_ids_included: false"), "field input readiness privacy guard missing");
+  assert(tool.includes("innerworld-field-target-pass/v1"), "field target pass schema missing");
+  assert(tool.includes("/api/field/acceptance") && tool.includes("/api/device/sessions") && tool.includes("/api/state"), "field target pass endpoint coverage missing");
+  assert(tool.includes("--apply-mission-actions") && tool.includes("--confirm-user-b-readback") && tool.includes("--require-target-diagnostics"), "field target pass explicit mutation/diagnostic flags missing");
+  assert(tool.includes("simulator_or_manual_observations_created: false"), "field target pass simulator/manual guard missing");
+  assert(tool.includes("hardware_ready_claim_allowed: false"), "field target pass hardware-ready claim guard missing");
+  assert(tool.includes("REQUIRED_TARGET_DIAGNOSTIC_TOKENS") && tool.includes("IW_TARGET_EVENT") && tool.includes("IW_TARGET_MISSION_ASSIST"), "field target pass target diagnostic token guard missing");
+  assert(tool.includes("station-pro-apk-smoke-latest-mutating-launch.json") && tool.includes("uxr-readiness-latest.json"), "field target pass current APK evidence guards missing");
+  assert(tool.includes("target_diagnostics_preflight") && tool.includes("current_target_diagnostics_apk_preflight_missing"), "field target pass diagnostics preflight blocker missing");
+  assert(tool.includes("precheck_ok") && tool.includes("physical_acceptance_ready") && tool.includes("physical_blockers"), "field target pass precheck/physical acceptance split missing");
+  assert(tool.includes("function buildPhysicalBlockers"), "field target pass physical blocker builder missing");
+  assert(tool.includes("field_acceptance_not_ready"), "field target pass physical field-acceptance blocker missing");
+  assert(tool.includes("target_index_map_ready") && tool.includes("Target index map ready"), "field target pass target index map preflight evidence missing");
+  assert(packageScriptMatches(packageJson, "field:target-pass:apply", "node tools/field-target-pass\\.js --apply-mission-actions --require-live-session --require-target-diagnostics"), "field target pass apply must require live session and target diagnostics");
+  assert(packageJson.includes("--require-target-diagnostics"), "strict field target pass must require current target diagnostics preflight");
+  assert(packageJson.includes("\"field:target-pass:watch\"") && packageJson.includes("--watch --require-live-session --require-target-diagnostics"), "field target pass watch script must require live session and target diagnostics");
+  assert(tool.includes("captureWatchSnapshots") && tool.includes("duration_sec") && tool.includes("snapshot_count"), "field target pass watch snapshots missing");
+  assert(tool.includes("adbLogcatCounts") && tool.includes("Target Logcat Diagnostics") && tool.includes("raw_logcat_included: false"), "field target pass logcat diagnostic privacy guard missing");
+  assert(tool.includes("trust_issues_by_anchor") && tool.includes("/api/calibration/wall") && tool.includes("Untrusted Hardware Observations"), "field target pass per-anchor trust issue diagnostics missing");
+  assert(tool.includes("ADAPTER_CHECKLIST_REQUIREMENTS") && tool.includes("Live Adapter Binding") && tool.includes("Missing live binding items"), "field target pass live adapter checklist diagnostics missing");
+  assert(tool.includes("hasTrustedAnchor(snapshot, \"A2\")"), "field target pass A2 trusted gate missing");
+  assert(tool.includes("trustedMissionInputForAnchor") && tool.includes("session_id") && tool.includes("device_id"), "field target pass mutation must carry trusted mission session/device inputs");
+  assert(tool.includes("missionProvenanceInputBlockers") && tool.includes("live_mission_provenance_input_missing"), "field target pass mutation must require live mission provenance input before writing");
+  assert(tool.includes("input_frame_ray_not_reported") && tool.includes("pointable_ui_focus_missing") && tool.includes("input_confirm_missing"), "field target pass provenance input readiness blockers missing");
+  assert(packageScriptMatches(packageJson, "check:field-target-pass", "node tools/field-target-pass\\.js --require-live-session"), "check:field-target-pass must require live session");
+  assert(releasePackage.includes('"check:field-target-pass" = "node tools/field-target-pass.js --require-live-session"'), "server release check:field-target-pass must match root live-session gate");
+  assert(tool.includes("provenance_ready") && tool.includes("provenance_blockers"), "field target pass mutation provenance readiness markdown missing");
+  assert(tool.includes("provenance_input") && tool.includes("raw_session_ids_included: false") && tool.includes("raw_device_ids_included: false"), "field target pass mutation provenance summary/privacy guard missing");
+  assert(tool.includes("snapshot.mission_loop_ready = snapshot.field_acceptance.mission_loop_ready === true"), "field target pass mission loop must follow field acceptance gate");
+  assert(tool.includes("Mission ledger ready") && tool.includes("Mission trusted A1/A2/A3 prerequisite ready"), "field target pass mission ledger/physical prerequisite markdown missing");
+  assert(tool.includes("mission_loop_waiting_for_trusted_a1_a2_a3"), "field target pass trusted A1/A2/A3 mission blocker missing");
+  assert(tool.includes("snapshot.field_acceptance.trusted_mission_provenance_ready !== true"), "field target pass mission loop must require trusted mission provenance");
+  assert(tool.includes("trusted_mission_provenance_missing"), "field target pass trusted mission provenance blocker missing");
+  assert(tool.includes("const a2Complete = hasTrustedAnchor(afterA2, \"A2\")"), "field target pass service action must require trusted A2");
+  assert(tool.includes("hasTrustedAnchor(afterService, \"A3\") && hasMissionStep(afterService, \"service_action\")"), "field target pass A3 write-back gate missing");
+  assert(tool.includes("const canConfirm = hasTrustedAnchor(snapshot, \"A3\")"), "field target pass User B readback must require trusted A3");
+  assert(tool.includes("confirm_user_b_readback_flag_not_set"), "field target pass User B explicit confirmation guard missing");
+  assert(tool.includes("source: \"field_target_pass_operator_confirmed_user_b_readback\""), "field target pass User B evidence source missing");
+  assert(tool.includes("raw_pairing_codes_included: false") && tool.includes("raw_session_ids_included: false"), "field target pass privacy guards missing");
+  return "verified";
+}
+
+async function assertRokidApkPackageEvidenceSkeleton() {
+  const [stationSmoke, stationCheck, uxrReadiness, uxrCheck] = await Promise.all([
+    readText("tools/station-pro-apk-smoke.ps1"),
+    readText("server/space-server/check-station-pro-apk-smoke.js"),
+    readText("tools/uxr-readiness.js"),
+    readText("server/space-server/check-uxr-readiness.js")
+  ]);
+
+  assert(stationSmoke.includes("innerworld-rokid-target-index-map/v1"), "Station Pro smoke target index map schema missing");
+  assert(stationSmoke.includes("innerworld-a1-qr-entry-v1") && stationSmoke.includes("innerworld-a2-memory-beacon-v1") && stationSmoke.includes("innerworld-a3-writeback-v1"), "Station Pro smoke target GUID map missing");
+  assert(stationSmoke.includes("RKImage.db target index map ready"), "Station Pro smoke markdown target map line missing");
+  assert(stationCheck.includes("RKImage.db target index map must be 1:A1,2:A2,3:A3"), "Station Pro APK check must enforce A1/A2/A3 index map");
+  assert(uxrReadiness.includes("EXPECTED_ROKID_TARGET_INDEX_MAP"), "UXR readiness target index map expectation missing");
+  assert(uxrReadiness.includes("rokid_image_db_target_index_map_invalid_for_a1_a2_a3"), "UXR readiness target index map blocker missing");
+  assert(uxrReadiness.includes("target_index_map_not_exact_a1_a2_a3"), "UXR readiness exact target index map issue missing");
+  assert(uxrCheck.includes("RKImage.db target index map evidence missing") && uxrCheck.includes("target_index_map.ready === true") && uxrCheck.includes("1:A1,2:A2,3:A3"), "UXR readiness check target map gate missing");
+  return "verified";
+}
+
+async function assertUnityAndroidBuildSkeleton() {
+  const [tool, packageJson] = await Promise.all([
+    readText("tools/build-unity-android.ps1"),
+    readText("package.json")
+  ]);
+
+  assert(packageJson.includes("\"unity:android:build:lan\""), "package Unity Android LAN build script missing");
+  assert(tool.includes("Invoke-ExternalForReport"), "Unity Android build external report wrapper missing");
+  assert(tool.includes("[int]$TimeoutSeconds = 300"), "Unity Android build external report timeout missing");
+  assert(tool.includes("!$SkipRokidImageDbBuild -and !$SkipUnityBuild"), "Unity Android build report refresh must not rebuild image DB");
+  assert(tool.includes("System.Diagnostics.ProcessStartInfo") && tool.includes("WaitForExit($TimeoutSeconds * 1000)"), "Unity Android build post-check wrapper must be timeout-bounded");
+  assert(tool.includes("RedirectStandardOutput") && tool.includes("RedirectStandardError"), "Unity Android build post-check wrapper must capture external output safely");
+  assert(tool.includes("timed_out = [bool]$timedOut") && tool.includes("timeout_seconds = $TimeoutSeconds"), "Unity Android build report must expose external command timeout evidence");
+  assert(tool.includes("Stop-Process -Id $process.Id") && tool.includes("CreateNoWindow = $true"), "Unity Android build timeout cleanup missing");
+  assert(tool.includes("Redact-BuildOutput") && tool.includes("private_ips_included = $false"), "Unity Android build privacy redaction guard missing");
+  return "verified";
+}
+
 async function main() {
-  const [space, aiSchema, hardwareManifest, markerConfig] = await Promise.all([
+  const [space, aiSchema, hardwareManifest, markerConfig, shiyaoMergeMap, shiyaoHandoffDoc, packageJson, sceneTargetSmoke] = await Promise.all([
     readJson("data/space_demo.json"),
     readJson("ai/schema.json"),
     readJson("data/hardware_manifest.json"),
-    readJson("data/field_markers.json")
+    readJson("data/field_markers.json"),
+    readJson("data/merge_map.json"),
+    readText("docs/shiyao-handoff-contract.md"),
+    readText("package.json"),
+    readText("server/space-server/check-scene-targets.js")
   ]);
 
   assertSpaceContract(space);
   assertAiContract(aiSchema);
   assertHardwareManifest(hardwareManifest);
+  assertShiyaoHandoffContract(shiyaoMergeMap, shiyaoHandoffDoc);
+  assertSceneTargetSmokeScript(sceneTargetSmoke, packageJson);
   assertEndpointMap(buildEndpointMap("http://localhost:5177", INNERWORLD_SPACE_ID));
   assertBootstrapContract(space, aiSchema);
   assertDeviceRuntimeContract(space, aiSchema);
@@ -1009,8 +1427,14 @@ async function main() {
   assertStateMachine(space);
   const server_core = await assertServerCoreSkeleton();
   const fieldAcceptanceCheck = await assertFieldAcceptanceCheckSkeleton();
+  const fieldLivePassCheck = await assertFieldLivePassCheckSkeleton();
+  const fieldAcceptanceSessionCheck = await assertFieldAcceptanceSessionSkeleton();
+  const fieldTargetPassCheck = await assertFieldTargetPassSkeleton();
+  const rokidApkPackageEvidenceCheck = await assertRokidApkPackageEvidenceSkeleton();
+  const unityAndroidBuildCheck = await assertUnityAndroidBuildSkeleton();
   const unityProtocol = await assertUnityProtocolSkeleton();
   const rokidSimulator = await assertRokidSimulatorSkeleton();
+  const webSceneActionFallback = await assertWebSceneActionFallback();
 
   const client = createInnerWorldClient({ baseUrl: "http://localhost:5177" });
   assert(typeof client.getStoreStatus === "function", "client store status method missing");
@@ -1031,6 +1455,7 @@ async function main() {
   assert(typeof client.getWallCalibration === "function", "client wall calibration method missing");
   assert(typeof client.submitWallCalibrationObservation === "function", "client wall calibration observation method missing");
   assert(typeof client.getFieldMarkers === "function", "client field markers method missing");
+  assert(typeof client.getFieldOperatorPlan === "function", "client field operator plan method missing");
   assert(client.endpoints().space.path === `/api/spaces/${INNERWORLD_SPACE_ID}`, "client endpoints mismatch");
   assert(client.endpoints().store_status.path === "/api/store/status", "client store endpoint mismatch");
   assert(client.endpoints().dataset_call.path === "/api/datasets/call", "client dataset call endpoint mismatch");
@@ -1041,6 +1466,7 @@ async function main() {
   assert(client.endpoints().wall_calibration.path === "/api/calibration/wall", "client wall calibration endpoint mismatch");
   assert(client.endpoints().wall_calibration_observations.path === "/api/calibration/observations", "client wall calibration observations endpoint mismatch");
   assert(client.endpoints().field_markers.path === "/api/field/markers", "client field markers endpoint mismatch");
+  assert(client.endpoints().field_operator_plan.path === "/api/field/operator-plan", "client field operator plan endpoint mismatch");
   assert(client.endpoints().device_pairing.path === "/api/device/pairing", "client device pairing endpoint mismatch");
   assert(client.endpoints().device_heartbeat.path === "/api/device/heartbeat", "client device heartbeat endpoint mismatch");
   assert(client.endpoints().service_actions_outbox.path === "/api/service-actions/outbox", "client service actions outbox endpoint mismatch");
@@ -1062,9 +1488,16 @@ async function main() {
     wall_calibration: WALL_CALIBRATION_SCHEMA,
     field_markers: FIELD_MARKER_SCHEMA,
     field_acceptance_check: fieldAcceptanceCheck,
+    field_live_pass_check: fieldLivePassCheck,
+    field_acceptance_session_check: fieldAcceptanceSessionCheck,
+    field_target_pass_check: fieldTargetPassCheck,
+    rokid_apk_package_evidence_check: rokidApkPackageEvidenceCheck,
+    unity_android_build_check: unityAndroidBuildCheck,
     server_core,
     unity_protocol: unityProtocol,
     rokid_simulator: rokidSimulator,
+    web_scene_action_fallback: webSceneActionFallback,
+    scene_target_smoke: "server/space-server/check-scene-targets.js",
     shared_contract: "shared/innerworld-contract.js"
   }, null, 2));
 }

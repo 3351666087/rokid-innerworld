@@ -1,11 +1,16 @@
 #if ROKID_UXR
+using Rokid.UXR.Module;
+using UnityEngine;
+
 namespace InnerWorld.Rokid
 {
     public sealed class RokidUxrInputSource : IRokidInputSource, IRokidInputStateSink
     {
-        public const string AdapterName = "rokid-uxr-input-stub";
+        public const string AdapterName = "rokid-uxr-rkinput-3dof";
 
-        private readonly EditorRokidInputSource fallbackInput;
+        private readonly RokidDeviceSimulatorState state;
+        private bool nativeInputTouched;
+        private float elapsedSeconds;
 
         public RokidUxrInputSource()
             : this(null)
@@ -19,10 +24,10 @@ namespace InnerWorld.Rokid
 
         public RokidUxrInputSource(RokidDeviceSimulatorState state, RokidSdkBindingReport bindingReport)
         {
-            fallbackInput = new EditorRokidInputSource(state);
-            fallbackInput.SetConnection(
+            this.state = state ?? new RokidDeviceSimulatorState();
+            this.state.SetConnection(
                 RokidConnectionStatus.Connecting,
-                bindingReport != null ? bindingReport.Message : "ROKID_UXR boundary compiled; SDK input binding pending.");
+                bindingReport != null ? bindingReport.Message : "ROKID_UXR boundary compiled; RKCameraRig/RKInput binding initializing.");
         }
 
         public string SourceName
@@ -32,77 +37,201 @@ namespace InnerWorld.Rokid
 
         public bool IsAvailable
         {
-            get { return fallbackInput.IsAvailable; }
+            get { return true; }
         }
 
         public bool IsPoseValid
         {
-            get { return fallbackInput.IsPoseValid; }
+            get { return Camera.main != null; }
         }
 
         public RokidConnectionInfo Connection
         {
-            get { return fallbackInput.Connection; }
+            get { return state.Connection; }
         }
 
         public RokidAnchorTarget AnchorTarget
         {
-            get { return fallbackInput.AnchorTarget; }
+            get { return state.AnchorTarget; }
         }
 
         public RokidPose HeadPose
         {
-            get { return fallbackInput.HeadPose; }
+            get { return state.HeadPose; }
         }
 
         public RokidGazeState Gaze
         {
-            get { return fallbackInput.Gaze; }
+            get { return state.Gaze; }
         }
 
         public RokidInputFrame CurrentFrame
         {
-            get { return fallbackInput.CurrentFrame; }
+            get { return state.CurrentFrame; }
+        }
+
+        public bool IsSdkBindingReady
+        {
+            get { return RokidUxrBoundary.IsCompiled && Camera.main != null; }
         }
 
         public void SetBaseUrl(string baseUrl)
         {
-            fallbackInput.SetBaseUrl(baseUrl);
+            state.SetBaseUrl(baseUrl);
         }
 
         public void SetConnection(RokidConnectionStatus status, string message)
         {
-            fallbackInput.SetConnection(status, message);
+            state.SetConnection(status, message);
         }
 
         public void SetGazeAnchorHit(string anchorId, string anchorLabel, UnityEngine.Vector3 hitPoint, float hitDistanceMeters)
         {
-            fallbackInput.SetGazeAnchorHit(anchorId, anchorLabel, hitPoint, hitDistanceMeters);
+            state.SetGazeAnchorHit(anchorId, anchorLabel, hitPoint, hitDistanceMeters);
         }
 
         public void ClearAnchorTarget()
         {
-            fallbackInput.ClearAnchorTarget();
+            state.ClearAnchorTarget();
         }
 
         public void Tick(float deltaTimeSeconds)
         {
-            fallbackInput.Tick(deltaTimeSeconds);
+            float safeDeltaTime = Mathf.Max(0f, deltaTimeSeconds);
+            elapsedSeconds += safeDeltaTime;
+            state.BeginFrame();
+            TouchNativeInput();
+            UpdatePoseFromRokidCamera();
+            UpdateRokidButtons();
+            state.Snapshot(elapsedSeconds, safeDeltaTime);
         }
 
         public bool TryReadFrame(out RokidInputFrame frame)
         {
-            return fallbackInput.TryReadFrame(out frame);
+            frame = state.CurrentFrame;
+            return true;
         }
 
         public bool TryGetHeadPose(out RokidPose pose)
         {
-            return fallbackInput.TryGetHeadPose(out pose);
+            pose = state.HeadPose;
+            return IsPoseValid;
         }
 
         public bool TryGetGaze(out RokidGazeState gaze)
         {
-            return fallbackInput.TryGetGaze(out gaze);
+            gaze = state.Gaze;
+            return IsPoseValid;
+        }
+
+        private static RKNativeInput NativeInput
+        {
+            get { return RKNativeInput.Instance; }
+        }
+
+        private void TouchNativeInput()
+        {
+            if (nativeInputTouched)
+            {
+                return;
+            }
+
+            nativeInputTouched = true;
+            RKNativeInput input = NativeInput;
+            if (input != null)
+            {
+                input.Initialized();
+            }
+        }
+
+        private void UpdatePoseFromRokidCamera()
+        {
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                return;
+            }
+
+            RokidPose pose = new RokidPose(camera.transform.position, camera.transform.rotation);
+            bool selecting = IsGazeSelectHeld();
+            state.SetGaze(RokidGazeState.FromPose(pose, selecting));
+        }
+
+        private void UpdateRokidButtons()
+        {
+            bool selectHeld = IsGazeSelectHeld();
+            bool confirmHeld = IsConfirmHeld();
+            bool backHeld = IsBackHeld();
+
+            state.SetButtonHeld(RokidInputButtons.GazeSelect, selectHeld);
+            state.SetButtonHeld(RokidInputButtons.Confirm, confirmHeld);
+            state.SetButtonHeld(RokidInputButtons.Back, backHeld);
+
+            if (IsGazeSelectDown())
+            {
+                state.Press(RokidInputButtons.GazeSelect);
+            }
+            if (IsConfirmDown())
+            {
+                state.Press(RokidInputButtons.Confirm);
+            }
+            if (IsBackDown())
+            {
+                state.Press(RokidInputButtons.Back);
+            }
+        }
+
+        private static bool IsGazeSelectDown()
+        {
+            RKNativeInput input = NativeInput;
+            return Input.GetMouseButtonDown(0)
+                || (input != null && (input.GetKeyDown(RKKeyEvent.KEY_MOUSE_FIRST)
+                    || input.GetStation2EventTrigger(RKStation2KeyEvent.KEY_LIGHT_SINGLE_TAP)));
+        }
+
+        private static bool IsGazeSelectHeld()
+        {
+            RKNativeInput input = NativeInput;
+            return Input.GetMouseButton(0)
+                || (input != null && input.GetKey(RKKeyEvent.KEY_MOUSE_FIRST));
+        }
+
+        private static bool IsConfirmDown()
+        {
+            RKNativeInput input = NativeInput;
+            return Input.GetKeyDown(KeyCode.Return)
+                || Input.GetKeyDown(KeyCode.Space)
+                || Input.GetKeyDown(KeyCode.JoystickButton0)
+                || (input != null && (input.GetKeyDown(RKKeyEvent.KEY_OK)
+                    || input.GetStation2EventTrigger(RKStation2KeyEvent.KEY_LIGHT_DOUBLE_TAP)));
+        }
+
+        private static bool IsConfirmHeld()
+        {
+            RKNativeInput input = NativeInput;
+            return Input.GetKey(KeyCode.Return)
+                || Input.GetKey(KeyCode.Space)
+                || Input.GetKey(KeyCode.JoystickButton0)
+                || (input != null && input.GetKey(RKKeyEvent.KEY_OK));
+        }
+
+        private static bool IsBackDown()
+        {
+            RKNativeInput input = NativeInput;
+            return Input.GetKeyDown(KeyCode.Escape)
+                || Input.GetKeyDown(KeyCode.Backspace)
+                || Input.GetKeyDown(KeyCode.JoystickButton1)
+                || (input != null && (input.GetKeyDown(RKKeyEvent.KEY_BACK)
+                    || input.GetStation2EventTrigger(RKStation2KeyEvent.KEY_LIGHT_LONG_TAP)));
+        }
+
+        private static bool IsBackHeld()
+        {
+            RKNativeInput input = NativeInput;
+            return Input.GetKey(KeyCode.Escape)
+                || Input.GetKey(KeyCode.Backspace)
+                || Input.GetKey(KeyCode.JoystickButton1)
+                || (input != null && input.GetKey(RKKeyEvent.KEY_BACK));
         }
     }
 }

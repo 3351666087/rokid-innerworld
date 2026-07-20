@@ -2,9 +2,142 @@
 
 ## Latest Checkpoint
 
+2026-07-04 20:47 Asia/Shanghai:
+
+- Added a read-only Station Pro glasses diagnostic command: `npm run station:glasses:diagnose`. It does not install or launch the APK; it summarizes ADB, Android display, Rokid/OpenXR packages, OpenXR runtime service, input devices, USB signals, selected display/Rokid properties, and runtime log counts without raw dumpsys/logcat/getprop output.
+- Current diagnostic result narrows the blocker: `openxr_runtime_package_ready=true`, `runtime_ready=true`, 9 Rokid-like input candidates, and USB connected/accessory tokens are present, but Android display still reports one internal display only: `external_display_detected=false`, `glasses_display_ready=false`.
+- Strict read-only gate `npm run station:glasses:require-ready` fails as expected with `rokid_external_display_not_detected` and `rokid_head_pose_failure_detected`. This is now the next physical hardware lane before A1/A2/A3 scanning.
+
+2026-07-04 20:30 Asia/Shanghai:
+
+- Added the Station Pro display/glasses gate after the OpenXR loader fix. `station:apk:smoke` now clears logcat before launch, installs/launches the APK, then records sanitized `dumpsys display` and logcat pattern evidence without storing raw dumpsys or raw logcat.
+- Fresh smoke still passes APK install/cold-launch/process: current APK `5b1d4641616d...`, `is_uxr_app=true`, `rokid_runtime_loaded=true`, `runtime_unavailable_count=0`, `runtime_broker_failure_count=0`.
+- The new evidence makes the remaining blocker concrete: `display_count=1`, `external_display_detected=false`, `internal_only=true`, `glass_name_failure_count=2`. The strict command `npm run station:apk:display-smoke` fails as expected with `rokid_glasses_display_not_detected`.
+- This is not hardware-ready. It cleanly separates "APK/runtime path works" from "Rokid glasses are physically detected and displaying", and the next field action remains fixing the Station Pro -> Max/HDMI/glasses detection chain before A1/A2/A3/User B acceptance.
+
+2026-07-04 20:11 Asia/Shanghai:
+
+- Fixed the reported black-screen launch blocker in the Unity/Rokid APK path. Root cause was the final APK packaging Unity's default `libopenxr_loader.so`, which looked for the Khronos runtime broker instead of the Rokid runtime package.
+- `innerworld-rokid/tools/build-unity-android.ps1` now replaces the generated Gradle `unityLibrary/libs/openxr_loader.aar` with the Rokid package AAR, removes the generated project default naked loader before repack, stages `librokid_openxr_api.so` / `libyuv.so`, and requires a Rokid runtime marker before a build can be considered OK.
+- `station:apk:inspect`, `station:apk:smoke`, and `check-station-pro-apk-smoke` now verify that the APK loader contains `com.rokid.openxr.runtime`; wrong-loader packages fail with `apk_rokid_openxr_loader_not_from_rokid_package`.
+- Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,798,669 bytes, SHA256 `5b1d4641616dfc75bee98f1772af5c592820b07ba90c0e38413dff2bdd253029`. The packaged `libopenxr_loader.so` SHA prefix is `b7e723e8017e` and contains the Rokid runtime marker.
+- Fresh Station Pro smoke passed for this APK: install OK, cold launch OK, process observed, `is_uxr_app=true`. Fresh logcat no longer shows `XR_ERROR_RUNTIME_UNAVAILABLE` or Khronos broker failure, and does show Rokid runtime manifest/load success.
+- Remaining blocker is physical display/glasses detection, not the previous OpenXR-loader runtime failure: `dumpsys display` still shows only the Station Pro internal display, and runtime logs include `getGlassName failed: glass not detected` plus repeated head-pose failures. Hardware-ready remains false until trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` pass on the real wall.
+
+2026-07-04 17:55 Asia/Shanghai:
+
+- GitHub was synced first as requested: branch `codex/rokid-real-device-sync` tracks origin, PR #1 is open/clean, and CI `Node / Space Server` is green at `a45c173d` before the next hardware slice.
+- Restarted the LAN Space Server on current code at `0.0.0.0:5177`, rebuilt the current Unity/Rokid APK after fixing a Unity compile error, and installed/launched/paired it on the connected Station Pro. Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,727,279 bytes, SHA256 `19733d32b2bdbd347895a319e55a051c7c3722d1329f823baf78ce61e9978955`.
+- `station:apk:pair-smoke` passed for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and raw serial/session/pairing/private-network identifiers stayed out of evidence.
+- `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:device`, `field:live-pass -- --single`, `check:field-target-pass`, and expected-red `field:target-pass:strict` were rerun on the new APK. The strict gate still blocks correctly on `trusted_a1_a2_a3_observations_missing`; hardware-ready remains false.
+- Fixed `tools/build-unity-android.ps1` post-check execution so `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` no longer hangs after Unity success and now reports the current APK evidence cleanly.
+
+2026-07-04 16:32 Asia/Shanghai:
+
+- Carver re-audited the current physical-pass lane and found no hardware-ready misclaim or P0 drift. Local record: `.agents/carver/carver-target-session-wrapper-audit-2026-07-04-1632.md`.
+- Field target reporting now separates `precheck_ok` from `physical_acceptance_ready`, and always lists `physical_blockers`. Current target precheck is green for APK/session/diagnostics, but physical acceptance remains false on missing trusted A1/A2/A3, mission/User B loop, and `/api/field/acceptance`.
+- `field:acceptance-session:target` is now the combined on-site precheck/watch command; `field:acceptance-session:target-strict` is the strict A1/A2/A3 -> A3 TimeMark -> User B closeout command and remains red until the real wall pass is complete. Runbook: `innerworld-rokid/docs/field-hardware-runbook.md`.
+
+2026-07-04 16:17 Asia/Shanghai:
+
+- GitHub sync was current before this hardware step: branch `codex/rokid-real-device-sync` and PR #1 had CI green. Local build artifacts and LAN machine config churn were not pushed as source changes.
+- Rebuilt APK `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` was the then-current Station Pro smoke artifact for this checkpoint: 45,722,295 bytes, SHA256 `9ddf80932c9896c3c744f6a46bef104e6722bd0615675f1a83e364db2adafe4e`. It is now superseded by the 20:11 `5b1d4641616d...` APK.
+- `npm run station:apk:pair-smoke` passed on the connected Station Pro for that exact APK: install OK, cold launch OK, process observed, UXR app accepted, operator pairing issued/injected/verified, and private identifiers/pairing code stayed out of evidence.
+- `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `check:field-live-pass`, `check:field-target-pass`, `check:unity`, `check:contract`, `check:mainline`, and `context:export` passed after the smoke. `field:target-pass:strict` still fails correctly because trusted A1/A2/A3 observations, A2 read/service/write-back mission steps, A3 TimeMark, and User B readback are still missing.
+- Hardware-ready remains false. The next real proof is a fresh physical A1/A2/A3 scan under the current live-bound operator-paired session, followed by A2 read, controlled service action, A3 TimeMark write-back, User B readback, and `/api/field/acceptance`.
+
+2026-07-04 16:01 Asia/Shanghai:
+
+- Carver audited the trusted-observation checkpoint in `.agents/carver/carver-trusted-observation-checkpoint-2026-07-04.md`: current package/live adapter evidence may be ready, but A2/A3 old observations cannot be retroactively trusted. The next proof is a fresh physical A1/A2/A3 scan under the current live-bound session.
+- Added a Unity trusted-observation rescan barrier. A1/A2/A3 image target events that arrive before the server acknowledges the same session as operator-paired, hardware-eligible, and input/overlay/live SDK-bound are queued one latest event per anchor, then retried after heartbeat ack. This prevents target events from being dropped during live binding startup without weakening server-side trust.
+- Field live/target reports now show the current live adapter binding/checklist status. Current baseline: latest operator-paired session is `live_binding_ready` with no adapter checklist gaps, but trusted A1/A2/A3 and the A3 write-back/User B loop are still missing. Hardware-ready remains false.
+
+2026-07-04 15:43 Asia/Shanghai:
+
+- Added per-anchor trust diagnostics to the live field reports before the next physical wall pass. `field-live-pass` and `field-target-pass` now surface untrusted hardware-mode A1/A2/A3 observations from `/api/calibration/wall`, including sanitized observation/session issue codes and SDK binding stage, without raw session ids, raw device ids, private IPs, pairing codes, or raw logcat.
+- Current baseline remains intentionally not hardware-ready: A1 still lacks a trusted physical scan, while existing A2/A3 hardware-mode observations are visible as untrusted and require re-scan/re-bind through the operator-paired live SDK session. Strict field acceptance must still fail until trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and `/api/field/acceptance` are green.
+
+2026-07-04 15:25 Asia/Shanghai:
+
+- Rebuilt the current Unity APK with the `IW_TARGET_*` target-observation diagnostics included. Current APK: `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,721,247 bytes, SHA256 `e447069ac12b8b757e143387975a06a6965e0ede50b91e77d78763b5adf39c84`; APK metadata contains the target diagnostics tokens in `global-metadata.dat`.
+- Installed and cold-launched that APK on the connected Station Pro with operator pairing. `station:apk:pair-smoke`, `check:station-apk:rkimage`, `check:uxr-readiness:ready`, `uxr:doctor`, `check:contract`, `check:mainline`, and `check:field-live-pass` passed.
+- Hardened the APK image-target preflight: `station:apk:inspect`, `check:station-apk:rkimage`, and `uxr-readiness` now open the APK-packaged `assets/RKImage.db`, parse nested `Data.json`, and require the P0 target map `1:A1`, `2:A2`, `3:A3` before target/image-tracking evidence can be accepted. Current APK target map is green.
+- `field-live-pass --single --logcat` now reports the `IW_TARGET_*` diagnostic counters with `raw_logcat_included=false`; counts are still `0` until a physical A1/A2/A3 scan occurs. Hardware-ready remains false because trusted A1/A2/A3, A3 write-back, User B readback, and `/api/field/acceptance` are not complete.
+- `field:target-pass:strict` now also requires the current target-diagnostics APK preflight: current APK SHA prefix, APK token scan, latest mutating Station Pro launch, UXR readiness, and the APK target index map must all match before a physical pass can be accepted. The preflight is green for `e447...`; strict still fails correctly on missing trusted A1/A2/A3 and P0 mission/User B loop.
+- Added `field:target-pass:watch` as the read-only physical scan watcher. It samples field target phases while counting `IW_TARGET_*` logcat tokens without writing raw logcat, so the operator can run one command during the A1/A2/A3 pass.
+- Fixed `tools/build-unity-android.ps1` so post-build external checks run through a timeout-bounded wrapper; `-SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` now writes a fresh build report for the current APK instead of hanging after Unity success.
+
+2026-07-04 13:54 Asia/Shanghai:
+
+- Added `field:target-pass` as the guided real-wall A1/A2/A3/User B runner. Default mode is read-only and writes a sanitized JSON/MD phase report; `field:target-pass:apply` can post A2 read/find_year, service_action, and A3 TimeMark only after trusted A2/A3 gates exist; `field:target-pass:strict` also requires operator-confirmed User B readback and must fail until trusted hardware plus mission loop are complete.
+- Verified `check:field-target-pass` passes with the current operator-paired live session, while `field:target-pass:strict` fails as expected because trusted A1/A2/A3, mission steps, A3 write-back, and User B readback are still missing. No simulator/manual observations were created and `/api/state` remains User A / `entered` / no completed steps.
+- Hardware-ready remains false; the next physical action is still to scan/re-bind A1/A2/A3 through the live Rokid SDK session, then use the runner during the real wall pass.
+
+2026-07-04 13:35 Asia/Shanghai:
+
+- Unity/Rokid image tracking now has a trusted-target mission assist bridge: only server-returned `hardware_observation_trusted=true` observations can advance A2 `read/find_year`; A1 still requires deliberate entry confirmation, and A3 TimeMark write-back stays gated behind `service_action`.
+- DTO/check coverage now records the sanitized hardware proof (`hardware_session`) and asserts simulator/manual calibration cannot trigger mission assist. Verified: `check:unity`, `check:contract`, `check:field-live-pass`, `check:field-acceptance -- --api`, `check:mainline`, and `context:export`.
+- Hardware-ready remains false. Current live-pass still has one operator-paired live session but no trusted A1/A2/A3 anchors, missing mission steps `read/find_year/service_action/write_back`, and `user_b_readback_ready=false`.
+
+2026-07-04 12:31 Asia/Shanghai:
+
+- PR #1 is open as a draft from `codex/rokid-real-device-sync`; Carver reviewed commit `1358664f` as directionally safe for the P0 real-device lane.
+- Current APK remains `innerworld-rokid/output/unity-android/InnerWorldRokid.apk`, 45,719,155 bytes, SHA256 `bd852f7012e25f9ccd2630e2113a1a3526fc7bdfea5d05c32d56c410303fe142`, with `assets/RKImage.db`, `libopenxr_loader.so`, `librokid_openxr_api.so`, and `libyuv.so` packaged.
+- `device-probe` is hardened against Windows/ADB hangs: ADB/tool calls and PnP enumeration have internal timeouts, `check:device-probe` has an outer 90s timeout, and current strict probe still sees one sanitized Station Pro-class ADB device in `device` state.
+- LAN Space Server is back online on `0.0.0.0:5177`, and `npm run station:apk:pair-smoke` passed again on the connected Station Pro for the current APK: install OK, cold launch OK, process observed, `is_uxr_app=true`, operator pairing issued/injected/verified, and no raw pairing code persisted.
+- `check:station-apk:rkimage` now reads inspect-only APK evidence after mutating pair-smoke runs, so package gates cannot accidentally consume install/launch evidence. The latest inspect gate verifies LAN config, `assets/RKImage.db`, and Rokid native libraries.
+- `field:live-pass` now prints missing trusted anchors, missing hardware anchors, missing mission steps, and next required field actions. Current baseline: trusted A1/A2/A3 is still `0/3`; A1 needs raw hardware scan; A2/A3 need re-scan or re-bind through the operator-paired live SDK session.
+- `field:acceptance-session` is now the local/LAN field runner for real-device acceptance: default mode runs device probe, APK inspect, endpoint snapshots, and single live-pass without writing observations; `field:acceptance-session:live` explicitly runs mutating Station Pro pair-smoke and live watch for the physical A1/A2/A3/User B pass.
+- Field acceptance now makes User B readback explicit: mission/write-back is not enough unless `/api/state.active_user` is `B` after the A3 write-back beacon exists. `npm run check:field-acceptance -- --api` and `npm run check:field-live-pass` both reflect `user_b_readback_ready=false` until the physical pass completes.
+- Hardware-ready remains false. The next P0 action is the real A1/A2/A3 target pass plus A1 entry -> A2 read -> A3 TimeMark write-back -> User B readback, then `field:live-pass -- --single --require-live-session --require-trusted --require-mission-loop` and `/api/field/acceptance`.
+
+2026-07-03 22:18 Asia/Shanghai:
+
+- Evidence-chain reconciliation is now the latest checkpoint. The current disk APK is `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` at 45,167,409 bytes with SHA256 `ce3f118632d6202c61455f19cdc11080a765e17c74f6be07496ef2c2b571cf1d`.
+- `tools/build-unity-android.ps1` now samples APK size/SHA after post-checks, then `powershell -File tools/build-unity-android.ps1 -SkipUnityBuild -RunPostChecks -RequirePostCheckDevice` refreshed `unity-build-android-latest.*` without rebuilding, installing, or launching.
+- `npm run check:station-apk:lan`, `npm run uxr:doctor`, and `npm run check:uxr-readiness:ready` pass for the current APK. The APK is LAN-ready, UXR-manifest-ready, min SDK 28, target SDK 36, and the latest inspect evidence matches the current APK SHA.
+- Important boundary correction: the latest mutating launch proof still belongs to the previous 45MB APK SHA `70592a5dfec4...`, not the current `ce3f118632d6...` APK. `uxr-readiness-latest` now records `latest_mutating_launch_apk_sha_mismatch_current_apk` and sets the next proof to `user_confirmed_current_apk_station_pro_install_launch_smoke`.
+- Hardware-ready remains false. The next P0 action is a user/operator-confirmed current-APK Station Pro install/launch smoke, then live Rokid SDK binding, operator pairing, trusted A1/A2/A3 observations, A3 write-back, User B readback, and `/api/field/acceptance`.
+
+2026-07-03 21:19 Asia/Shanghai:
+
+- The 20:48 Station Pro error-102 launch blocker was superseded by the 21:05 mutating smoke for that checkpoint's APK: install succeeded, `am start` succeeded, the app process was observed, `isUxrApp=true`, and no launch error was reported. This remains historical launch proof, not proof that the later `ce3f...` APK has been launched.
+- Space API LAN heartbeat from the running Unity app is proven, with active anchor A3 and pose present, but this is still not hardware acceptance.
+- Current hard boundary: `sdk_binding_status.stage=fallback_only`, `live_binding_ready=false`, input/overlay binding are false, the Unity session is unpaired, and `hardware_acceptance_eligible=false`.
+- `station-pro-apk-smoke` now writes separate latest inspect and latest mutating-launch evidence pointers so non-mutating package checks do not erase the last real launch proof.
+- Next P0 proof is official Rokid UXR/OpenXR live binding: install/validate `com.rokid.xr.unity`, `com.unity.xr.openxr`, and `com.unity.xr.management`; run Environment Fix / OpenXR Feature Groups / Project Validation; then bind RKCameraRig, RKInput 3DoF ray, PointableUI, image target / SLAM heartbeat, operator pairing, trusted A1-A3 observations, and User B readback.
+- Hardware-ready remains false until `/api/field/acceptance` is green from an operator-paired live SDK session, not fallback/manual/simulator evidence.
+
+2026-07-03 20:18 Asia/Shanghai:
+
+- LAN APK rebuild moved from config-patch fallback to a real Gradle APK artifact. After adding Aliyun Maven mirrors to Unity's generated Gradle `settings.gradle`, direct Gradle `:launcher:assembleRelease` completed successfully; the APK was copied to `innerworld-rokid/output/unity-android/InnerWorldRokid.apk` (24,752,749 bytes).
+- `npm run station:apk:inspect`, `npm run check:station-apk:lan`, `npm run device:probe`, `npm run check:device-probe`, `npm run check:mainline`, and `npm run field:preflight -- -RequireLan` passed. The APK config is now `private_lan`, `network_ready_for_device=true`, and `space_id=innerworld_campus_wall`; the current Unity source config host hash matches the embedded APK config host hash.
+- No install or launch was performed in this checkpoint. This is LAN-ready package evidence only, not live heartbeat, UXR binding, trusted A1/A2/A3 observations, or field acceptance. Station Pro install/launch remains a separate mutating step requiring operator confirmation.
+- IDM is recorded as the fallback for future Maven/Gradle dependency download failures (`IDMan.exe /d <URL> /p <dir> /f <file> /n`), but it was not needed in this pass because the mirror patch resolved the failed dependency fetches. The mirror currently lives in generated Unity `Library/Bee/.../Gradle/settings.gradle`, so the next build-hardening task is to codify mirror/IDM fallback outside generated output.
+- C drive free space after the checkpoint is about 26GB. Keep using guarded cache/temp cleanup and avoid deleting useful Unity/Android build caches before the next real-device pass.
+
+2026-07-03 19:46 Asia/Shanghai:
+
+- Fresh Carver re-audit completed with a disjoint local write set under `.agents/carver/`. The final record is `.agents/carver/source-audit-2026-07-03.md`; `docs/策划案.pdf` was text-extracted and rendered into 13 page PNGs, and 19 raw PDFs were smoke-rendered. Carver's important correction: old `analysis/extracted_attachments/**/pdfinfo.txt` files are mostly broken-wrapper output, so future page metadata should use `pages.json` or the real Poppler exe path.
+- Real-device evidence was rerun this turn: `npm run device:probe`, `npm run station:apk:inspect`, `npm run check:device-probe`, `npm run check:station-apk`, and `npm run check:mainline` all passed. The latest device probe at `2026-07-03T19:41:21+08:00` still sees one sanitized Station Pro-class USB ADB device in `device` state.
+- GitHub was fetched and checked with `gh`: local `main` and `origin/main` remain at `b21fa314`; there are currently no PRs or issues in `3351666087/rokid-innerworld`. The only teammate GitHub contribution found on main remains Shiyao Zhang's `f402f82f61d62e897d7615fa3f4259423e5cfce9`.
+- Carver's next-task order is now the active P0 queue: confirm Rokid/Unity/UXR access and hardware popups, keep sanitized probes running, replace APK `localhost` with LAN config, rebuild Android/Rokid APK, run Station Pro install/launch smoke, install official UXR, bind RKCameraRig/RKInput/PointableUI, import A1/A2/A3 target library, then prove operator-paired heartbeat and trusted field acceptance.
+- Root attachment extraction tooling was fixed after Carver's PDF finding: `tools/extract_attachments.py` now prefers the real bundled Poppler executables and writes `pdfinfo.txt` only when `pdfinfo` succeeds. Verified against `docs/策划案.pdf`: page count is 13 through the corrected path.
+- C drive free space was checked, then guarded temp cleanup removed about 1.39GB of old Visual Studio installer temp files. C now has about 30.3GB free; one larger temp candidate was skipped because Windows reported a file lock. Unity and Android build caches were kept.
+
+2026-07-03 19:32 Asia/Shanghai:
+
+- Carver is now the long-running mainline reviewer sub-agent name. Future checkpoint reviews should say "Carver review" and keep the same P0 lock: one real campus wall, A1 entry, A2 memory read, A3 TimeMark write-back, and User B readback.
+- Carver completed the requested full source review. The durable local record is [innerworld-rokid/docs/carver-source-review.md](innerworld-rokid/docs/carver-source-review.md): group PDFs are unpacked/readable, P0/P1/P2 boundaries are restated, and the next engineering queue is narrowed to `station_pro_trusted_hardware_session`.
+- `npm run station:apk:inspect` and `npm run check:station-apk` now pass as non-mutating Station Pro APK checks. They prove package/config inspectability and one connected Station Pro-class ADB device, while correctly marking the current APK as `localhost` and not LAN/live-heartbeat ready.
+- Local/GitHub alignment is current: `origin/main` is at `b21fa314` (`Adopt teammate docs bus for hardware phase`). The teammate GitHub contribution is commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` by Shiyao Zhang, adding `docs/design.md`, `docs/rokid_sdk_docs.md`, `docs/rokid_sdk_docs_full.md`, and `docs/策划案.pdf`; these remain input to the P0 hardware bus, not a second product direction.
+- `npm run device:probe:strict` now records the connected Station Pro lane as sanitized hardware evidence: ADB is found at `C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe`, ADB version is 36.0.0, one USB ADB device is in `device` state with model `RG_stationPro` / device `stationPro`, Android SDK build-tools/platforms are installed, and Unity Editor `6000.3.19f1` is present.
+- The current local environment gap is not hardware presence; it is live runtime proof. `adb`/Unity are still not exposed through PATH, AR Studio / official Rokid UXR package access is not yet verified, no operator-paired Unity/UXR APK heartbeat has passed, and no trusted A1/A2/A3 hardware observations have cleared `/api/field/acceptance`.
+- Worker participation has started with a disjoint write set: a worker is hardening the sanitized ADB parser so daemon startup noise cannot pollute device evidence. Fallback/manual/simulator remains rehearsal only.
+
 2026-07-03 17:55 Asia/Shanghai:
 
-- Kepler re-reviewed teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` for the now-connected hardware phase. The durable adoption ledger is [innerworld-rokid/docs/teammate-docs-bus.md](innerworld-rokid/docs/teammate-docs-bus.md).
+- Carver re-reviewed teammate commit `f402f82f61d62e897d7615fa3f4259423e5cfce9` for the now-connected hardware phase. The durable adoption ledger is [innerworld-rokid/docs/teammate-docs-bus.md](innerworld-rokid/docs/teammate-docs-bus.md).
 - The teammate docs and 13-page PDF now enter the bus as: P0 UXR3.0 validation, RKCameraRig, RKInput 3DoF ray, PointableUI, A2/A3 image target library, SLAM/head tracking heartbeat, operator-paired live SDK proof, and trusted calibration observations; P1 bounded near/far layout, gestures, audio, TimeMark, and AI compression; P2/reference institution/social/platform/broad-route ideas.
 - The local device probe path is being hardened so hardware evidence stays sanitized before it reaches docs, release evidence, or GitHub.
 
@@ -13,7 +146,7 @@
 - The project has officially switched from hardware-waiting fallback work to real-device development. Windows now sees a connected Rokid Station Pro as `RG-stationPro` with an ADB interface, and `adb devices -l` reports it as `device`. Full device serials, USB instance ids, MAC addresses, private IPs, and pairing codes remain private and must not be committed.
 - The new P0 checkpoint is `station_pro_trusted_hardware_session`: convert the connected Station Pro + Max Pro lane into a reproducible live path for ADB/toolchain detection, operator pairing, Unity/AR Studio APK install/run, heartbeat, A1/A2/A3 trusted observations, evidence chain, and field acceptance.
 - `Rokid x Bolon` is treated as a secondary connected glasses line until proven to expose the same Station Pro / UXR / RKCameraRig / RKInput / image target / SLAM development path. It must not pull P0 away from the Max Pro + Station Pro AR Studio lane.
-- The next implementation work should codify a sanitized device/toolchain probe and feed every live adapter checkpoint back to Kepler before declaring hardware readiness.
+- The next implementation work should codify a sanitized device/toolchain probe and feed every live adapter checkpoint back to Carver before declaring hardware readiness.
 
 2026-07-03 00:57 Asia/Shanghai:
 
@@ -136,7 +269,7 @@ npm run cache:temp:clean
 
 ## 主线复审
 
-Kepler 是长期主线 reviewer。重大 checkpoint 必须回投 Kepler 复审，尤其是：
+Carver 是长期主线 reviewer。重大 checkpoint 必须回投 Carver 复审，尤其是：
 
 - 前端叙事、展示节奏或现场话术发生大改。
 - Rokid SDK、Unity adapter、设备心跳或硬件协议发生大改。

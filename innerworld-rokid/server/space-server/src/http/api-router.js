@@ -10,8 +10,9 @@ import {
 } from "../../../../shared/innerworld-contract.js";
 import { buildDeviceManifest, buildRokidLiveAdapterChecklist, createDeviceRuntimeStore } from "../domain/device-runtime.js";
 import { buildEvidenceChain } from "../domain/evidence-chain.js";
-import { buildFieldAcceptance } from "../domain/field-acceptance.js";
+import { buildFieldAcceptance, buildFieldTargetReadiness } from "../domain/field-acceptance.js";
 import { buildFieldMarkerManifest } from "../domain/field-markers.js";
+import { buildFieldOperatorPlan } from "../domain/field-operator-plan.js";
 import { buildSessionPlan } from "../domain/session-planner.js";
 import { applyInteraction, applyServiceAction, applyWriteBack } from "../domain/mission-engine.js";
 import { buildServiceActionAck, createServiceActionRecord, sanitizeServiceActionValue } from "../domain/service-action-runtime.js";
@@ -127,6 +128,55 @@ function missionResultSummary(type, updated) {
     completed_steps: Array.isArray(updated.state?.completed_steps) ? updated.state.completed_steps.slice() : [],
     beacon_count: Array.isArray(updated.state?.beacons) ? updated.state.beacons.length : 0
   };
+}
+
+function missionActionAnchor(body = {}, fallback = "A1") {
+  return String(body.anchor_id || body.anchorId || fallback || "").trim();
+}
+
+function trustedMissionProvenance(deviceRuntime, body = {}, actionType, fallbackAnchorId = "A1") {
+  const anchorId = missionActionAnchor(body, fallbackAnchorId);
+  return deviceRuntime.resolveTrustedMissionProvenance({
+    sessionId: body.session_id || body.sessionId,
+    deviceId: body.device_id || body.deviceId,
+    anchorId,
+    actionType,
+    source: body.source
+  });
+}
+
+function missionProvenanceSource(body = {}, provenance = {}) {
+  if (provenance.trusted === true) return "trusted_hardware";
+  if (body.trusted_hardware_session === true || body.hardware_ready_claim_allowed === true) return "claimed_hardware_untrusted";
+  if (body.fallback_no_hardware_claim === true || body.source === "check-scene-targets rehearsal") return "rehearsal";
+  return "untrusted_client";
+}
+
+function applyMissionProvenanceSummary(state, body = {}, provenance = {}, actionType = "interaction", anchorId = "A1") {
+  const sourceStatus = missionProvenanceSource(body, provenance);
+  const trusted = provenance.trusted === true;
+  const previous = state.mission_provenance || {};
+  const mutationCount = Number(previous.mutation_count || 0) + 1;
+  const trustedMutationCount = Number(previous.trusted_mutation_count || 0) + (trusted ? 1 : 0);
+  const rehearsalMutationCount = Number(previous.rehearsal_mutation_count || 0) + (trusted ? 0 : 1);
+  state.mission_provenance = {
+    schema: "innerworld-mission-provenance/v1",
+    state_provenance_status: trusted ? "trusted_hardware" : "rehearsal",
+    last_mutation_source_status: sourceStatus,
+    last_action_type: actionType,
+    last_anchor_id: anchorId,
+    last_source: String(body.source || "").trim() || "unknown_client",
+    trusted_hardware_session: trusted,
+    trusted_mission_provenance: trusted,
+    rehearsal_complete_allowed: true,
+    hardware_ready_claim_allowed: trusted,
+    fallback_no_hardware_claim: !trusted,
+    mutation_count: mutationCount,
+    trusted_mutation_count: trustedMutationCount,
+    rehearsal_mutation_count: rehearsalMutationCount,
+    blockers: Array.isArray(provenance.blockers) ? provenance.blockers.slice(0, 8) : []
+  };
+  return state.mission_provenance;
 }
 
 export function createApiRouter({
@@ -285,6 +335,69 @@ export function createApiRouter({
       wallCalibration,
       fieldMarkers,
       ledgerSummary,
+      opsStatus
+    });
+  }
+
+  async function loadFieldTargetReadiness(req, url) {
+    const baseUrl = getRequestBaseUrl(req, url, port);
+    const fieldAcceptance = await loadFieldAcceptance(req, url);
+    return buildFieldTargetReadiness({
+      baseUrl,
+      fieldAcceptance
+    });
+  }
+
+  async function loadFieldOperatorPlan(req, url) {
+    const [space, state, markerConfig, opsStatus] = await Promise.all([
+      loadSpace(),
+      loadState(),
+      readJson(fieldMarkersPath),
+      buildOpsStatus()
+    ]);
+    const baseUrl = getRequestBaseUrl(req, url, port);
+    const wallCalibration = buildWallCalibrationManifest({
+      baseUrl,
+      space,
+      state,
+      summary: sqliteStore?.wallCalibrationSummary?.() || null
+    });
+    const fieldMarkers = buildFieldMarkerManifest({
+      baseUrl,
+      space,
+      markerConfig,
+      wallCalibration
+    });
+    const fieldAcceptance = buildFieldAcceptance({
+      baseUrl,
+      space,
+      state,
+      wallCalibration,
+      fieldMarkers,
+      ledgerSummary: sqliteStore?.missionLedgerSummary?.() || null,
+      opsStatus
+    });
+    const targetReadiness = buildFieldTargetReadiness({
+      baseUrl,
+      fieldAcceptance
+    });
+    const deviceSessions = deviceRuntime.sessionsSummary();
+    const adapterChecklist = buildRokidLiveAdapterChecklist({
+      baseUrl,
+      deviceSessions,
+      wallCalibration,
+      fieldMarkers,
+      opsStatus
+    });
+
+    return buildFieldOperatorPlan({
+      space,
+      state,
+      fieldAcceptance,
+      targetReadiness,
+      deviceSessions,
+      adapterChecklist,
+      wallCalibration,
       opsStatus
     });
   }
@@ -454,6 +567,16 @@ export function createApiRouter({
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/field/target-readiness") {
+      sendJson(res, 200, await loadFieldTargetReadiness(req, url));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/field/operator-plan") {
+      sendJson(res, 200, await loadFieldOperatorPlan(req, url));
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/calibration/observations") {
       const [space, body] = await Promise.all([
         loadSpace(),
@@ -616,7 +739,8 @@ export function createApiRouter({
           active_user: state.active_user,
           mission_state: state.mission_state,
           current_step_index: state.current_step_index,
-          completed_steps: state.completed_steps
+          completed_steps: state.completed_steps,
+          mission_provenance: state.mission_provenance || null
         },
         beacons: state.beacons
       });
@@ -626,13 +750,22 @@ export function createApiRouter({
     if (req.method === "GET" && url.pathname === "/api/pins/nearby") {
       const space = await loadSpace();
       const state = await loadState();
+      const anchorPins = space.anchors.map((anchor) => ({
+        pin_type: "anchor",
+        ...anchor,
+        beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
+      }));
+      const semanticPins = (Array.isArray(space.semantic_pins) ? space.semantic_pins : []).map((pin) => ({
+        pin_type: "semantic",
+        ...pin,
+        beacons: []
+      }));
       sendJson(res, 200, {
         space_id: space.space_id,
         radius_m: Number(url.searchParams.get("radius") || 20),
-        pins: space.anchors.map((anchor) => ({
-          ...anchor,
-          beacons: state.beacons.filter((beacon) => beacon.anchor_id === anchor.anchor_id)
-        }))
+        p0_anchor_count: anchorPins.length,
+        semantic_preview_count: semanticPins.length,
+        pins: [...anchorPins, ...semanticPins]
       });
       return;
     }
@@ -650,14 +783,23 @@ export function createApiRouter({
         sendError(res, 400, "text_required");
         return;
       }
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "write_back", "A3");
       const updated = await updateState((state, latestSpace) => {
-        return applyWriteBack({ state, space: latestSpace, body, text });
+        const beacon = applyWriteBack({ state, space: latestSpace, body, text });
+        applyMissionProvenanceSummary(state, body, provenance, "write_back", "A3");
+        return beacon;
       });
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "write_back",
         space: updated.space,
-        payload: body,
-        result: missionResultSummary("write_back", updated),
+        payload: {
+          ...body,
+          trusted_mission_provenance: provenance
+        },
+        result: {
+          ...missionResultSummary("write_back", updated),
+          trusted_mission_provenance: provenance
+        },
         state: updated.state
       }) || null;
       sendJson(res, 201, { ok: true, beacon: updated.result, state: updated.state, ledger });
@@ -666,14 +808,24 @@ export function createApiRouter({
 
     if (req.method === "POST" && url.pathname === "/api/interactions") {
       const body = await readBody(req);
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "interaction", missionActionAnchor(body, body.user_id === "B" ? "A3" : "A2"));
+      const provenanceAnchor = missionActionAnchor(body, body.user_id === "B" ? "A3" : "A2");
       const updated = await updateState((state, space) => {
-        return applyInteraction({ state, space, body });
+        const result = applyInteraction({ state, space, body });
+        applyMissionProvenanceSummary(state, body, provenance, "interaction", provenanceAnchor);
+        return result;
       });
       const ledger = sqliteStore?.appendMissionLedgerEvent?.({
         type: "interaction",
         space: updated.space,
-        payload: body,
-        result: missionResultSummary("interaction", updated),
+        payload: {
+          ...body,
+          trusted_mission_provenance: provenance
+        },
+        result: {
+          ...missionResultSummary("interaction", updated),
+          trusted_mission_provenance: provenance
+        },
         state: updated.state
       }) || null;
       sendJson(res, 200, { ok: true, state: updated.state, ledger });
@@ -720,8 +872,12 @@ export function createApiRouter({
       const body = await readBody(req);
       const createdAt = new Date().toISOString();
       const safeBody = sanitizeServiceActionValue(body) || {};
+      const provenance = trustedMissionProvenance(deviceRuntime, body, "service_action", missionActionAnchor(safeBody, "A3"));
+      const provenanceAnchor = missionActionAnchor(safeBody, "A3");
       const updated = await updateState((state, space) => {
-        return applyServiceAction({ state, space, body: safeBody, createdAt });
+        const result = applyServiceAction({ state, space, body: safeBody, createdAt });
+        applyMissionProvenanceSummary(state, body, provenance, "service_action", provenanceAnchor);
+        return result;
       });
       const record = createServiceActionRecord({
         body,
@@ -736,13 +892,15 @@ export function createApiRouter({
         payload: {
           ...storedRecord.payload,
           action_record_id: storedRecord.action_record_id,
-          service_action_status: storedRecord.status
+          service_action_status: storedRecord.status,
+          trusted_mission_provenance: provenance
         },
         result: {
           ...missionResultSummary("service_action", updated),
           action_record_id: storedRecord.action_record_id,
           service_action_status: storedRecord.status,
-          created_at: storedRecord.created_at
+          created_at: storedRecord.created_at,
+          trusted_mission_provenance: provenance
         },
         state: updated.state
       }) || null;

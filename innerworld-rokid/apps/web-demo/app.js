@@ -42,6 +42,12 @@ const api = {
   async getFieldAcceptance() {
     return requestJson("/api/field/acceptance", { cache: "no-store" }, "Read field acceptance failed");
   },
+  async getFieldTargetReadiness() {
+    return requestJson("/api/field/target-readiness", { cache: "no-store" }, "Read target physical readiness failed");
+  },
+  async getFieldOperatorPlan() {
+    return requestJson("/api/field/operator-plan", { cache: "no-store" }, "Read field operator plan failed");
+  },
   async submitWallCalibrationObservation(payload) {
     return requestJson("/api/calibration/observations", jsonPost(payload), "提交展墙标定失败");
   },
@@ -95,6 +101,7 @@ const model = {
     interactions: 0
   },
   localLedgerEvents: [],
+  sceneActionStatus: "scene action targets pending | no local hardware claim",
   deviceManifest: null,
   deviceAdapterChecklist: null,
   deviceSessions: null,
@@ -109,6 +116,10 @@ const model = {
   fieldMarkersError: null,
   fieldAcceptance: null,
   fieldAcceptanceError: null,
+  fieldTargetReadiness: null,
+  fieldTargetReadinessError: null,
+  fieldOperatorPlan: null,
+  fieldOperatorPlanError: null,
   activeUser: "A",
   currentAnchor: null,
   hudByAnchor: new Map(),
@@ -138,6 +149,7 @@ const els = {
   calibrationGrid: document.querySelector("#calibrationGrid"),
   deliveryTimeline: document.querySelector("#deliveryTimeline"),
   evidenceRail: document.querySelector("#evidenceRail"),
+  fieldPassGrid: document.querySelector("#fieldPassGrid"),
   agentQueue: document.querySelector("#agentQueue"),
   ledgerGrid: document.querySelector("#ledgerGrid"),
   ledgerRefreshBtn: document.querySelector("#ledgerRefreshBtn"),
@@ -152,6 +164,7 @@ const els = {
   progress: document.querySelector("#progress"),
   riskGrid: document.querySelector("#riskGrid"),
   routeGrid: document.querySelector("#routeGrid"),
+  sceneActionLayer: document.querySelector("#sceneActionLayer"),
   sdkBindingGrid: document.querySelector("#sdkBindingGrid"),
   sdkBindingPill: document.querySelector("#sdkBindingPill"),
   showcaseGrid: document.querySelector("#showcaseGrid"),
@@ -483,7 +496,7 @@ function wallCalibrationReadinessStates() {
     ? Number(summary.hardware_calibrated_anchor_count)
     : acceptedCalibrationCount((latest) => HARDWARE_TRACKING_MODES.has(latest.tracking_mode));
   const hardwareFit = model.ops?.hardware?.fit === "fit";
-  const hardwareReady = Boolean(summary?.ready_for_hardware) && hardwareFit;
+  const trustedLockCandidate = Boolean(summary?.ready_for_hardware) && hardwareFit;
 
   return {
     print: {
@@ -497,15 +510,23 @@ function wallCalibrationReadinessStates() {
       body: `${simulatorAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} simulator observations accepted through /api/calibration/observations`
     },
     hardware: {
-      tone: hardwareReady ? "good" : "warn",
-      title: hardwareReady ? "hardware ready" : "hardware pending",
-      body: `${hardwareAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} QR/image/SLAM observations accepted · ${hardwareFit ? "AR Studio kit fit" : "AR Studio kit pending"}`
+      tone: trustedLockCandidate ? "good" : "warn",
+      title: trustedLockCandidate ? "trusted lock candidate" : "hardware pending",
+      body: `${hardwareAccepted}/${FIELD_MARKER_ANCHOR_IDS.length} QR/image/SLAM observations accepted · ${hardwareFit ? "AR Studio kit fit" : "AR Studio kit pending"} · final acceptance still uses target physical readiness`
     }
   };
 }
 
 function fieldAcceptanceEndpoint() {
   return endpointUrl(model.bootstrap?.endpoints?.field_acceptance || "/api/field/acceptance");
+}
+
+function fieldTargetReadinessEndpoint() {
+  return endpointUrl(model.bootstrap?.endpoints?.field_target_readiness || "/api/field/target-readiness");
+}
+
+function fieldOperatorPlanEndpoint() {
+  return endpointUrl(model.bootstrap?.endpoints?.field_operator_plan || "/api/field/operator-plan");
 }
 
 function normalizeGateStatus(value) {
@@ -547,7 +568,7 @@ function releaseChainReady() {
 
 function fallbackAcceptanceGates() {
   const states = wallCalibrationReadinessStates();
-  const hardwareReady = states.hardware.tone === "good";
+  const hardwareLockCandidate = states.hardware.tone === "good";
   const loopReady = missionLoopReady();
   const releaseReady = releaseChainReady();
 
@@ -569,9 +590,9 @@ function fallbackAcceptanceGates() {
     {
       id: "hardware_alignment",
       label: "Hardware Alignment",
-      status: gateStatusFromReady(hardwareReady),
-      summary: hardwareReady ? "hardware observations accepted" : "hardware pending",
-      detail: `${states.hardware.body}. Hardware ready requires QR/image/SLAM evidence from the Rokid kit.`
+      status: gateStatusFromReady(hardwareLockCandidate),
+      summary: hardwareLockCandidate ? "hardware observations accepted" : "hardware pending",
+      detail: `${states.hardware.body}. Physical acceptance also requires trusted A1/A2/A3, A3 write-back, and User B readback.`
     },
     {
       id: "mission_loop",
@@ -623,6 +644,295 @@ function fieldAcceptanceBlockingItems() {
     .filter((gate) => gate.status !== "ready")
     .flatMap((gate) => gate.blockingItems.length ? gate.blockingItems : [`${gate.label}: ${gate.summary}`])
     .slice(0, 4);
+}
+
+function rawFieldAcceptanceGate(id) {
+  return listFrom(model.fieldAcceptance?.gates).find((gate) => gate?.id === id) || null;
+}
+
+function targetReadinessFallback() {
+  const trusted = rawFieldAcceptanceGate("trusted_hardware_session")?.evidence || {};
+  const hardware = rawFieldAcceptanceGate("hardware_alignment")?.evidence || {};
+  const mission = rawFieldAcceptanceGate("mission_loop")?.evidence || {};
+  const trustedIds = listFrom(trusted.trusted_hardware_calibrated_anchor_ids);
+  const hardwareIds = listFrom(hardware.hardware_calibrated_anchor_ids);
+  const trustedSessionCount = Number(trusted.trusted_hardware_session_count) || 0;
+  const physicalAcceptanceReady = model.fieldAcceptance?.ready === true
+    && model.fieldAcceptance?.status === "hardware_acceptance_ready";
+  const precheckOk = rawFieldAcceptanceGate("print_kit")?.status === "ready"
+    && rawFieldAcceptanceGate("hardware_kit")?.status === "ready"
+    && trustedSessionCount > 0;
+  const missingTrusted = FIELD_MARKER_ANCHOR_IDS.filter((anchorId) => !trustedIds.includes(anchorId));
+  const blockers = [
+    precheckOk ? "" : "target_api_precheck_missing",
+    hardwareIds.length >= FIELD_MARKER_ANCHOR_IDS.length ? "" : "raw_a1_a2_a3_hardware_observations_missing",
+    missingTrusted.length ? "trusted_a1_a2_a3_observations_missing" : "",
+    mission.user_b_readback_ready === true ? "" : "p0_mission_writeback_user_b_loop_missing",
+    physicalAcceptanceReady ? "" : "field_acceptance_not_ready"
+  ].filter(Boolean);
+
+  return {
+    schema: "fallback-from-field-acceptance",
+    endpoint: { path: fieldTargetReadinessEndpoint(), method: "GET" },
+    precheck_ok: precheckOk,
+    physical_acceptance_ready: physicalAcceptanceReady,
+    physical_blockers: blockers,
+    target_summary: {
+      trusted_anchor_count: trustedIds.length,
+      trusted_anchor_ids: trustedIds,
+      missing_trusted_anchor_ids: missingTrusted,
+      hardware_anchor_count: hardwareIds.length,
+      hardware_anchor_ids: hardwareIds,
+      trusted_hardware_session_count: trustedSessionCount
+    },
+    mission_loop: {
+      ready: rawFieldAcceptanceGate("mission_loop")?.status === "ready",
+      mission_state: mission.mission_state || model.runtime?.mission_state || null,
+      active_user: mission.active_user || model.activeUser,
+      completed_steps: listFrom(mission.completed_steps),
+      missing_steps: listFrom(mission.missing_steps),
+      write_back_beacons: Number(mission.write_back_beacons) || 0,
+      user_b_readback_ready: mission.user_b_readback_ready === true
+    },
+    field_acceptance: {
+      status: fieldAcceptanceOverall(),
+      ready: model.fieldAcceptance?.ready === true,
+      blocking_items: fieldAcceptanceBlockingItems()
+    }
+  };
+}
+
+function targetReadinessPayload() {
+  return model.fieldTargetReadiness || targetReadinessFallback();
+}
+
+function targetReadinessTone(ready) {
+  return ready ? "good" : "warn";
+}
+
+function missionCompletedStepSet() {
+  const targetMission = targetReadinessPayload().mission_loop || {};
+  const completed = listFrom(targetMission.completed_steps);
+  const runtimeCompleted = listFrom(model.runtime?.completed_steps);
+  return new Set([...completed, ...runtimeCompleted]);
+}
+
+function trustedTargetAnchorSet() {
+  const targetSummary = targetReadinessPayload().target_summary || {};
+  return new Set(listFrom(targetSummary.trusted_anchor_ids));
+}
+
+function hardwareTargetAnchorSet() {
+  const targetSummary = targetReadinessPayload().target_summary || {};
+  return new Set(listFrom(targetSummary.hardware_anchor_ids));
+}
+
+function fieldPassPhaseStatus(ready, active, blocked) {
+  if (ready) return "ready";
+  if (active && blocked) return "blocked";
+  if (active) return "active";
+  return "pending";
+}
+
+function localFieldPassPlan() {
+  const target = targetReadinessPayload();
+  const mission = target.mission_loop || {};
+  const targetSummary = target.target_summary || {};
+  const trustedAnchors = trustedTargetAnchorSet();
+  const hardwareAnchors = hardwareTargetAnchorSet();
+  const completedSteps = missionCompletedStepSet();
+  const targetBlockers = listFrom(target.physical_blockers);
+  const fieldBlockingItems = fieldAcceptanceBlockingItems();
+  const trustedSessionCount = Number(targetSummary.trusted_hardware_session_count) || 0;
+  const liveSessionReady = trustedSessionCount > 0 || model.deviceAdapterChecklist?.ready === true;
+  const precheckReady = target.precheck_ok === true;
+  const a1Ready = trustedAnchors.has("A1");
+  const a2Trusted = trustedAnchors.has("A2");
+  const a3Trusted = trustedAnchors.has("A3");
+  const a2MissionReady = completedSteps.has("read") && completedSteps.has("find_year");
+  const serviceReady = completedSteps.has("service_action");
+  const writeBackReady = completedSteps.has("write_back") && Number(mission.write_back_beacons) > 0;
+  const a2Ready = a2Trusted && a2MissionReady;
+  const a3Ready = a3Trusted && serviceReady && writeBackReady;
+  const userBReady = mission.user_b_readback_ready === true;
+  const closeoutReady = target.physical_acceptance_ready === true;
+  const releaseReady = rawFieldAcceptanceGate("release_chain")?.status === "ready" || releaseChainReady();
+  const activePhase = !precheckReady ? "preflight"
+    : !a1Ready ? "a1_entry"
+      : !a2Ready ? "a2_read"
+        : !a3Ready ? "a3_write_back"
+          : !userBReady ? "user_b_readback"
+            : !closeoutReady ? "closeout"
+              : "closeout";
+  const phaseIndexById = {
+    preflight: 0,
+    a1_entry: 1,
+    a2_read: 2,
+    a3_write_back: 3,
+    user_b_readback: 4,
+    closeout: 5
+  };
+  const commonBlockers = targetBlockers.length ? targetBlockers : fieldBlockingItems;
+  const phaseSpecs = [
+    {
+      id: "preflight",
+      label: "Preflight",
+      anchor_id: null,
+      ready: precheckReady,
+      blockers: [
+        liveSessionReady ? "" : "operator_paired_live_session_missing",
+        precheckReady ? "" : "target_precheck_pending",
+        releaseReady ? "" : "release_chain_pending"
+      ].filter(Boolean),
+      required_evidence: ["LAN Space API", "current APK package", "operator-paired live session", "A1/A2/A3 target map"],
+      operator_actions: ["Start LAN server", "run current APK pair smoke", "open the wall kit and target-readiness panel"],
+      mutates_state: false
+    },
+    {
+      id: "a1_entry",
+      label: "A1 spatial entry",
+      anchor_id: "A1",
+      ready: a1Ready,
+      blockers: a1Ready ? [] : [hardwareAnchors.has("A1") ? "A1_trust_missing" : "A1_hardware_observation_missing"],
+      required_evidence: ["trusted A1 observation", "operator-paired live adapter", "entry confirmation"],
+      operator_actions: ["Frame A1 through the glasses", "confirm the spatial entry HUD", "watch trusted A1 count turn green"],
+      mutates_state: false
+    },
+    {
+      id: "a2_read",
+      label: "A2 memory read",
+      anchor_id: "A2",
+      ready: a2Ready,
+      blockers: [
+        a2Trusted ? "" : "trusted_A2_missing",
+        completedSteps.has("read") ? "" : "read_step_missing",
+        completedSteps.has("find_year") ? "" : "find_year_step_missing"
+      ].filter(Boolean),
+      required_evidence: ["trusted A2 image target", "read step", "find_year step", "trusted input/focus provenance"],
+      operator_actions: ["Frame A2 until trusted", "read the memory HUD", "apply guarded A2 mission action"],
+      mutates_state: true
+    },
+    {
+      id: "a3_write_back",
+      label: "A3 TimeMark write-back",
+      anchor_id: "A3",
+      ready: a3Ready,
+      blockers: [
+        a3Trusted ? "" : "trusted_A3_missing",
+        serviceReady ? "" : "service_action_missing",
+        writeBackReady ? "" : "write_back_missing"
+      ].filter(Boolean),
+      required_evidence: ["trusted A3 image target", "service action", "A3 TimeMark write-back beacon"],
+      operator_actions: ["Frame A3 until trusted", "complete service action", "post controlled TimeMark write-back"],
+      mutates_state: true
+    },
+    {
+      id: "user_b_readback",
+      label: "User B readback",
+      anchor_id: "A3",
+      ready: userBReady,
+      blockers: userBReady ? [] : ["user_b_readback_missing"],
+      required_evidence: ["active_user=B", "mission_state=complete", "new A3 memory visible"],
+      operator_actions: ["Switch to User B", "verify the new A3 memory in the glasses", "confirm readback"],
+      mutates_state: true
+    },
+    {
+      id: "closeout",
+      label: "Acceptance closeout",
+      anchor_id: null,
+      ready: closeoutReady,
+      blockers: closeoutReady ? [] : commonBlockers,
+      required_evidence: ["/api/field/acceptance ready", "empty physical blockers", "release/deploy evidence"],
+      operator_actions: ["Run strict target pass", "run strict live pass", "archive sanitized evidence package"],
+      mutates_state: false
+    }
+  ];
+  const phases = phaseSpecs.map((phase) => ({
+    ...phase,
+    status: fieldPassPhaseStatus(phase.ready, phase.id === activePhase, phase.blockers.length > 0)
+  }));
+  const active = phases.find((phase) => phase.id === activePhase) || phases[0];
+  const nextActions = active
+    ? [
+        ...active.operator_actions,
+        ...(active.blockers.length ? [`Clear blockers: ${active.blockers.join(", ")}`] : [])
+      ].slice(0, 4)
+    : [];
+
+  return {
+    schema: "innerworld-field-pass-ui-plan/v1",
+    current_phase: active?.id || "preflight",
+    phase_index: phaseIndexById[active?.id] ?? 0,
+    total_phases: phases.length,
+    phases,
+    next_actions: nextActions,
+    readiness: {
+      precheck_ok: precheckReady,
+      physical_acceptance_ready: closeoutReady,
+      live_session_ready: liveSessionReady,
+      trusted_a1_a2_a3_ready: ["A1", "A2", "A3"].every((anchorId) => trustedAnchors.has(anchorId)),
+      mission_loop_ready: rawFieldAcceptanceGate("mission_loop")?.status === "ready",
+      user_b_readback_ready: userBReady,
+      release_ready: releaseReady,
+      hardware_ready_claim_allowed: Boolean(model.fieldAcceptance?.ready === true && closeoutReady)
+    }
+  };
+}
+
+function normalizeOperatorPlanPhaseStatus(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "complete") return "ready";
+  if (["ready", "active", "blocked", "pending"].includes(value)) return value;
+  return "pending";
+}
+
+function normalizeOperatorPlanIndex(rawIndex, total) {
+  const value = Number(rawIndex);
+  if (!Number.isFinite(value)) return 0;
+  const max = Math.max(0, total - 1);
+  if (value >= 1 && value <= total) return clamp(value - 1, 0, max);
+  return clamp(value, 0, max);
+}
+
+function normalizedFieldOperatorPlan() {
+  const plan = model.fieldOperatorPlan;
+  if (plan?.schema !== "innerworld-field-operator-plan/v1") return null;
+  const phases = listFrom(plan.phases).map((phase) => ({
+    id: phase.id || "phase",
+    label: phase.label || phase.id || "Phase",
+    anchor_id: phase.anchor_id || null,
+    status: normalizeOperatorPlanPhaseStatus(phase.status),
+    required_evidence: listFrom(phase.required_evidence),
+    blockers: listFrom(phase.blockers),
+    operator_actions: listFrom(phase.operator_actions),
+    mutates_state: phase.mutates_state === true
+  }));
+  const total = Number(plan.total_phases) || phases.length || 1;
+  const phaseIndex = normalizeOperatorPlanIndex(plan.phase_index, total);
+  const readiness = plan.readiness || {};
+
+  return {
+    schema: plan.schema,
+    current_phase: plan.current_phase || phases[phaseIndex]?.id || "preflight",
+    phase_index: phaseIndex,
+    total_phases: total,
+    phases,
+    next_actions: listFrom(plan.next_actions),
+    readiness: {
+      precheck_ok: readiness.precheck_ok === true,
+      physical_acceptance_ready: readiness.physical_acceptance_ready === true,
+      live_session_ready: readiness.live_session_ready === true,
+      trusted_a1_a2_a3_ready: readiness.trusted_a1_a2_a3_ready === true,
+      mission_loop_ready: readiness.mission_loop_ready === true,
+      user_b_readback_ready: readiness.user_b_readback_ready === true,
+      release_ready: readiness.release_ready === true,
+      hardware_ready_claim_allowed: readiness.hardware_ready_claim_allowed === true
+    }
+  };
+}
+
+function fieldPassPlan() {
+  return normalizedFieldOperatorPlan() || localFieldPassPlan();
 }
 
 function calibratedAnchorIds() {
@@ -734,9 +1044,14 @@ function beaconsForAnchor(anchorId) {
   return (model.space?.beacons || []).filter((beacon) => beacon.anchor_id === anchorId);
 }
 
+function sceneActions() {
+  return Array.isArray(model.space?.scene_actions) ? model.space.scene_actions : [];
+}
+
 function renderAnchors() {
   if (!els.anchorLayer || !model.space) return;
   els.anchorLayer.innerHTML = "";
+  if (els.sceneActionLayer) els.sceneActionLayer.innerHTML = "";
 
   anchors().forEach((anchor, index) => {
     const position = anchorPosition(anchor, index);
@@ -769,8 +1084,155 @@ function renderAnchors() {
     button.append(dot, title, subline);
     els.anchorLayer.append(button);
   });
+
+  renderSceneActions();
 }
 
+function sceneActionPosition(action, index) {
+  const anchor = anchorById(action?.anchor_id) || anchors()[index % Math.max(anchors().length, 1)];
+  const anchorIndex = Math.max(0, anchors().findIndex((item) => item.anchor_id === anchor?.anchor_id));
+  const base = anchorPosition(anchor || {}, anchorIndex);
+  const pose = action?.spatial_binding?.pose || {};
+  const z = Number(pose.z) || 2.5;
+  const depthPush = clamp((z - 2.2) * 7.5, -4, 12);
+  const lane = index % 2 === 0 ? -1 : 1;
+  return {
+    left: clamp(base.left + lane * (5 + depthPush * 0.25), 6, 86),
+    top: clamp(base.top + 13 + depthPush, 42, 84)
+  };
+}
+
+function renderSceneActions() {
+  if (!els.sceneActionLayer || !model.space) return;
+  els.sceneActionLayer.innerHTML = "";
+  sceneActions().forEach((action, index) => {
+    const cardPosition = sceneActionPosition(action, index);
+    const anchor = anchorById(action.anchor_id);
+    const anchorIndex = Math.max(0, anchors().findIndex((item) => item.anchor_id === action.anchor_id));
+    const anchorPos = anchorPosition(anchor || {}, anchorIndex);
+
+    const stem = document.createElement("span");
+    stem.className = `scene-action-stem scene-action-${String(action.anchor_id || "wall").toLowerCase()}`;
+    stem.style.setProperty("--stem-left", `${anchorPos.left.toFixed(2)}%`);
+    stem.style.setProperty("--stem-top", `${anchorPos.top.toFixed(2)}%`);
+    stem.style.setProperty("--stem-x", `${(cardPosition.left - anchorPos.left).toFixed(2)}%`);
+    stem.style.setProperty("--stem-y", `${(cardPosition.top - anchorPos.top).toFixed(2)}%`);
+
+    const choreography = action.spatial_choreography || {};
+    const growthBeats = Array.isArray(choreography.growth_beats) ? choreography.growth_beats : [];
+    const card = document.createElement("article");
+    card.className = `scene-action-card scene-action-${String(action.anchor_id || "wall").toLowerCase()}${action.writes_evidence ? " evidence-write" : ""}`;
+    card.style.setProperty("--action-left", `${cardPosition.left.toFixed(2)}%`);
+    card.style.setProperty("--action-top", `${cardPosition.top.toFixed(2)}%`);
+    card.style.setProperty("--action-depth", `${Math.max(0.16, Number(choreography.depth_meters) || 0.24).toFixed(2)}`);
+    card.tabIndex = 0;
+    card.dataset.actionId = action.action_id || "scene_action";
+    card.dataset.timeLayer = choreography.time_layer || "wall_time";
+    card.dataset.taskTarget = action.task_target?.target_id || "scene_task_target";
+    card.innerHTML = `
+      <span class="scene-action-kicker">shiyao scan -> ${action.anchor_id || "wall"} / ${action.p0_role || "scene"}</span>
+      <strong>${action.title || action.action_id || "Wall task"}</strong>
+      <p>${action.user_task || "Do the concrete wall task at this anchor."}</p>
+      <small>Physical cue: ${action.physical_cue || "real wall marker"}</small>
+      <small>3D: ${(action.spatial_binding && action.spatial_binding.projection) || "wall seeded projection"} / ${(action.spatial_binding && action.spatial_binding.depth_layer) || "depth layer"}</small>
+      <small>Time/depth: ${choreography.time_layer || "wall_time"} @ ${Number(choreography.depth_meters || 0).toFixed(2)}m</small>
+      <small>Gesture: ${choreography.gesture_affordance || action.interaction || "ray confirm"}</small>
+      <small>Target: ${(action.task_target && action.task_target.display_label) || "Scene task target"} / ${(action.task_target && action.task_target.confirm_mode) || "confirm"}</small>
+      <small>Gate: requires shiyao trusted scan for field evidence; fallback is no hardware claim.</small>
+    `;
+    card.addEventListener("click", () => executeSceneActionTarget(action));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        executeSceneActionTarget(action);
+      }
+    });
+    if (growthBeats.length) {
+      const beatRail = document.createElement("div");
+      beatRail.className = "scene-action-beats";
+      growthBeats.forEach((beat, beatIndex) => {
+        const dot = document.createElement("span");
+        dot.title = beat.label || beat.beat_id || `beat ${beatIndex + 1}`;
+        dot.textContent = String(beatIndex + 1);
+        beatRail.append(dot);
+      });
+      card.append(beatRail);
+    }
+    els.sceneActionLayer.append(stem, card);
+  });
+}
+
+async function executeSceneActionTarget(action) {
+  if (!action || model.busy) return;
+  const target = action.task_target || {};
+  const sequence = Array.isArray(target.endpoint_sequence) ? target.endpoint_sequence : [];
+  model.busy = true;
+  model.sceneActionStatus = `executing ${target.target_id || action.action_id} from endpoint_sequence | no local hardware claim`;
+  setCurrentAnchor(action.anchor_id, { skipAi: true });
+  renderHud();
+  try {
+    if (!sequence.length) throw new Error("endpoint_sequence missing");
+    let executed = 0;
+    for (const step of sequence) {
+      if (!step || !step.endpoint_key) continue;
+      await executeSceneActionEndpoint(action, target, step);
+      executed += 1;
+    }
+    model.sceneActionStatus = `complete ${target.target_id || action.action_id} via ${executed} endpoint(s) | rehearsal complete, hardware ready false`;
+    await refresh({ anchorId: action.anchor_id || model.currentAnchor });
+  } catch (error) {
+    model.sceneActionStatus = `failed ${target.target_id || action.action_id}: ${error.message || error} | no local hardware claim`;
+    renderHud();
+  } finally {
+    model.busy = false;
+  }
+}
+
+function sceneActionRehearsalPayload(action, target, step) {
+  return {
+    source: "web_scene_action_endpoint_sequence",
+    scene_action_id: action.action_id,
+    target_id: target.target_id || "",
+    endpoint_key: step.endpoint_key || "",
+    state_provenance_status: "rehearsal",
+    fallback_no_hardware_claim: true,
+    trusted_hardware_session: false,
+    hardware_ready_claim_allowed: false
+  };
+}
+
+async function executeSceneActionEndpoint(action, target, step) {
+  const payload = sceneActionRehearsalPayload(action, target, step);
+  const anchorId = step.anchor_id || action.anchor_id || model.currentAnchor;
+  if (step.endpoint_key === "local_unity") {
+    recordLocalLedgerEvent("scene_action", { ...payload, action_id: action.action_id, anchor_id: anchorId, note: "local confirm only" });
+    return;
+  }
+  if (step.endpoint_key === "interactions") {
+    const userId = step.user_id || model.activeUser;
+    await api.interact({ ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id, mission_state: step.mission_state || "doing" });
+    recordLocalLedgerEvent("interaction", { ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id, title: `${anchorId} ${step.step_id || "interaction"}` });
+    return;
+  }
+  if (step.endpoint_key === "service_actions") {
+    await api.serviceAction({ ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, action_id: step.action_id || "JOIN_EVENT_1430", label: target.display_label || "Join 14:30 demo", step_id: step.step_id || "service_action" });
+    recordLocalLedgerEvent("service_action", { ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, action_id: step.action_id || "JOIN_EVENT_1430" });
+    return;
+  }
+  if (step.endpoint_key === "write_back") {
+    await api.writeBack({ ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, title: step.title || "Rokid TimeMark", text: els.writeText?.value || WRITE_BACK_DEFAULT });
+    recordLocalLedgerEvent("write_back", { ...payload, user_id: step.user_id || model.activeUser, anchor_id: anchorId, title: step.title || "Rokid TimeMark" });
+    return;
+  }
+  if (step.endpoint_key === "state") {
+    const userId = step.user_id || "B";
+    model.activeUser = userId;
+    await api.interact({ ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id || "user_b_readback", mission_state: step.mission_state || "complete" });
+    recordLocalLedgerEvent("interaction", { ...payload, user_id: userId, anchor_id: anchorId, step_id: step.step_id || "user_b_readback", title: "User B readback" });
+    return;
+  }
+  throw new Error(`unsupported endpoint_key ${step.endpoint_key}`);
+}
 function fallbackHud() {
   const anchor = anchorById(model.currentAnchor);
   const topBeacon = beaconsForAnchor(model.currentAnchor).at(-1);
@@ -857,6 +1319,7 @@ function renderHud() {
   renderMetaPill(`${beaconsForAnchor(model.currentAnchor).length} beacons`);
   renderMetaPill(aiHud ? "AI HUD online" : "local fallback");
   renderMetaPill(aiError ? "AI route fallback" : null);
+  renderMetaPill(model.sceneActionStatus);
 
   renderAgentQueue();
   renderStageMetrics();
@@ -1939,7 +2402,7 @@ function renderHardwareRuntime() {
     renderInfoCard(`hardware-card ${checklist.tone}`, "Live Adapter Checklist", checklist.title, checklist.endpoint),
     renderInfoCard(`hardware-card ${pairing.tone}`, "Pairing Status", pairing.status, `pairing_status: ${pairing.pairing_status} · source: ${pairing.source}`),
     renderInfoCard(`hardware-card ${pairing.tone}`, "Acceptance Pairing", `eligible ${pairing.hardware_acceptance_eligible}`, `hardware_acceptance_eligible: ${pairing.hardware_acceptance_eligible} · pairing.required_for_hardware_acceptance: ${pairing.required_for_hardware_acceptance} · pairing.expires_at: ${pairing.expires_at}`),
-    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Hardware Wall Lock", calibrationReady ? "hardware ready" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · ${endpointUrl(endpoints.wall_calibration || "/api/calibration/wall")}`),
+    renderInfoCard(calibrationReady ? "hardware-card good" : "hardware-card warn", "Trusted Wall Lock", calibrationReady ? "lock candidate" : `hardware pending ${hardwareCalibratedCount}/3`, `QR/image tracking/SLAM only · final acceptance uses ${fieldTargetReadinessEndpoint()}`),
     renderInfoCard("hardware-card", "Adapter Slots", `${binding.slots.length || 0} declared`, "ROKID_UXR boundary keeps gaze, pose, network, and overlay swappable without changing the campus wall layer."),
     renderInfoCard("hardware-card wide", "Readiness", deviceManifestReady && storeReady ? "SQLite + device runtime ready" : deviceManifestReady ? "Device manifest ready" : "runtime expanding", endpointUrl(endpoints.device_manifest || endpoints.dataset_catalog || "/api/device/bootstrap")),
     renderInfoCard("hardware-card wide", "Smoke", smoke?.ok ? "live session ok" : "waiting", smoke ? `${smoke.sessions_online || 0} online · ${smoke.sessions_stale || 0} stale · ${smoke.sessions_expired || 0} expired` : "注册并发送心跳后生成 smoke 摘要。")
@@ -2089,6 +2552,12 @@ function renderFieldAcceptance() {
     : "not fetched";
   const readyCount = gates.filter((gate) => gate.status === "ready").length;
   const sourceLabel = model.fieldAcceptance ? model.fieldAcceptance.schema || "field-acceptance/v1" : "fallback from local runtime";
+  const targetReadiness = targetReadinessPayload();
+  const targetSummary = targetReadiness.target_summary || {};
+  const targetMission = targetReadiness.mission_loop || {};
+  const targetBlockers = listFrom(targetReadiness.physical_blockers);
+  const trustedCount = Number(targetSummary.trusted_anchor_count) || 0;
+  const trustedSessions = Number(targetSummary.trusted_hardware_session_count) || 0;
 
   els.acceptanceGrid.innerHTML = "";
   els.acceptanceGrid.append(
@@ -2100,6 +2569,16 @@ function renderFieldAcceptance() {
   if (model.fieldAcceptanceError && !model.fieldAcceptance) {
     els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Endpoint", "acceptance API pending", model.fieldAcceptanceError.message || "Waiting for /api/field/acceptance."));
   }
+
+  if (model.fieldTargetReadinessError && !model.fieldTargetReadiness) {
+    els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Target Endpoint", "target readiness API pending", `${model.fieldTargetReadinessError.message || "Waiting for /api/field/target-readiness."} Fallback is derived from /api/field/acceptance.`));
+  }
+
+  els.acceptanceGrid.append(
+    renderInfoCard(`acceptance-card ${targetReadinessTone(targetReadiness.precheck_ok)}`, "Target Precheck", `precheck_ok ${targetReadiness.precheck_ok ? "true" : "false"}`, `${trustedSessions} trusted live sessions | ${fieldTargetReadinessEndpoint()}`),
+    renderInfoCard(`acceptance-card ${targetReadinessTone(targetReadiness.physical_acceptance_ready)}`, "Target Physical Readiness", `physical_acceptance_ready ${targetReadiness.physical_acceptance_ready ? "true" : "false"}`, `${trustedCount}/3 trusted A1/A2/A3 | User B readback ${targetMission.user_b_readback_ready ? "ready" : "pending"}`),
+    renderInfoCard("acceptance-card warn wide", "Target Physical Blockers", targetBlockers.length ? `${targetBlockers.length} blockers` : "none", targetBlockers.length ? targetBlockers.join(" | ") : "Trusted A1/A2/A3, A3 TimeMark write-back, User B readback, and /api/field/acceptance are all green.")
+  );
 
   const list = document.createElement("div");
   list.className = "acceptance-gate-list";
@@ -2131,6 +2610,67 @@ function renderFieldAcceptance() {
   if (blockingItems.length) {
     els.acceptanceGrid.append(renderInfoCard("acceptance-card warn wide", "Blocking Items", String(blockingItems.length), blockingItems.join(" · ")));
   }
+}
+
+function renderFieldPass() {
+  if (!els.fieldPassGrid) return;
+  const plan = fieldPassPlan();
+  const activePhase = plan.phases.find((phase) => phase.id === plan.current_phase) || plan.phases[0];
+  const readyCount = plan.phases.filter((phase) => phase.status === "ready").length;
+  const trustedAnchorCount = trustedTargetAnchorSet().size;
+  const tone = plan.readiness.physical_acceptance_ready ? "good" : activePhase?.status === "blocked" ? "bad" : "warn";
+
+  els.fieldPassGrid.innerHTML = "";
+  els.fieldPassGrid.append(
+    renderInfoCard(`field-pass-card ${tone}`, "Current Phase", activePhase?.label || plan.current_phase, `${plan.phase_index + 1}/${plan.total_phases} phases | ${fieldOperatorPlanEndpoint()}`, { wide: true }),
+    renderInfoCard(`field-pass-card ${plan.readiness.precheck_ok ? "good" : "warn"}`, "Precheck", plan.readiness.precheck_ok ? "ready" : "pending", `Live session ${plan.readiness.live_session_ready ? "ready" : "pending"} | release ${plan.readiness.release_ready ? "ready" : "pending"}`),
+    renderInfoCard(`field-pass-card ${plan.readiness.trusted_a1_a2_a3_ready ? "good" : "warn"}`, "Trusted A1-A3", `${trustedAnchorCount}/3 anchors`, `${readyCount}/${plan.total_phases} phases ready`),
+    renderInfoCard(`field-pass-card ${plan.readiness.user_b_readback_ready ? "good" : "warn"}`, "User B", plan.readiness.user_b_readback_ready ? "readback ready" : "readback pending", `Mission loop ${plan.readiness.mission_loop_ready ? "ready" : "pending"}`)
+  );
+
+  if (model.fieldOperatorPlanError && !model.fieldOperatorPlan) {
+    els.fieldPassGrid.append(renderInfoCard("field-pass-card warn wide", "Operator Plan API", "fallback active", model.fieldOperatorPlanError.message || "Waiting for /api/field/operator-plan."));
+  }
+
+  const actionList = document.createElement("div");
+  actionList.className = "field-pass-actions";
+  const actionTitle = document.createElement("strong");
+  actionTitle.textContent = "Next Actions";
+  actionList.append(actionTitle);
+  plan.next_actions.forEach((action) => {
+    const row = document.createElement("p");
+    row.textContent = action;
+    actionList.append(row);
+  });
+  els.fieldPassGrid.append(actionList);
+
+  const list = document.createElement("div");
+  list.className = "field-pass-phase-list";
+  plan.phases.forEach((phase, index) => {
+    const row = document.createElement("div");
+    row.className = ["field-pass-phase", phase.status].filter(Boolean).join(" ");
+
+    const badge = document.createElement("span");
+    badge.className = "field-pass-phase-badge";
+    badge.textContent = String(index + 1).padStart(2, "0");
+
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = phase.label;
+    const body = document.createElement("p");
+    const evidence = listFrom(phase.required_evidence).slice(0, 3).join(" / ");
+    const blockers = listFrom(phase.blockers).length ? ` | ${phase.blockers.join(", ")}` : "";
+    body.textContent = `${phase.anchor_id || "site"} | ${evidence}${blockers}`;
+    copy.append(title, body);
+
+    const status = document.createElement("span");
+    status.className = "field-pass-phase-status";
+    status.textContent = phase.status;
+
+    row.append(badge, copy, status);
+    list.append(row);
+  });
+  els.fieldPassGrid.append(list);
 }
 
 function renderProductModules() {
@@ -2262,6 +2802,7 @@ function renderOps(status = model.ops, bootstrap = model.bootstrap, errors = {})
   renderHardwareRuntime();
   renderWallCalibration();
   renderFieldAcceptance();
+  renderFieldPass();
   renderLedgerAudit();
 }
 
@@ -2282,10 +2823,12 @@ async function refreshLedger() {
 }
 
 async function refreshWallCalibration() {
-  const [calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [calibrationResult, markersResult, acceptanceResult, targetReadinessResult, operatorPlanResult] = await Promise.allSettled([
     api.getWallCalibration(),
     api.getFieldMarkers(),
-    api.getFieldAcceptance()
+    api.getFieldAcceptance(),
+    api.getFieldTargetReadiness(),
+    api.getFieldOperatorPlan()
   ]);
 
   if (calibrationResult.status === "fulfilled") {
@@ -2306,14 +2849,27 @@ async function refreshWallCalibration() {
   } else {
     model.fieldAcceptanceError = acceptanceResult.reason;
   }
+  if (targetReadinessResult.status === "fulfilled") {
+    model.fieldTargetReadiness = targetReadinessResult.value;
+    model.fieldTargetReadinessError = null;
+  } else {
+    model.fieldTargetReadinessError = targetReadinessResult.reason;
+  }
+  if (operatorPlanResult.status === "fulfilled") {
+    model.fieldOperatorPlan = operatorPlanResult.value;
+    model.fieldOperatorPlanError = null;
+  } else {
+    model.fieldOperatorPlanError = operatorPlanResult.reason;
+  }
   renderWallCalibration();
   renderFieldAcceptance();
+  renderFieldPass();
   renderHardwareRuntime();
   renderLog();
 }
 
 async function refreshDeviceRuntime() {
-  const [manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, calibrationResult, markersResult, acceptanceResult, targetReadinessResult, operatorPlanResult] = await Promise.allSettled([
     api.getDeviceManifest(),
     api.getDeviceAdapterChecklist(),
     api.getDeviceSessions(),
@@ -2321,7 +2877,9 @@ async function refreshDeviceRuntime() {
     api.getDatasetCatalog(),
     api.getWallCalibration(),
     api.getFieldMarkers(),
-    api.getFieldAcceptance()
+    api.getFieldAcceptance(),
+    api.getFieldTargetReadiness(),
+    api.getFieldOperatorPlan()
   ]);
 
   if (manifestResult.status === "fulfilled") model.deviceManifest = manifestResult.value;
@@ -2347,10 +2905,23 @@ async function refreshDeviceRuntime() {
   } else {
     model.fieldAcceptanceError = acceptanceResult.reason;
   }
+  if (targetReadinessResult.status === "fulfilled") {
+    model.fieldTargetReadiness = targetReadinessResult.value;
+    model.fieldTargetReadinessError = null;
+  } else {
+    model.fieldTargetReadinessError = targetReadinessResult.reason;
+  }
+  if (operatorPlanResult.status === "fulfilled") {
+    model.fieldOperatorPlan = operatorPlanResult.value;
+    model.fieldOperatorPlanError = null;
+  } else {
+    model.fieldOperatorPlanError = operatorPlanResult.reason;
+  }
   renderSdkBindingReadiness();
   renderHardwareRuntime();
   renderWallCalibration();
   renderFieldAcceptance();
+  renderFieldPass();
   renderLedgerAudit();
   renderLog();
 }
@@ -2414,7 +2985,7 @@ async function submitAllSimulatedCalibration() {
 }
 
 async function refreshOps() {
-  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, evidenceResult, calibrationResult, markersResult, acceptanceResult] = await Promise.allSettled([
+  const [opsResult, bootstrapResult, manifestResult, checklistResult, sessionsResult, storeResult, catalogResult, ledgerSummaryResult, ledgerEventsResult, evidenceResult, calibrationResult, markersResult, acceptanceResult, targetReadinessResult, operatorPlanResult] = await Promise.allSettled([
     api.getOpsStatus(),
     api.getDeviceBootstrap(),
     api.getDeviceManifest(),
@@ -2427,7 +2998,9 @@ async function refreshOps() {
     api.getEvidenceChain(),
     api.getWallCalibration(),
     api.getFieldMarkers(),
-    api.getFieldAcceptance()
+    api.getFieldAcceptance(),
+    api.getFieldTargetReadiness(),
+    api.getFieldOperatorPlan()
   ]);
 
   model.ops = opsResult.status === "fulfilled" ? opsResult.value : null;
@@ -2454,6 +3027,18 @@ async function refreshOps() {
     model.fieldAcceptanceError = null;
   } else {
     model.fieldAcceptanceError = acceptanceResult.reason;
+  }
+  if (targetReadinessResult.status === "fulfilled") {
+    model.fieldTargetReadiness = targetReadinessResult.value;
+    model.fieldTargetReadinessError = null;
+  } else {
+    model.fieldTargetReadinessError = targetReadinessResult.reason;
+  }
+  if (operatorPlanResult.status === "fulfilled") {
+    model.fieldOperatorPlan = operatorPlanResult.value;
+    model.fieldOperatorPlanError = null;
+  } else {
+    model.fieldOperatorPlanError = operatorPlanResult.reason;
   }
   if (ledgerSummaryResult.status === "fulfilled") model.ledgerSummary = ledgerSummaryResult.value;
   if (ledgerEventsResult.status === "fulfilled") model.ledgerEvents = ledgerEventsResult.value;
@@ -2556,6 +3141,26 @@ function renderLog() {
       blocking_items: fieldAcceptanceBlockingItems(),
       error: model.fieldAcceptanceError?.message || null
     },
+    field_target_readiness: {
+      schema: targetReadinessPayload().schema,
+      endpoint: fieldTargetReadinessEndpoint(),
+      precheck_ok: targetReadinessPayload().precheck_ok === true,
+      physical_acceptance_ready: targetReadinessPayload().physical_acceptance_ready === true,
+      physical_blockers: listFrom(targetReadinessPayload().physical_blockers),
+      target_summary: targetReadinessPayload().target_summary || {},
+      mission_loop: targetReadinessPayload().mission_loop || {},
+      error: model.fieldTargetReadinessError?.message || null
+    },
+    field_pass: {
+      schema: fieldPassPlan().schema,
+      endpoint: fieldOperatorPlanEndpoint(),
+      current_phase: fieldPassPlan().current_phase,
+      phase_index: fieldPassPlan().phase_index,
+      next_actions: fieldPassPlan().next_actions,
+      readiness: fieldPassPlan().readiness,
+      source: model.fieldOperatorPlan ? "api" : "local_fallback",
+      error: model.fieldOperatorPlanError?.message || null
+    },
     sdk_binding: {
       mode: binding.mode,
       title: binding.title,
@@ -2648,6 +3253,7 @@ async function refresh(options = {}) {
   renderHardwareRuntime();
   renderWallCalibration();
   renderFieldAcceptance();
+  renderFieldPass();
   renderLedgerAudit();
   await refreshOps();
   requestAiHud(model.currentAnchor);
@@ -2667,6 +3273,7 @@ function renderOffline(error) {
   renderOps(null, null, { ops: error, bootstrap: error });
   renderSdkBindingReadiness();
   renderFieldAcceptance();
+  renderFieldPass();
 }
 
 async function completeCurrentStep() {

@@ -29,6 +29,19 @@ const requiredModules = [
     needles: ["Operator Console", "operator-panel", "command-center"]
   },
   {
+    name: "Field Pass",
+    needles: [
+      "Field Pass",
+      "Site Run",
+      "fieldPassGrid",
+      "field-pass-grid",
+      "fieldPassPlan",
+      "renderFieldPass",
+      "innerworld-field-operator-plan/v1",
+      "/api/field/operator-plan"
+    ]
+  },
+  {
     name: "Mission Flow",
     needles: ["Mission Flow", "workflow-section", "stepper"]
   },
@@ -168,6 +181,10 @@ const requiredModules = [
       "renderFieldAcceptance",
       "getFieldAcceptance",
       "/api/field/acceptance",
+      "/api/field/target-readiness",
+      "Target Physical Readiness",
+      "precheck_ok",
+      "physical_acceptance_ready",
       "innerworld-field-acceptance/v1",
       "simulator/manual is not hardware ready"
     ]
@@ -221,6 +238,7 @@ const requiredContainers = [
   ".product-grid",
   ".agent-queue",
   ".showcase-grid",
+  ".field-pass-grid",
   ".route-grid",
   ".lens-grid",
   ".binding-grid",
@@ -267,6 +285,7 @@ const requiredContainerGroups = [
   { name: ".product-grid", selectors: [".product-grid"] },
   { name: ".agent-queue", selectors: [".agent-queue"] },
   { name: ".showcase-grid", selectors: [".showcase-grid"] },
+  { name: ".field-pass-grid", selectors: [".field-pass-grid"] },
   { name: ".route-grid", selectors: [".route-grid"] },
   { name: ".lens-grid", selectors: [".lens-grid"] },
   { name: ".binding-grid", selectors: [".binding-grid"] },
@@ -339,6 +358,7 @@ function checkStaticSources(sources) {
   const errors = [];
   const moduleResults = checkModules(sources.combined);
   const missingModules = moduleResults.filter((module) => !module.ok).map((module) => module.name);
+  const fieldPassSource = sources.js.match(/function fieldPassPlan\(\)[\s\S]*?\n}\n\nfunction calibratedAnchorIds/)?.[0] || "";
 
   if (missingModules.length) {
     errors.push(`Missing required web modules: ${missingModules.join(", ")}`);
@@ -426,9 +446,11 @@ function checkStaticSources(sources) {
     { name: "wall calibration API load", ok: sources.js.includes("getWallCalibration") && sources.js.includes("/api/calibration/wall") },
     { name: "field marker API load", ok: sources.js.includes("getFieldMarkers") && sources.js.includes("/api/field/markers") },
     { name: "field acceptance API load", ok: sources.js.includes("getFieldAcceptance") && sources.js.includes("/api/field/acceptance") },
+    { name: "target readiness API load", ok: sources.js.includes("getFieldTargetReadiness") && sources.js.includes("/api/field/target-readiness") },
     { name: "wall calibration observation write", ok: sources.js.includes("submitWallCalibrationObservation") && sources.js.includes("/api/calibration/observations") },
     { name: "dynamic wall calibration rendering", ok: sources.js.includes("renderWallCalibration") && sources.js.includes("calibrationGrid") },
     { name: "dynamic field acceptance rendering", ok: sources.js.includes("renderFieldAcceptance") && sources.js.includes("acceptanceGrid") && sources.js.includes("fieldAcceptanceOverall") },
+    { name: "dynamic target physical readiness rendering", ok: sources.js.includes("targetReadinessPayload") && sources.js.includes("Target Physical Readiness") && sources.js.includes("physical_acceptance_ready") && sources.js.includes("physical_blockers") },
     { name: "dynamic field marker rendering", ok: sources.js.includes("renderFieldMarkerCards") && sources.js.includes("field-marker-card") },
     { name: "wall calibration simulated lock", ok: sources.js.includes("submitSimulatedCalibration") && sources.js.includes("submitAllSimulatedCalibration") },
     { name: "wall calibration trace contract", ok: sources.js.includes("ready_for_hardware") && sources.js.includes("calibrated_anchor_ids") },
@@ -436,7 +458,11 @@ function checkStaticSources(sources) {
     { name: "wall calibration authoritative latest source", ok: sources.js.includes("latest_anchor_observations") && sources.js.includes("calibrationAuthorityLabel") },
     { name: "wall calibration rejected issue display", ok: sources.js.includes("calibrationIssueLabel") && sources.js.includes("position_error_m") && sources.js.includes("confidence") },
     { name: "wall calibration rehearsal evidence label", ok: sources.js.includes("simulator rehearsal") && sources.js.includes("hardware evidence candidate") },
-    { name: "field kit readiness separation", ok: sources.js.includes("print kit ready") && sources.js.includes("print kit pending") && sources.js.includes("hardware ready") && sources.js.includes("hardware pending") },
+    { name: "field kit readiness separation", ok: sources.js.includes("print kit ready") && sources.js.includes("print kit pending") && sources.js.includes("trusted lock candidate") && sources.js.includes("hardware pending") },
+    { name: "field target readiness separation", ok: sources.js.includes("precheck_ok") && sources.js.includes("physical_acceptance_ready") && sources.js.includes("Target Physical Blockers") && sources.js.includes("field_acceptance_not_ready") && sources.js.includes("A3 TimeMark write-back") },
+    { name: "field pass operator plan rendering", ok: sources.js.includes("fieldPassPlan") && sources.js.includes("renderFieldPass") && sources.js.includes("getFieldOperatorPlan") && sources.js.includes("/api/field/operator-plan") && sources.js.includes("innerworld-field-operator-plan/v1") && sources.js.includes("A1 spatial entry") && sources.js.includes("A2 memory read") && sources.js.includes("User B readback") },
+    { name: "field pass remains read-only UI", ok: sources.js.includes("mutates_state") && fieldPassSource.includes("fieldPassPlan") && !/api\.(?:interact|serviceAction|writeBack|submitWallCalibrationObservation)/i.test(fieldPassSource) },
+    { name: "field target readiness does not read output evidence", ok: !/output\/field-target-pass|field-target-pass-latest|output\\\\field-target-pass/i.test(sources.js) },
     { name: "field acceptance endpoint contract", ok: sources.fieldAcceptanceCheck.includes("/api/field/acceptance") && sources.fieldAcceptanceCheck.includes("innerworld-field-acceptance/v1") && sources.fieldAcceptanceCheck.includes("hardware_alignment") && sources.fieldAcceptanceCheck.includes("trusted_hardware_session") && sources.fieldAcceptanceCheck.includes("all_simulator_ready_for_hardware") },
     { name: "field marker contract details", ok: sources.js.includes("A1:qr-entry") && sources.js.includes("A2:image-target") && sources.js.includes("A3:image-target") && sources.js.includes("trackingModesLabel") && sources.js.includes("expected_pose") },
     { name: "dynamic SDK binding rendering", ok: sources.js.includes("renderSdkBindingReadiness") },

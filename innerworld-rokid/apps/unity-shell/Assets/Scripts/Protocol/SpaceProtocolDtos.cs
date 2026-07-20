@@ -134,6 +134,8 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint wall_calibration_observations;
         public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint field_acceptance;
+        public SpaceApiEndpoint field_target_readiness;
+        public SpaceApiEndpoint field_operator_plan;
         public SpaceApiEndpoint ai_schema;
         public SpaceApiEndpoint ai_prompt;
         public SpaceApiEndpoint ai_hud;
@@ -272,8 +274,29 @@ namespace InnerWorld.Rokid.Protocol
         public string mission_state;
         public int current_step_index;
         public string[] completed_steps;
+        public MissionProvenanceResponse mission_provenance;
         public SpaceBeacon[] beacons;
         public RuntimeEvent[] events;
+    }
+
+    [Serializable]
+    public sealed class MissionProvenanceResponse
+    {
+        public string schema;
+        public string state_provenance_status;
+        public string last_mutation_source_status;
+        public string last_action_type;
+        public string last_anchor_id;
+        public string last_source;
+        public bool trusted_hardware_session;
+        public bool trusted_mission_provenance;
+        public bool rehearsal_complete_allowed;
+        public bool hardware_ready_claim_allowed;
+        public bool fallback_no_hardware_claim;
+        public int mutation_count;
+        public int trusted_mutation_count;
+        public int rehearsal_mutation_count;
+        public string[] blockers;
     }
 
     [Serializable]
@@ -357,11 +380,28 @@ namespace InnerWorld.Rokid.Protocol
         public string server_time;
         public DeviceCapabilityStatus capabilities;
         public RokidSdkBindingStatusPayload sdk_binding_status;
+        public DevicePairingState pairing;
+        public bool hardware_acceptance_eligible;
         public DeviceMissionSnapshot mission_snapshot;
         public DeviceRuntimeEnvelope runtime;
         public DeviceEndpointSubset endpoints;
         public DeviceWarning[] warnings;
         public DevicePrivacyPolicy privacy;
+    }
+
+    [Serializable]
+    public sealed class DevicePairingState
+    {
+        public string schema;
+        public string status;
+        public bool paired;
+        public bool required_for_hardware_acceptance;
+        public string issued_at;
+        public string paired_at;
+        public string expires_at;
+        public string method;
+        public bool code_persisted;
+        public string privacy;
     }
 
     [Serializable]
@@ -525,6 +565,8 @@ namespace InnerWorld.Rokid.Protocol
         public DevicePendingAction[] pending_actions;
         public DeviceHealthStatus health;
         public RokidSdkBindingStatusPayload sdk_binding_status;
+        public DevicePairingState pairing;
+        public bool hardware_acceptance_eligible;
         public DeviceA1SpatialEntryExperience a1_spatial_entry_experience;
         public DeviceRuntimeEnvelope runtime;
         public DeviceEndpointSubset endpoints;
@@ -618,6 +660,8 @@ namespace InnerWorld.Rokid.Protocol
         public SpaceApiEndpoint wall_calibration_observations;
         public SpaceApiEndpoint field_markers;
         public SpaceApiEndpoint field_acceptance;
+        public SpaceApiEndpoint field_target_readiness;
+        public SpaceApiEndpoint field_operator_plan;
         public SpaceApiEndpoint ai_hud;
         public SpaceApiEndpoint interactions;
         public SpaceApiEndpoint service_actions;
@@ -744,6 +788,33 @@ namespace InnerWorld.Rokid.Protocol
         public float confidence_min;
         public float position_error_warn_m;
         public float position_error_reject_m;
+        public bool hardware_observation_trusted;
+        public WallCalibrationHardwareSession hardware_session;
+    }
+
+    [Serializable]
+    public sealed class WallCalibrationHardwareSession
+    {
+        public string schema;
+        public bool trusted;
+        public string trust_status;
+        public string[] issues;
+        public string session_id;
+        public string device_id;
+        public string anchor_id;
+        public string tracking_mode;
+        public string session_status_at_observation;
+        public string session_last_seen_at;
+        public int heartbeat_count_at_observation;
+        public string active_anchor_at_observation;
+        public string pairing_status_at_observation;
+        public bool hardware_acceptance_eligible;
+        public string sdk_binding_stage;
+        public bool sdk_live_binding_ready;
+        public bool sdk_input_binding_ready;
+        public bool sdk_overlay_binding_ready;
+        public bool sdk_package_detected;
+        public bool sdk_boundary_compiled;
     }
 
     [Serializable]
@@ -1009,10 +1080,13 @@ namespace InnerWorld.Rokid.Protocol
         public string[] hardware_calibrated_anchor_ids;
         public string[] hardware_tracking_modes;
         public string mission_state;
+        public string active_user;
+        public string required_active_user;
         public string[] completed_steps;
         public string[] missing_steps;
         public int beacon_count;
         public int write_back_beacons;
+        public bool user_b_readback_ready;
         public string engine;
         public int event_count;
         public bool release_index_ok;
@@ -1041,22 +1115,193 @@ namespace InnerWorld.Rokid.Protocol
     }
 
     [Serializable]
+    public sealed class FieldOperatorPlanManifest
+    {
+        public bool ok;
+        public string schema;
+        public string generated_at;
+        public SpaceApiEndpoint endpoint;
+        public string space_id;
+        public string current_phase;
+        public int phase_index;
+        public int total_phases;
+        public string[] next_actions;
+        public string[] blockers;
+        public FieldOperatorPlanPhase[] phases;
+        public FieldOperatorPlanPhaseRow[] phase_table;
+        public FieldOperatorPlanReadiness readiness;
+        public FieldOperatorPlanSanitizedSummary sanitized_summary;
+        public FieldOperatorPlanSourceOfTruth source_of_truth;
+        public FieldOperatorPlanPrivacy privacy;
+        public FieldOperatorPlanScopeGuard scope_guard;
+        public bool hardware_ready_claim_allowed;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanPhase
+    {
+        public string id;
+        public string label;
+        public string anchor_id;
+        public string status;
+        public string[] required_evidence;
+        public string[] blockers;
+        public string[] operator_actions;
+        public bool mutates_state;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanPhaseRow
+    {
+        public int index;
+        public string id;
+        public string label;
+        public string anchor_id;
+        public string status;
+        public bool mutates_state;
+        public string[] required_evidence;
+        public string[] blockers;
+        public string[] operator_actions;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanReadiness
+    {
+        public bool precheck_ok;
+        public bool physical_acceptance_ready;
+        public bool live_session_ready;
+        public bool trusted_a1_a2_a3_ready;
+        public bool mission_loop_ready;
+        public bool user_b_readback_ready;
+        public bool release_ready;
+        public bool hardware_ready_claim_allowed;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanSanitizedSummary
+    {
+        public int hardware_anchor_count;
+        public int trusted_anchor_count;
+        public string[] missing_trusted_anchor_ids;
+        public int paired_session_count;
+        public int live_sdk_session_count;
+        public string mission_state;
+        public int completed_step_count;
+        public int write_back_beacon_count;
+        public string field_acceptance_status;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanSourceOfTruth
+    {
+        public string field_acceptance;
+        public string field_target_readiness;
+        public string device_adapter_checklist;
+        public string device_sessions;
+        public string wall_calibration;
+        public string mission_state;
+        public string ops_status;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanPrivacy
+    {
+        public bool read_only_endpoint;
+        public bool mission_state_mutated;
+        public bool evidence_files_written;
+        public bool simulator_or_manual_observations_created;
+        public bool adb_or_logcat_run;
+        public bool raw_serials_included;
+        public bool usb_ids_included;
+        public bool raw_session_ids_included;
+        public bool session_ids_included;
+        public bool raw_device_ids_included;
+        public bool device_ids_included;
+        public bool private_ips_included;
+        public bool raw_pairing_codes_included;
+        public bool pairing_codes_included;
+        public bool raw_pose_or_ray_included;
+        public bool raw_logcat_included;
+        public bool raw_logcat_or_dumpsys_included;
+        public bool field_operator_plan_report_written;
+    }
+
+    [Serializable]
+    public sealed class FieldOperatorPlanScopeGuard
+    {
+        public bool p0_only;
+        public bool campus_wall_only;
+        public bool a1_a2_a3_user_b_only;
+        public bool guide_app_or_ppt;
+        public bool phone_page;
+        public bool open_ugc;
+        public bool backend_expansion;
+        public bool broad_route;
+    }
+
+    [Serializable]
     public sealed class NearbyPinsResponse
     {
         public string space_id;
         public float radius_m;
+        public int p0_anchor_count;
+        public int semantic_preview_count;
         public NearbyPin[] pins;
     }
 
     [Serializable]
     public sealed class NearbyPin
     {
+        public string pin_id;
+        public string pin_type;
         public string anchor_id;
         public string label;
         public string kind;
+        public string demo_role;
+        public bool controlled_demo;
+        public bool open_ugc_allowed;
+        public bool hardware_acceptance_evidence;
+        public bool p0_required;
         public SpacePose pose;
         public GridPosition grid_pos;
         public string default_state;
+        public SemanticPinSpatial spatial;
+        public SemanticPinGeo geo;
+        public SemanticPinMedia media;
+        public SemanticPinSafety safety;
         public SpaceBeacon[] beacons;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinSpatial
+    {
+        public string placement;
+        public float scale;
+        public string depth_layer;
+        public string render_hint;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinGeo
+    {
+        public string scope;
+        public string url;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinMedia
+    {
+        public string title;
+        public string subtitle;
+        public string body;
+    }
+
+    [Serializable]
+    public sealed class SemanticPinSafety
+    {
+        public string moderation_state;
+        public bool user_generated;
+        public bool merchant_or_marketplace;
+        public bool broad_route;
     }
 }

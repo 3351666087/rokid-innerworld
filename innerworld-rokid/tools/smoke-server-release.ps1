@@ -52,6 +52,89 @@ function Test-PortFree {
   }
 }
 
+function Invoke-SmokeJson {
+  param([string]$Path)
+  return Invoke-RestMethod -Uri "http://127.0.0.1:$Port$Path" -TimeoutSec 3
+}
+
+function Assert-ReleaseFieldEndpoints {
+  param(
+    [object]$OperatorPlan,
+    [object]$FieldAcceptance,
+    [object]$TargetReadiness
+  )
+
+  if ($OperatorPlan.schema -ne "innerworld-field-operator-plan/v1") {
+    throw "Release smoke /api/field/operator-plan schema mismatch"
+  }
+  if ($OperatorPlan.endpoint.path -ne "/api/field/operator-plan") {
+    throw "Release smoke operator-plan endpoint path mismatch"
+  }
+  if ($OperatorPlan.scope_guard.p0_only -ne $true -or $OperatorPlan.scope_guard.campus_wall_only -ne $true -or $OperatorPlan.scope_guard.a1_a2_a3_user_b_only -ne $true) {
+    throw "Release smoke operator-plan P0 scope guard missing"
+  }
+  if ($OperatorPlan.scope_guard.guide_app_or_ppt -ne $false -or $OperatorPlan.scope_guard.phone_page -ne $false -or $OperatorPlan.scope_guard.open_ugc -ne $false -or $OperatorPlan.scope_guard.backend_expansion -ne $false -or $OperatorPlan.scope_guard.broad_route -ne $false) {
+    throw "Release smoke operator-plan scope drift guard failed"
+  }
+  if ($OperatorPlan.readiness.hardware_ready_claim_allowed -ne $false) {
+    throw "Release smoke package must not claim hardware-ready without physical field acceptance"
+  }
+
+  if ($FieldAcceptance.schema -ne "innerworld-field-acceptance/v1") {
+    throw "Release smoke /api/field/acceptance schema mismatch"
+  }
+  if ($FieldAcceptance.summary.ready_for_hardware -ne $false) {
+    throw "Release smoke field acceptance must stay hardware-pending for a fresh package"
+  }
+
+  if ($TargetReadiness.schema -ne "innerworld-field-target-readiness/v1") {
+    throw "Release smoke /api/field/target-readiness schema mismatch"
+  }
+  if ($TargetReadiness.hardware_ready_claim_allowed -ne $false -or $TargetReadiness.physical_acceptance_ready -ne $false) {
+    throw "Release smoke target readiness must not claim physical acceptance"
+  }
+}
+
+function Assert-ControlledPreviewEvidence {
+  param([object]$EvidenceChain)
+
+  if ($EvidenceChain.schema -ne "innerworld-evidence-chain/v1") {
+    throw "Release smoke /api/evidence/chain schema mismatch"
+  }
+  if ($EvidenceChain.controlled_previews.status -ne "preview_only") {
+    throw "Release smoke controlled preview status must be preview_only"
+  }
+  if ($EvidenceChain.controlled_previews.count -lt 1) {
+    throw "Release smoke controlled preview pin missing"
+  }
+  if ($EvidenceChain.controlled_previews.hardware_acceptance_evidence -ne $false -or $EvidenceChain.controlled_previews.contributes_to_p0_acceptance -ne $false) {
+    throw "Release smoke controlled preview must not count as hardware/P0 acceptance evidence"
+  }
+  if ($EvidenceChain.controlled_previews.open_ugc_allowed -ne $false) {
+    throw "Release smoke controlled preview must not allow open UGC"
+  }
+  $previewItem = @($EvidenceChain.evidence_items | Where-Object { $_.id -eq "controlled_sky_pin_preview" } | Select-Object -First 1)
+  if ($null -eq $previewItem -or $previewItem.status -ne "preview" -or $previewItem.contributes_to_p0_acceptance -ne $false) {
+    throw "Release smoke controlled Sky Pin evidence item guard missing"
+  }
+}
+
+function Convert-CommandJson {
+  param(
+    [AllowNull()][object]$Lines,
+    [string]$Label
+  )
+  $text = (@($Lines) -join "`n").Trim()
+  if ([string]::IsNullOrWhiteSpace($text)) {
+    throw "$Label did not write JSON to stdout"
+  }
+  try {
+    return $text | ConvertFrom-Json
+  } catch {
+    throw "$Label stdout was not JSON: $($_.Exception.Message)"
+  }
+}
+
 if ([string]::IsNullOrWhiteSpace($ZipPath)) {
   $ZipPath = Get-LatestZip -Path $releaseRoot
 }
@@ -97,17 +180,38 @@ try {
     -PassThru `
     -WindowStyle Hidden
 
+  $baseUrl = "http://127.0.0.1:$Port"
   $health = $null
   for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 250
     try {
-      $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 2
+      $health = Invoke-SmokeJson -Path "/api/health"
       break
     } catch {
     }
   }
   if ($null -eq $health) {
     throw "Server release did not answer /api/health on port $Port"
+  }
+
+  $operatorPlan = Invoke-SmokeJson -Path "/api/field/operator-plan"
+  $fieldAcceptance = Invoke-SmokeJson -Path "/api/field/acceptance"
+  $targetReadiness = Invoke-SmokeJson -Path "/api/field/target-readiness"
+  $evidenceChain = Invoke-SmokeJson -Path "/api/evidence/chain"
+  Assert-ReleaseFieldEndpoints -OperatorPlan $operatorPlan -FieldAcceptance $fieldAcceptance -TargetReadiness $targetReadiness
+  Assert-ControlledPreviewEvidence -EvidenceChain $evidenceChain
+
+  $livePassOutputRoot = Join-Path $target "field-live-pass-output"
+  $livePassLines = & node (Join-Path $root "tools\field-live-pass.js") "--single" "--base-url" $baseUrl "--output-root" $livePassOutputRoot
+  if ($LASTEXITCODE -ne 0) {
+    throw "field-live-pass package smoke failed"
+  }
+  $livePass = Convert-CommandJson -Lines $livePassLines -Label "field-live-pass package smoke"
+  if ($livePass.check -ne "field-live-pass") {
+    throw "field-live-pass package smoke check name mismatch"
+  }
+  if ($livePass.hardware_a1_a2_a3_ready -ne $false -or $livePass.field_acceptance_ready -ne $false) {
+    throw "field-live-pass package smoke must keep hardware acceptance pending"
   }
 
   $readonly = & node (Join-Path $target "server\space-server\check-readonly.js")
@@ -120,7 +224,7 @@ try {
     throw "capture-rehearsal failed for server release"
   }
 
-  $finalHealth = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 2
+  $finalHealth = Invoke-SmokeJson -Path "/api/health"
 
   [pscustomobject]@{
     ok = $true
@@ -133,6 +237,42 @@ try {
     initial_state = $health.mission_state
     initial_beacons = $health.beacon_count
     initial_completed = $health.completed_step_count
+    field_operator_plan = [pscustomobject]@{
+      schema = $operatorPlan.schema
+      current_phase = $operatorPlan.current_phase
+      phase_index = $operatorPlan.phase_index
+      total_phases = $operatorPlan.total_phases
+      hardware_ready_claim_allowed = $operatorPlan.readiness.hardware_ready_claim_allowed
+      next_action_count = @($operatorPlan.next_actions).Count
+    }
+    field_acceptance = [pscustomobject]@{
+      schema = $fieldAcceptance.schema
+      status = $fieldAcceptance.status
+      ready = $fieldAcceptance.ready
+      ready_for_hardware = $fieldAcceptance.summary.ready_for_hardware
+      blocking_items = @($fieldAcceptance.blocking_items).Count
+    }
+    target_readiness = [pscustomobject]@{
+      schema = $targetReadiness.schema
+      precheck_ok = $targetReadiness.precheck_ok
+      physical_acceptance_ready = $targetReadiness.physical_acceptance_ready
+      hardware_ready_claim_allowed = $targetReadiness.hardware_ready_claim_allowed
+    }
+    controlled_previews = [pscustomobject]@{
+      status = $evidenceChain.controlled_previews.status
+      count = $evidenceChain.controlled_previews.count
+      hardware_acceptance_evidence = $evidenceChain.controlled_previews.hardware_acceptance_evidence
+      contributes_to_p0_acceptance = $evidenceChain.controlled_previews.contributes_to_p0_acceptance
+      open_ugc_allowed = $evidenceChain.controlled_previews.open_ugc_allowed
+    }
+    field_live_pass = [pscustomobject]@{
+      ok = $livePass.ok
+      live_session_ready = $livePass.live_session_ready
+      trusted_a1_a2_a3_ready = $livePass.trusted_a1_a2_a3_ready
+      hardware_a1_a2_a3_ready = $livePass.hardware_a1_a2_a3_ready
+      field_acceptance_ready = $livePass.field_acceptance_ready
+      next_action_count = @($livePass.next_required_actions).Count
+    }
     readonly_ok = (($readonly -join "`n") -match '"ok": true')
     rehearsal_ok = (($rehearsal -join "`n") -match '"ok": true')
     final_state = $finalHealth.mission_state

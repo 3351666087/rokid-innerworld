@@ -12,6 +12,7 @@ const SENSITIVE_SERVICE_ACTION_KEYS = new Set([
   "access_token",
   "address",
   "bssid",
+  "device_id",
   "gateway",
   "ip",
   "ip_address",
@@ -23,6 +24,7 @@ const SENSITIVE_SERVICE_ACTION_KEYS = new Set([
   "recipient",
   "serial",
   "serial_number",
+  "session_id",
   "ssid",
   "token"
 ]);

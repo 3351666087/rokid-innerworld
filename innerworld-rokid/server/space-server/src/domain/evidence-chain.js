@@ -115,7 +115,35 @@ function publicAnchor(anchor, fallbackId, fallbackRole) {
   };
 }
 
-function buildEvidenceReplayJudgeMode({ spaceAnchors, steps, runtimeState, runtimeBeacons, endpoints, release, hardware }) {
+function summarizeControlledPreviews(space) {
+  const pins = Array.isArray(space?.semantic_pins) ? space.semantic_pins : [];
+  const controlledPins = pins.filter((pin) => {
+    return pin?.controlled_demo === true
+      && pin?.open_ugc_allowed === false
+      && pin?.hardware_acceptance_evidence === false
+      && pin?.p0_required === false;
+  });
+
+  return {
+    status: controlledPins.length > 0 ? "preview_only" : "none",
+    count: controlledPins.length,
+    hardware_acceptance_evidence: false,
+    contributes_to_p0_acceptance: false,
+    open_ugc_allowed: false,
+    pins: controlledPins.map((pin) => ({
+      pin_id: pin.pin_id || null,
+      label: pin.label || pin.media?.title || "controlled preview pin",
+      kind: pin.kind || "semantic_pin",
+      demo_role: pin.demo_role || "controlled_extension_preview",
+      moderation_state: pin.safety?.moderation_state || null,
+      user_generated: pin.safety?.user_generated === true,
+      merchant_or_marketplace: pin.safety?.merchant_or_marketplace === true,
+      broad_route: pin.safety?.broad_route === true
+    }))
+  };
+}
+
+function buildEvidenceReplayJudgeMode({ spaceAnchors, steps, runtimeState, runtimeBeacons, endpoints, release, hardware, controlledPreviews }) {
   const done = completedSteps(runtimeState);
   const entryAnchor = spaceAnchors.find((anchor) => anchor.kind === "entry")
     || spaceAnchors.find((anchor) => anchor.anchor_id === "A1")
@@ -207,6 +235,15 @@ function buildEvidenceReplayJudgeMode({ spaceAnchors, steps, runtimeState, runti
       status: release.status === "dry_run_verified" ? "ready" : "pending",
       source: "ops status release summary",
       sanitized_fields: ["package file names", "sha256", "warning/error counts"]
+    },
+    {
+      id: "controlled_preview",
+      title: "Controlled Sky Pin preview",
+      status: controlledPreviews.count > 0 ? "preview" : "none",
+      source: "data/space_demo.json semantic_pins",
+      sanitized_fields: ["pin_id", "label", "demo_role", "safety flags"],
+      hardware_acceptance_evidence: false,
+      contributes_to_p0_acceptance: false
     }
   ];
 
@@ -226,7 +263,8 @@ function buildEvidenceReplayJudgeMode({ spaceAnchors, steps, runtimeState, runti
       sqlite_runtime_source: true,
       field_acceptance_source: endpoints.field_acceptance.path,
       release_source: release.status,
-      hardware_fit: hardware.fit || "unknown"
+      hardware_fit: hardware.fit || "unknown",
+      controlled_preview_only: controlledPreviews.hardware_acceptance_evidence === false
     },
     privacy: {
       includes_secrets: false,
@@ -271,6 +309,7 @@ export function buildEvidenceChain({
   });
   const release = summarizeRelease(opsStatus);
   const hardware = summarizeHardware(opsStatus?.hardware);
+  const controlledPreviews = summarizeControlledPreviews(space);
   const aiReady = Boolean(aiSchema?.title && aiSchema?.properties?.write_back_review && endpoints.ai_schema && endpoints.ai_prompt);
   const writebackReady = Boolean(writeBackAnchor && endpoints.write_back && aiReady);
   const evidenceReplayJudgeMode = buildEvidenceReplayJudgeMode({
@@ -280,7 +319,8 @@ export function buildEvidenceChain({
     runtimeBeacons,
     endpoints,
     release,
-    hardware
+    hardware,
+    controlledPreviews
   });
 
   const items = [
@@ -332,6 +372,14 @@ export function buildEvidenceChain({
       status: release.status === "dry_run_verified" ? "ready" : release.status === "release_index_ready" ? "warn" : "pending",
       summary: `release=${release.status}; server package exists=${release.packages.server_package.exists}.`,
       source: "ops status release summary"
+    },
+    {
+      id: "controlled_sky_pin_preview",
+      title: "Controlled Sky Pin preview",
+      status: controlledPreviews.count > 0 ? "preview" : "none",
+      summary: `${controlledPreviews.count} controlled semantic preview pins; hardware evidence=${controlledPreviews.hardware_acceptance_evidence}.`,
+      source: "data/space_demo.json semantic_pins",
+      contributes_to_p0_acceptance: false
     },
     {
       id: "evidence_replay_judge_mode",
@@ -396,6 +444,7 @@ export function buildEvidenceChain({
     },
     hardware,
     release,
+    controlled_previews: controlledPreviews,
     evidence_replay_judge_mode: evidenceReplayJudgeMode,
     operations: {
       ops_status_ok: opsStatus?.ok === true,

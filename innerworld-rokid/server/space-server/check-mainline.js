@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "../..");
 
 const files = {
   goal: path.join(root, "docs", "active-goal.md"),
+  demoPlan: path.join(root, "docs", "demo-plan.md"),
   teammateDocsBus: path.join(root, "docs", "teammate-docs-bus.md"),
   contract: path.join(root, "shared", "innerworld-contract.js"),
   webHtml: path.join(root, "apps", "web-demo", "index.html"),
@@ -21,11 +22,13 @@ const files = {
   rootGitignore: path.join(root, ".gitignore"),
   packageDemo: path.join(root, "tools", "package-demo.ps1"),
   packageServerRelease: path.join(root, "tools", "package-server-release.ps1"),
+  smokeServerRelease: path.join(root, "tools", "smoke-server-release.ps1"),
   packageAudit: path.join(root, "tools", "audit-demo-package.ps1"),
   spaceData: path.join(root, "data", "space_demo.json"),
   hardwareManifest: path.join(root, "data", "hardware_manifest.json"),
   fieldMarkers: path.join(root, "data", "field_markers.json"),
-  fieldAcceptanceCheck: path.join(root, "server", "space-server", "check-field-acceptance.js")
+  fieldAcceptanceCheck: path.join(root, "server", "space-server", "check-field-acceptance.js"),
+  fieldOperatorPlanTool: path.join(root, "tools", "field-operator-plan.js")
 };
 
 const requiredGoalDirection = [
@@ -38,7 +41,7 @@ const requiredGoalDirection = [
 ];
 
 const requiredGoalReviewerTokens = [
-  "Kepler reviewer",
+  "Carver reviewer",
   "persistent reviewer",
   "feed every major implementation checkpoint back to it"
 ];
@@ -107,6 +110,36 @@ const requiredCombinedDirection = [
   "device_pairing_operator_gate_failed"
 ];
 
+const requiredOperatorPlanTokens = [
+  "/api/field/operator-plan",
+  "field:operator-plan",
+  "innerworld-field-operator-plan-report/v1",
+  "output/field-operator-plan",
+  "current_phase",
+  "phase_table",
+  "source_of_truth",
+  "p0_scope_guard",
+  "simulator_or_manual_observations_created",
+  "adb_or_logcat_run",
+  "hardware_ready_claim_allowed"
+];
+
+const requiredDemoPlanTokens = [
+  "InnerWorld Demo Plan: Campus Hidden Layer",
+  "does not replace the current P0 goal",
+  "one real wall",
+  "A1 entry",
+  "A2 memory read",
+  "A3 TimeMark write-back",
+  "User B readback",
+  "Whale Cloud Sky Pin",
+  "controlled demo",
+  "not open UGC",
+  "merchant dashboards",
+  "not a normal guide app",
+  "not a phone page"
+];
+
 const requiredWebModules = [
   "Spatial Route",
   "Rokid Lens",
@@ -172,6 +205,21 @@ const requiredBackupGuardTokens = [
   "sqlite-backup-latest.md"
 ];
 
+const requiredReleaseSmokeTokens = [
+  "/api/field/operator-plan",
+  "/api/field/acceptance",
+  "/api/field/target-readiness",
+  "/api/evidence/chain",
+  "controlled_previews",
+  "contributes_to_p0_acceptance",
+  "tools\\field-live-pass.js",
+  "hardware_ready_claim_allowed",
+  "ready_for_hardware",
+  "physical_acceptance_ready",
+  "hardware_a1_a2_a3_ready",
+  "field_acceptance_ready"
+];
+
 const requiredUnityGitignoreTokens = [
   "Library/",
   "Temp/",
@@ -225,6 +273,8 @@ async function main() {
   const hardwareConnectedChecks = includesAll(sources.goal, requiredHardwareConnectedTokens);
   const teammateDocsBusChecks = includesAll(`${sources.goal}\n${sources.teammateDocsBus}`, requiredTeammateDocsBusTokens);
   const combinedDirectionChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldAcceptanceCheck}\n${sources.apiRouter}\n${sources.deviceRuntime}`, requiredCombinedDirection);
+  const operatorPlanChecks = includesAll(`${sources.goal}\n${sources.contract}\n${sources.webJs}\n${sources.fieldOperatorPlanTool}`, requiredOperatorPlanTokens);
+  const demoPlanChecks = includesAll(`${sources.goal}\n${sources.demoPlan}`, requiredDemoPlanTokens);
   const webChecks = includesAll(`${sources.webHtml}\n${sources.webJs}`, requiredWebModules);
   const contractChecks = includesAll(sources.contract, requiredContractTokens);
   const unityChecks = includesAll(sources.unityController, requiredUnityTokens);
@@ -238,6 +288,7 @@ async function main() {
     sources.packageServerRelease,
     sources.packageAudit
   ].join("\n"), requiredBackupGuardTokens);
+  const releaseSmokeChecks = includesAll(sources.smokeServerRelease, requiredReleaseSmokeTokens);
   const syncChecks = includesAll(sources.gitAutoSync, [
     "git -C",
     "check:security",
@@ -250,11 +301,13 @@ async function main() {
 
   const failures = [
     ...directionChecks.filter((item) => !item.ok).map((item) => `active goal missing: ${item.needle}`),
-    ...reviewerChecks.filter((item) => !item.ok).map((item) => `Kepler reviewer rule missing: ${item.needle}`),
+    ...reviewerChecks.filter((item) => !item.ok).map((item) => `Carver reviewer rule missing: ${item.needle}`),
     ...longModuleChecks.filter((item) => !item.ok).map((item) => `hardware-independent long module missing: ${item.needle}`),
     ...hardwareConnectedChecks.filter((item) => !item.ok).map((item) => `hardware-connected phase missing: ${item.needle}`),
     ...teammateDocsBusChecks.filter((item) => !item.ok).map((item) => `teammate docs bus missing: ${item.needle}`),
     ...combinedDirectionChecks.filter((item) => !item.ok).map((item) => `mainline contract missing: ${item.needle}`),
+    ...operatorPlanChecks.filter((item) => !item.ok).map((item) => `operator plan mainline missing: ${item.needle}`),
+    ...demoPlanChecks.filter((item) => !item.ok).map((item) => `demo plan alignment missing: ${item.needle}`),
     ...webChecks.filter((item) => !item.ok).map((item) => `web module missing: ${item.needle}`),
     ...contractChecks.filter((item) => !item.ok).map((item) => `contract token missing: ${item.needle}`),
     ...unityChecks.filter((item) => !item.ok).map((item) => `unity controller token missing: ${item.needle}`),
@@ -262,6 +315,7 @@ async function main() {
     ...storageChecks.filter((item) => !item.ok).map((item) => `storage token missing: ${item.needle}`),
     ...backupChecks.filter((item) => !item.ok).map((item) => `SQLite backup token missing: ${item.needle}`),
     ...backupGuardChecks.filter((item) => !item.ok).map((item) => `SQLite backup guard missing: ${item.needle}`),
+    ...releaseSmokeChecks.filter((item) => !item.ok).map((item) => `release smoke token missing: ${item.needle}`),
     ...syncChecks.filter((item) => !item.ok).map((item) => `git auto-sync token missing: ${item.needle}`)
   ];
 
@@ -293,6 +347,9 @@ async function main() {
     hardware_connected_tokens: requiredHardwareConnectedTokens.length,
     hardware_connected_checkpoint: "station_pro_trusted_hardware_session",
     teammate_docs_bus_tokens: requiredTeammateDocsBusTokens.length,
+    operator_plan_tokens: requiredOperatorPlanTokens.length,
+    demo_plan_tokens: requiredDemoPlanTokens.length,
+    release_smoke_tokens: requiredReleaseSmokeTokens.length,
     long_modules: [
       "a1_spatial_entry_experience",
       "story_graph_mission_runtime_v2",
@@ -303,7 +360,7 @@ async function main() {
       "institution_lite_content_compiler",
       "spatial_audio_gesture_feedback_pack"
     ],
-    reviewer: "Kepler",
+    reviewer: "Carver",
     field_markers: fieldMarkers.markers.map((marker) => marker.marker_id),
     sqlite_backup_tokens: requiredBackupTokens.length
   }, null, 2));

@@ -6,9 +6,19 @@ namespace InnerWorld.Rokid.Protocol
     public sealed class InteractionRequest
     {
         public string source;
+        public string session_id;
+        public string device_id;
+        public string anchor_id;
         public string user_id;
         public string step_id;
         public string mission_state;
+        public string scene_action_id;
+        public string target_id;
+        public string endpoint_key;
+        public string state_provenance_status;
+        public bool fallback_no_hardware_claim;
+        public bool trusted_hardware_session;
+        public bool hardware_ready_claim_allowed;
     }
 
     [Serializable]
@@ -57,11 +67,20 @@ namespace InnerWorld.Rokid.Protocol
     public sealed class ServiceActionRequest
     {
         public string source;
+        public string session_id;
+        public string device_id;
         public string user_id;
         public string action_id;
         public string label;
         public string anchor_id;
         public string step_id;
+        public string scene_action_id;
+        public string target_id;
+        public string endpoint_key;
+        public string state_provenance_status;
+        public bool fallback_no_hardware_claim;
+        public bool trusted_hardware_session;
+        public bool hardware_ready_claim_allowed;
     }
 
     [Serializable]
@@ -103,10 +122,20 @@ namespace InnerWorld.Rokid.Protocol
     [Serializable]
     public sealed class WriteBackRequest
     {
+        public string source;
+        public string session_id;
+        public string device_id;
         public string user_id;
         public string anchor_id;
         public string title;
         public string text;
+        public string scene_action_id;
+        public string target_id;
+        public string endpoint_key;
+        public string state_provenance_status;
+        public bool fallback_no_hardware_claim;
+        public bool trusted_hardware_session;
+        public bool hardware_ready_claim_allowed;
     }
 
     [Serializable]
@@ -150,6 +179,7 @@ namespace InnerWorld.Rokid.Protocol
         public DeviceBatteryStatus battery;
         public DeviceNetworkStatus network;
         public DevicePosePayload pose;
+        public DeviceInputFramePayload input_frame;
         public string active_anchor;
         public string current_user;
         public RokidSdkBindingStatusPayload sdk_binding_status;
@@ -196,6 +226,36 @@ namespace InnerWorld.Rokid.Protocol
         public float y;
         public float z;
         public float w;
+    }
+
+    [Serializable]
+    public sealed class DeviceInputFramePayload
+    {
+        public string schema;
+        public string source;
+        public long sequence;
+        public float timestamp_seconds;
+        public float delta_time_seconds;
+        public string command;
+        public bool gaze_select_down;
+        public bool gaze_select_held;
+        public bool confirm_down;
+        public bool confirm_held;
+        public bool back_down;
+        public bool back_held;
+        public bool anchor_hit;
+        public string focused_anchor_id;
+        public string focused_anchor_label;
+        public float hit_distance_meters;
+        public DeviceVector3 hit_point;
+        public DeviceVector3 ray_origin;
+        public DeviceVector3 ray_direction;
+        public bool pointable_ui_focus;
+        public bool fallback_input_visible;
+        public bool operator_assist_input;
+        public string input_blocker;
+        public string input_acceptance_mode;
+        public bool voice_text_present;
     }
 
     [Serializable]
